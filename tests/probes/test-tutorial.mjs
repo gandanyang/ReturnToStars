@@ -186,7 +186,7 @@ async function run() {
     });
     result('6a. 点击「使用」钥匙', keyClicked);
     await sleep(500);
-    await waitAndSkipDialogue(page, 10); // GATE_OPENED_DIALOGUE 10 行（v0.8+E-07 现实+情感动机 + 先开三块地）
+    await waitAndSkipDialogue(page, 11); // GATE_OPENED_DIALOGUE 11 行（v0.8+E-07 现实+情感动机 + 先开三块地 + 锄地情感句 v0.10.2）
 
     info = await sceneInfo(page);
     const afterKey = await page.evaluate(() => {
@@ -215,7 +215,7 @@ async function run() {
       await pressE(page);
       await sleep(400);
     }
-    await waitAndSkipDialogue(page, 3); // SOW_SEEDS_DIALOGUE 3 行（v0.7 生活化引导）
+    await waitAndSkipDialogue(page, 4); // SOW_SEEDS_DIALOGUE 4 行（v0.7 生活化引导 + 林澈播种情感句 v0.10.2）
 
     info = await sceneInfo(page);
     result('8. 锄地完成 → 播种教学', info.step === 'sow_seeds', `步骤=${info.step}`);
@@ -229,7 +229,7 @@ async function run() {
       await pressE(page);
       await sleep(400);
     }
-    await waitAndSkipDialogue(page, 7); // WATER_CROPS_DIALOGUE 7 行（E-08 金币循环意义）
+    await waitAndSkipDialogue(page, 8); // WATER_CROPS_DIALOGUE 8 行（E-08 金币循环意义 + 浇水情感句 v0.10.2）
 
     info = await sceneInfo(page);
     result('9. 播种完成 → 浇水教学', info.step === 'water_crops', `步骤=${info.step}`);

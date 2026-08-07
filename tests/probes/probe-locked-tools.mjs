@@ -121,12 +121,12 @@ async function run() {
     await setStep(page, 'get_key');
     await gotoScene(page, 'farm', { x: 400, y: 300 });
     await callScene(page, 'farm', 's => s.useManorKey()'); // 用钥匙开门 → 获得锄头 → clear_land
-    await skipDialogue(page, 10); // GATE_OPENED_DIALOGUE 10 行（E-07 叠加 + 先开三块地）
+    await skipDialogue(page, 11); // GATE_OPENED_DIALOGUE 11 行（E-07 叠加 + 先开三块地 + 锄地情感句 v0.10.2）
     for (const col of [20, 21, 22]) {
       r = await callScene(page, 'farm', `s => s.tryFarmInteractAt(${col}, 12)`);
       if (r?.error) console.log(`  [callScene error till ${col}]`, r.error);
     }
-    await skipDialogue(page, 3); // SOW_SEEDS_DIALOGUE 3 行
+    await skipDialogue(page, 4); // SOW_SEEDS_DIALOGUE 4 行（v0.10.2 +林澈播种情感句）
     await callScene(page, 'farm', 's => s.tryFarmInteractAt(20, 12)'); // 播种
     await callScene(page, 'farm', 's => s.tryFarmInteractAt(20, 12)'); // 浇水被拦
     txt = await dialogueText(page, 'farm');

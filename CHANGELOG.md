@@ -6,6 +6,30 @@
 
 ## [未发布]
 
+### 村长配音重录 · MiniMax 线上接口（2026-08-08）
+
+> 村长声线定案：MiniMax `Chinese (Mandarin)_Humorous_Elder`（搞笑大爷）· speech-2.8-turbo｜试听通过 → 已打包
+
+- **声线切换**：村长由本地 VoxCPM 克隆（Fish `628f2ae4...`）改走 MiniMax 线上 T2A v2，全量重录 32 条（主线初见 4 / 繁忙日 4 / 星之碎片 5 / 老屋 2 / 种田 7 / 茶馆委托 3 / 每日闲聊 7）
+- **工具链**：新增 `tools/gen_elder_minimax.py`（云端 API 批量 + 断点续跑 `.minimax_done`）；`gen_mainline_voice.py` T 清单 elder 段更新（elder_01 文本对齐 + 新增条目）
+- **管线**：MiniMax 生成 → loudnorm 标准化（-16 LUFS / TP -1.5 / LRA 11）→ ogg（44.1kHz stereo）→ 接入 VoiceBank
+- **验证**：`check_voicebank_match` 村长 100% 匹配；voicebank elder 32 条 ↔ ogg 文件 100% 存在；`tsc --noEmit` 通过
+- **文档**：配音选角表 v0.1 村长声线定案（旧 VoxCPM 标记废弃勿恢复）
+- **产物**：release APK 28.3MB（`dist_apk/latest-release.apk`），待装机复验真机听感
+
+### 美术资产管线升级（2026-08-07~08）
+
+> 6 场景 tileset 全量走 GPT+normalizer 统一管线，跨场景色彩锚点对齐
+
+- **GPT Pixel Asset Pipeline 固化**：`tools/gpt_tileset_normalizer.py` v1.1（网格清洗→量化→调色板锁定→无缝→16px）+ `tools/star_island_palette.json` 锚点调色板（v1.2 +town 建筑锚点 / v1.3 +mine 矿洞锚点）+ `tools/prompts/{farm,town,forest,house,mine,gate}.txt`
+- **tileset 升级 5/6 场景**（均 256×16，自动 picks 每段扫 64 块选主色最接近锚点）：
+  - farm v3.2（柔化降饱和、雨天遮罩 BUG-050、花园杂色保留、水塘回退亮蓝）
+  - town v1 / forest v1 / house v1（house+elder_house 共用）/ mine v1
+- **贯穿暗线修复**：`tools/fix_tile_piercing_lines.py`——GPT 网格线残留在底色 tile 内部导致平铺黑线网格，4 tileset 全修
+- **场景对象美术**：后山老树升级 + 改名"守望古树"（原"爷爷种的树"）；house 床铺可视化（鲜红被子 + 💤 标记）
+- **文档**：`docs/reports/美术资产台账.md`（可追溯 + 复现命令）、`docs/reports/开发进度总结-2026-08-08.md`
+- ⚠️ 待 commit；剩 gate tileset 未升级
+
 ### v0.10 Alpha 完善（2026-08-06）
 
 > 安卓端体验优化 + 音频系统改造

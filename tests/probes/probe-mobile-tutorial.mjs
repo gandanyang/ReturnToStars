@@ -115,7 +115,7 @@ async function run() {
       if (btn) btn.click();
     });
     await sleep(1200);
-    await skipDialogue(page, 10); // GATE_OPENED_DIALOGUE 10 行（v0.8+E-07 + 先开三块地）
+    await skipDialogue(page, 11); // GATE_OPENED_DIALOGUE 11 行（v0.8+E-07 + 先开三块地 + 锄地情感句 v0.10.2）
     info = await sceneInfo(page);
     console.log(`5. 使用钥匙开门 → 步骤=${info.step}${info.step === 'clear_land' ? ' ✅' : ' ❌'}`);
 
@@ -131,7 +131,7 @@ async function run() {
       await teleport(page, 'farm', x, y, 'up');
       await pressInteract(page);
     }
-    await skipDialogue(page, 3); // SOW_SEEDS_DIALOGUE 3 行（v0.7）
+    await skipDialogue(page, 4); // SOW_SEEDS_DIALOGUE 4 行（v0.7 + 林澈播种情感句 v0.10.2）
     info = await sceneInfo(page);
     console.log(`7. 锄地×3 → 播种教学 → 步骤=${info.step}${info.step === 'sow_seeds' ? ' ✅' : ' ❌'}`);
 
@@ -140,7 +140,7 @@ async function run() {
       await teleport(page, 'farm', x, y, 'up');
       await pressInteract(page);
     }
-    await skipDialogue(page, 7); // WATER_CROPS_DIALOGUE 7 行（E-08）
+    await skipDialogue(page, 8); // WATER_CROPS_DIALOGUE 8 行（E-08 + 浇水情感句 v0.10.2）
     info = await sceneInfo(page);
     console.log(`8. 播种×3 → 浇水教学 → 步骤=${info.step}${info.step === 'water_crops' ? ' ✅' : ' ❌'}`);
 

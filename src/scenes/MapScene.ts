@@ -85,7 +85,7 @@ import {
   COLORS,
   XIYA_DIALOGUE, GATE_OPENED_DIALOGUE, SOW_SEEDS_DIALOGUE,
   WATER_CROPS_DIALOGUE, EVENING_DIALOGUE, TOWN_INTRO_DIALOGUE,
-  FOREST_SHARD_DIALOGUE, DEMO_ENDING_DIALOGUE, DEMO_ENDING_BRANCHES, DEMO_ENDING_FINALE,
+  FOREST_SHARD_DIALOGUE, FOREST_LOOKOUT_DIALOGUE, DEMO_ENDING_DIALOGUE, DEMO_ENDING_BRANCHES, DEMO_ENDING_FINALE,
   WOODCUT_TIP_DIALOGUE, MINE_TIP_DIALOGUE, XIYA_DAWN_DIALOGUE, XIYA_EVENING_DIALOGUE, XIYA_EVENING_OBS_DIALOGUE, getGrandpaNote,
   FIRST_MORNING_RESPONSE_DIALOGUE,
   GARDEN_RESTORED_XIYA_DIALOGUE, XIYA_SMALL_THINGS_DIALOGUE,
@@ -445,6 +445,10 @@ export class MapScene extends Phaser.Scene {
   private forestFireflies: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
   private forestLeaves: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
   private forestDecor: Phaser.GameObjects.Graphics[] = [];
+  // 后山观景台（v0.10.2 第二层"先让环境说话"：废弃观景台 + 靠近一次性对白 FOREST_LOOKOUT_DIALOGUE）
+  private lookout: Phaser.GameObjects.Container | null = null;
+  private lookoutPos: { x: number; y: number } = { x: 0, y: 0 };
+  private lookoutTriggered = false; // 内存判重（持久化由 EventManager.triggerOnce('forest_lookout_first_visit') 承担）
 
   constructor(key: string) {
     super(key);
@@ -634,6 +638,8 @@ export class MapScene extends Phaser.Scene {
     // house 场景：床铺格叠加程序化绘制的床（gid9 是屋顶瓦片，玩家无法一眼认出是床）
     if (this.mapKey === 'house') {
       this.setupHouseBed();
+      // v0.10.2 老屋生活家具（L1 生活家具 + L2 生活痕迹，纯装饰零系统，见 setupHouseFurniture）
+      this.setupHouseFurniture();
     }
     let tileset = map.addTilesetImage('placeholder', 'tiles');
     if (!tileset) {
@@ -805,15 +811,19 @@ export class MapScene extends Phaser.Scene {
     albumBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.hudDom.appendChild(albumBtn);
 
-    // 任务追踪卡（原神风格：左侧竖条 + 图标 + 标题 + 当前目标）
+    // 任务追踪卡（UI 升级 v1.0：归星记录册——旧纸黄装订条 + 深夜灰纸页）
     // PC 端完整卡片；移动端紧凑单行（屏幕窄，右侧已有触屏任务按钮）
     this.hudQuestDom = document.createElement('div');
     this.hudQuestDom.id = 'quest-track-card';
     this.hudQuestDom.style.cssText =
       'position:absolute;left:8px;top:104px;pointer-events:none;' +
-      'background:rgba(16,20,34,0.72);border:1px solid rgba(255,224,130,0.35);' +
-      'border-left:3px solid #ffd700;border-radius:6px;padding:6px 10px;' +
-      'font-family:Arial,sans-serif;max-width:260px;box-shadow:0 2px 8px rgba(0,0,0,0.4);';
+      'background:radial-gradient(1px 1px at 20% 30%,rgba(216,196,154,0.4) 50%,transparent 51%),' +
+      'repeating-linear-gradient(0deg,rgba(255,255,255,0.015) 0 2px,transparent 2px 4px),' +
+      'rgba(36,41,54,0.86);' +
+      'border:1px solid rgba(216,196,154,0.4);' +
+      'border-left:3px solid #d8c49a;border-radius:8px;padding:6px 10px;' +
+      "font-family:'Noto Sans SC','Source Han Sans SC','PingFang SC','Microsoft YaHei',sans-serif;" +
+      'max-width:260px;box-shadow:inset 0 1px 4px rgba(0,0,0,0.3),0 2px 8px rgba(0,0,0,0.4);';
     this.hudDom.appendChild(this.hudQuestDom);
 
     this.updateHUD();
@@ -944,6 +954,8 @@ export class MapScene extends Phaser.Scene {
       this.setupForestRoadRestore();
       // 试玩-11 森林内容填充：氛围装饰（萤火虫/落叶/野花，零资源）
       this.setupForestAmbience();
+      // v0.10.2 第二层：废弃观景台（环境铺垫，靠近一次性触发 FOREST_LOOKOUT_DIALOGUE）
+      this.setupForestLookout();
     }
 
     // 矿洞场景：创建矿脉精灵
@@ -1118,16 +1130,16 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 带 zoom 补偿的镜头缓推（替代 cam.pan，观星夜 #29 修复）。
-   * Phaser 的 pan 内部用 getScroll：scroll = 目标 - 视口宽/2（无 zoom 因子），
-   * zoom=2 下目标点会落到画布右/下缘（画面偏左/偏上）。
-   * 这里反向补偿世界坐标，使 pan 结束后世界点 (wx, wy) 真正位于画面中心。
+   * 镜头缓推：把相机视口中心对准世界坐标 (wx, wy)。
+   * Phaser 3.80 pan 语义 = 视口中心（midPoint = scroll + width/2）最终落在 (x, y)，
+   * 动画中与结束时均不除 zoom（Pan.js: getScroll/centerOn 均 scroll = 目标 - width/2）。
+   * 无需任何 zoom 补偿——旧补偿公式 px = wx - width/2/zoom + width/2 会把中心
+   * 额外偏移 width/2*(1-1/zoom)（zoom=2, width=1299 时偏 324.75px），
+   * 观星夜演出画面整体偏向右下（#29 反推时的错误前提，2026-08-08 修复）。
    */
   private panCameraTo(wx: number, wy: number, duration: number, onComplete?: () => void): void {
     const cam = this.cameras.main;
-    const px = wx - cam.width / 2 / cam.zoom + cam.width / 2;
-    const py = wy - cam.height / 2 / cam.zoom + cam.height / 2;
-    cam.pan(px, py, duration, 'Power2', false, (_c: unknown, progress: number) => {
+    cam.pan(wx, wy, duration, 'Power2', false, (_c: unknown, progress: number) => {
       if (progress === 1) onComplete?.();
     });
   }
@@ -1345,6 +1357,9 @@ export class MapScene extends Phaser.Scene {
 
     // 后山老树交互检测
     this.checkOldTreeInteract();
+
+    // 后山观景台：靠近一次性触发环境铺垫对白
+    this.checkForestLookout();
 
     this.player.update();
 
@@ -3043,6 +3058,96 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
+   * 后山观景台（v0.10.2 第二层：环境铺垫——"先让环境说话"）
+   * 位置：森林 (20,7) 空地（星之碎片 (20,10) 上方，玩家走向碎片时先经过）。
+   * 旧木台：木板发黑、边角围栏塌了半边（与 FOREST_LOOKOUT_DIALOGUE 文案一致）。
+   * 靠近自动触发一次性对白（triggerOnce('forest_lookout_first_visit') 持久化判重），不改变碎片流程。
+   */
+  private setupForestLookout(): void {
+    const T = TILE_SIZE;
+    const cx = 20 * T + T / 2;
+    const cy = 7 * T + T / 2;
+    this.lookoutPos = { x: cx, y: cy };
+
+    const container = this.add.container(cx, cy);
+
+    // ── 地面阴影（更立体） ──
+    const shadow = this.add.graphics();
+    shadow.fillStyle(0x000000, 0.16);
+    shadow.fillEllipse(0, 16, 66, 12);
+    container.add(shadow);
+
+    // ── 木台（发黑的旧木板 + 缝隙） ──
+    const deck = this.add.graphics();
+    deck.fillStyle(0x3a2c1c, 1);
+    deck.fillRoundedRect(-26, 4, 52, 10, 2);
+    deck.fillStyle(0x241a0e, 0.8);
+    deck.fillRoundedRect(-26, 10, 52, 4, 1);
+    deck.fillStyle(0x1a1208, 0.9);
+    for (let i = -3; i <= 3; i++) deck.fillRect(i * 8 - 1, 5, 1.5, 8);
+    container.add(deck);
+
+    // ── 后侧两根立柱 + 顶横梁（门框感） ──
+    const posts = this.add.graphics();
+    posts.fillStyle(0x2e2014, 1);
+    posts.fillRect(-24, -20, 5, 26);
+    posts.fillRect(19, -20, 5, 26);
+    posts.fillStyle(0x241a0e, 1);
+    posts.fillRect(-25, -23, 51, 4);
+    container.add(posts);
+
+    // ── 前侧围栏：左边保留两格横杆，右边塌了半边（横杆一端垂下） ──
+    const rail = this.add.graphics();
+    rail.fillStyle(0x2e2014, 0.95);
+    rail.fillRect(-24, -6, 18, 3);
+    rail.fillRect(-22, 0, 14, 3);
+    // 塌掉的右半：横杆从右柱位置向下歪垂
+    rail.lineStyle(3, 0x2e2014, 0.9);
+    rail.lineBetween(12, -6, 22, 10);
+    rail.fillStyle(0x1a1208, 0.8);
+    rail.fillRect(20, 10, 5, 4);
+    container.add(rail);
+
+    // ── 苔藓（久无人迹） ──
+    const moss = this.add.graphics();
+    moss.fillStyle(0x4a6a28, 0.75);
+    moss.fillCircle(-18, 4, 2.2);
+    moss.fillCircle(6, 3, 2.6);
+    moss.fillCircle(22, -18, 2);
+    moss.fillCircle(-24, -18, 2.2);
+    container.add(moss);
+
+    container.setDepth(5);
+    this.lookout = container;
+  }
+
+  /** 观景台靠近检测（update 每帧）：玩家进入范围 → 一次性播放 FOREST_LOOKOUT_DIALOGUE */
+  private checkForestLookout(): void {
+    if (!this.lookout || this.mapKey !== 'forest') return;
+    if (this.lookoutTriggered) return;
+    if (hasTriggered('forest_lookout_first_visit')) {
+      this.lookoutTriggered = true; // 已触发过（含读档恢复），不再检测
+      return;
+    }
+    const dx = this.player.x - this.lookoutPos.x;
+    const dy = this.player.y - this.lookoutPos.y;
+    if (dx * dx + dy * dy > 70 * 70) return;
+    if (this.storyDialogue?.isOpen()) return;
+    this.lookoutTriggered = true;
+    triggerOnce('forest_lookout_first_visit', () => {
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      this.storyDialogue.play(FOREST_LOOKOUT_DIALOGUE, () => {
+        this.updateHUD();
+        save({
+          x: this.player.x, y: this.player.y,
+          scene: this.mapKey, facing: this.player.facing,
+          dailyQuest: getDailyQuestSaveData(),
+        } as any);
+      });
+    });
+  }
+
+  /**
    * 创建农场树木精灵
    * 新游戏无存档时初始化树木状态；有存档时 FarmState 已由 apply() 恢复
    * 树木贴图 32x32，缩放 0.5 与 16x16 瓦片协调；附带静态碰撞体
@@ -3713,7 +3818,7 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 刷新任务追踪卡 HUD（左侧，原神风格）
+   * 刷新任务追踪卡 HUD（左侧，UI v1.0 归星记录册风格）
    * 标题：主线任务·星之碎片（教程期=教程引导）；目标：getQuestObjective()
    * PC 端完整卡片；移动端紧凑单行
    */
@@ -3731,17 +3836,17 @@ export class MapScene extends Phaser.Scene {
       ? (isTutorialDone() ? '主线任务 · 星之碎片' : '新手引导')
       : (isTutorialDone() ? '✦ 星之碎片' : '✦ 引导');
     const stateColor = pc
-      ? (state === 'completed' ? '#7ecb8e' : state === 'collected' ? '#8fd6ff' : state === 'accepted' ? '#ffd700' : '#ffd700')
-      : '#ffd700';
+      ? (state === 'completed' ? '#a5c08e' : state === 'collected' ? '#8fb0d0' : state === 'accepted' ? '#d8c49a' : '#d8c49a')
+      : '#d8c49a';
     this.hudQuestDom.style.borderLeftColor = stateColor;
     // 目标文本中插入目标图标（金币/物品 emoji 已含 HTML，直接 innerHTML）
     this.hudQuestDom.innerHTML = pc
       ? `<div style="display:flex;align-items:center;gap:6px;">
-           <span style="font-size:13px;color:#ffd700;text-shadow:1px 1px 0 #000;">✦</span>
-           <span style="font-size:13px;font-weight:bold;color:#ffe082;text-shadow:1px 1px 0 #000;white-space:nowrap;">${title}</span>
+           <span style="font-size:13px;color:#d8c49a;text-shadow:1px 1px 0 #000;">✦</span>
+           <span style="font-size:13px;font-weight:bold;color:#e5d9bd;text-shadow:1px 1px 0 #000;white-space:nowrap;">${title}</span>
          </div>
          <div style="font-size:12px;color:#e8e0d0;margin-top:2px;text-shadow:1px 1px 0 #000;line-height:1.35;">${obj}</div>`
-      : `<span style="font-size:12px;color:#ffe082;text-shadow:1px 1px 0 #000;white-space:nowrap;">✦ ${title}：${obj}</span>`;
+      : `<span style="font-size:12px;color:#e5d9bd;text-shadow:1px 1px 0 #000;white-space:nowrap;">✦ ${title}：${obj}</span>`;
   }
 
   /** 触屏背包按钮：对话/面板/切图期间不响应（对应键盘 B） */
@@ -4795,9 +4900,14 @@ export class MapScene extends Phaser.Scene {
     play('stargaze'); // 观星夜演出音效（试玩-14）
     // 显示星空（MVP：静态星野底 + 星点闪烁）
     this.setStarFieldVisible(true);
-    // 临时解除相机边界（#29）：观星点 (504,232) 靠近地图右下缘，zoom=2 视野 400x300 下
-    // clamp 上限只有 scroll=(40,-50)（相机中心最大 240,100），玩家会被推到画布右侧之外，
-    // 表现为"观星夜画面偏左、看不到玩家"。解除 bounds 后相机才能滚到观星点使其真正居中。
+    // 解除相机跟随 + 边界（#29 补丁 2026-08-08）：
+    // 1. useBounds=false：观星点 (504,232) 靠近地图右下缘，zoom=2 视野 400x300 下
+    //    clamp 上限只有 scroll=(40,-50)（相机中心最大 240,100），玩家会被推到画布右侧之外，
+    //    表现为"观星夜画面偏左、看不到玩家"。解除 bounds 后相机才能滚到观星点使其真正居中。
+    // 2. stopFollow：Phaser pan 结束后 follow 立即恢复（Camera.js: follow && !panEffect.isRunning），
+    //    每帧把相机拉回玩家——实测 1.5s 即偏 8px，17 行演出期间会彻底拖离观星点，
+    //    手机端表现为"画面中心不在屏幕正中间"。演出期间相机必须钉在观星点。
+    this.cameras.main.stopFollow();
     this.cameras.main.useBounds = false;
     // 镜头调度：缓推至观星点上空（2s，zoom 补偿见 panCameraTo，#29）
     this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 2000, () => {
@@ -4852,6 +4962,12 @@ export class MapScene extends Phaser.Scene {
               // 恢复相机边界（#29）：观星期间临时 useBounds=false，此刻玩家已回到可
               // 见区域，恢复后 follow 正常。EndingPanel 紧随其后全屏打开，无可见跳变。
               this.cameras.main.useBounds = true;
+              // 恢复相机跟随（BUG-050 修复）：cam.pan / panCameraTo 内部会自动
+              // stopFollow() 解除跟随绑定，观星夜两次 pan 后跟随失效，导致结束后
+              // 玩家移动时相机不再跟随（走到下方角色出框）。此处按初始参数重新绑定。
+              if (!this.centerSmallMap) {
+                this.cameras.main.startFollow(this.player, true, 0.1, 0.1, 0, 0);
+              }
               if (!this.endingPanel) this.endingPanel = new EndingPanel();
               save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
               this.endingPanel.open();
@@ -5000,6 +5116,159 @@ export class MapScene extends Phaser.Scene {
       strokeThickness: 3,
     }).setOrigin(0.5).setDepth(3);
     void zzz;
+  }
+
+  /**
+   * 老屋生活家具（v0.10.2 制作人拍板：L1 生活家具 + L2 生活痕迹）
+   * 原则："不是把爷爷摆出来，而是让爷爷留下来的生活自然存在"。
+   * 旧≠破：归星岛是"被时间暂停的地方"，不是"被遗弃的废墟"——用褪色/磨损，不用裂纹/倒塌。
+   * L3 私人遗物（旧课本/信件/照片）暂缓，等"整理老屋"剧情节点。
+   * 全部纯装饰 Graphics：不交互、不弹提示、不加剧情、不加存档、无碰撞（与 setupHouseBed 一致）。
+   */
+  private setupHouseFurniture(): void {
+    const T = TILE_SIZE;
+    const WOOD_DARK = 0x4a3018, WOOD_MID = 0x5a3a20, WOOD_LIGHT = 0x8a6a42;
+    const OLD_TAN = 0xb8a888, METAL = 0x8a8a84, BAMBOO = 0xc8a868, LINEN = 0xe0d8c8;
+
+    // ── L1-1 餐桌 + 2 椅（右下客厅区，贴墙避让主通道） ──
+    const tx = 14 * T, ty = 8 * T;
+    const table = this.add.graphics();
+    table.fillStyle(WOOD_DARK, 1);
+    table.fillRoundedRect(tx, ty, 4 * T, 24, 3);          // 桌面 64×24
+    table.fillStyle(WOOD_MID, 1);
+    table.fillRect(tx + 4, ty + 24, 5, 12);               // 桌腿 ×4
+    table.fillRect(tx + 4 * T - 9, ty + 24, 5, 12);
+    table.fillStyle(OLD_TAN, 0.3);
+    table.fillRect(tx + 10, ty + 9, 3 * T, 2);            // 桌面旧痕（磨损非破损）
+    table.fillRect(tx + 14, ty + 14, 2 * T, 2);
+    table.setDepth(2);
+    // 椅 A（桌左侧） / 椅 B（桌下前方）
+    const chairA = this.add.graphics();
+    chairA.fillStyle(WOOD_MID, 1);
+    chairA.fillRect(tx - 9, ty + 6, 14, 3);               // 坐面
+    chairA.fillStyle(WOOD_DARK, 0.9);
+    chairA.fillRect(tx - 9, ty + 9, 3, 10);               // 腿/靠背
+    chairA.fillRect(tx + 2, ty + 9, 3, 10);
+    chairA.setDepth(2);
+    const chairB = this.add.graphics();
+    chairB.fillStyle(WOOD_MID, 1);
+    chairB.fillRect(tx + 16, ty + 28, 14, 3);             // 坐面（桌前）
+    chairB.fillStyle(WOOD_DARK, 0.9);
+    chairB.fillRect(tx + 16, ty + 31, 3, 8);
+    chairB.fillRect(tx + 27, ty + 31, 3, 8);
+    chairB.setDepth(2);
+
+    // ── L1-2 碗柜（厨房区，灶台 gid12 右侧） ──
+    const wcx = 5 * T, wcy = 11 * T;
+    const cabinet = this.add.graphics();
+    cabinet.fillStyle(WOOD_DARK, 1);
+    cabinet.fillRoundedRect(wcx, wcy, 2 * T, 2 * T, 2);
+    cabinet.fillStyle(WOOD_MID, 0.9);
+    cabinet.fillRect(wcx + 2, wcy + 2, T - 2, 2 * T - 4); // 双开门
+    cabinet.fillRect(wcx + T + 2, wcy + 2, T - 4, 2 * T - 4);
+    cabinet.lineStyle(1, WOOD_LIGHT, 0.7);
+    cabinet.strokeRect(wcx + 2, wcy + 2, T - 2, 2 * T - 4);
+    cabinet.fillStyle(LINEN, 0.85);
+    cabinet.fillCircle(wcx + T - 8, wcy + T, 2);          // 拉手
+    cabinet.fillCircle(wcx + 2 * T - 8, wcy + T, 2);
+    cabinet.setDepth(2);
+
+    // ── L1-3 衣柜（卧室区，床右侧贴墙） ──
+    const wdx = 7 * T, wdy = 2 * T;
+    const wardrobe = this.add.graphics();
+    wardrobe.fillStyle(WOOD_DARK, 1);
+    wardrobe.fillRoundedRect(wdx, wdy, 2 * T, 2 * T, 2);
+    wardrobe.fillStyle(WOOD_MID, 0.9);
+    wardrobe.fillRect(wdx + 2, wdy + 2, T - 2, 2 * T - 4);
+    wardrobe.fillRect(wdx + T + 2, wdy + 2, T - 4, 2 * T - 4);
+    wardrobe.lineStyle(1, WOOD_LIGHT, 0.7);
+    wardrobe.strokeRect(wdx + 2, wdy + 2, T - 2, 2 * T - 4);
+    wardrobe.fillStyle(LINEN, 0.85);
+    wardrobe.fillCircle(wdx + T - 8, wdy + T, 2);
+    wardrobe.fillCircle(wdx + 2 * T - 8, wdy + T, 2);
+    wardrobe.setDepth(2);
+
+    // ── L1-4 木箱（右下角落） ──
+    const bx = 17 * T, by = 12 * T;
+    const box = this.add.graphics();
+    box.fillStyle(WOOD_MID, 1);
+    box.fillRoundedRect(bx, by, T, T, 2);
+    box.fillStyle(WOOD_DARK, 0.9);
+    box.fillRect(bx + 1, by + 4, T - 2, 2);               // 箱盖线
+    box.fillStyle(OLD_TAN, 0.4);
+    box.fillRect(bx + 4, by + 8, 3, 4);                   // 旧痕
+    box.fillStyle(METAL, 0.8);
+    box.fillRect(bx + 2, by + 2, 3, 3);                   // 铁皮角
+    box.setDepth(2);
+
+    // ── L1-5 老式收音机（客厅角落，靠右墙） ──
+    const rx = 16 * T, ry = 3 * T;
+    const radio = this.add.graphics();
+    radio.fillStyle(0x6a4a28, 1);
+    radio.fillRoundedRect(rx, ry, T, 12, 2);              // 木壳
+    radio.fillStyle(0xd8c8a8, 0.9);
+    radio.fillRoundedRect(rx + 3, ry + 3, 6, 6, 1);       // 喇叭格
+    radio.lineStyle(1, WOOD_DARK, 0.8);
+    radio.lineBetween(rx + 4, ry + 4, rx + 8, ry + 8);
+    radio.lineBetween(rx + 8, ry + 4, rx + 4, ry + 8);
+    radio.fillStyle(OLD_TAN, 1);
+    radio.fillCircle(rx + 12, ry + 6, 1.6);               // 旋钮
+    radio.setDepth(2);
+
+    // ── L1-6 水壶（灶台旁） ──
+    const kx = 12 * T, ky = 11 * T;
+    const kettle = this.add.graphics();
+    kettle.fillStyle(METAL, 1);
+    kettle.fillRoundedRect(kx + 2, ky + 6, 10, 8, 2);     // 壶身
+    kettle.fillRect(kx + 2, ky + 8, 3, 3);                // 壶嘴
+    kettle.fillStyle(0x6a6a64, 1);
+    kettle.fillRect(kx + 6, ky + 2, 2, 6);                // 提梁
+    kettle.setDepth(2);
+
+    // ── L1-7 菜篮（水壶旁，编竹） ──
+    const cx2 = 13 * T, cy2 = 12 * T;
+    const basket = this.add.graphics();
+    basket.fillStyle(BAMBOO, 1);
+    basket.fillRoundedRect(cx2, cy2, T, 10, 2);           // 篮身
+    basket.lineStyle(1, 0xa88848, 0.8);
+    basket.lineBetween(cx2 + 2, cy2 + 3, cx2 + 14, cy2 + 3);  // 编织线
+    basket.lineBetween(cx2 + 2, cy2 + 6, cx2 + 14, cy2 + 6);
+    basket.setDepth(2);
+
+    // ── L2-1 农具挂墙（左墙，锄头斜挂 + 扁担横放） ──
+    const ax = 1 * T, ay = 11 * T;
+    const tools = this.add.graphics();
+    tools.lineStyle(3, WOOD_MID, 1);
+    tools.lineBetween(ax + 2, ay + 18, ax + 14, ay + 2);  // 锄柄（斜靠）
+    tools.fillStyle(METAL, 1);
+    tools.fillRect(ax + 12, ay, 4, 6);                    // 锄头铁
+    tools.lineStyle(3, BAMBOO, 0.9);
+    tools.lineBetween(ax + 2, ay + 6, ax + 14, ay + 6);   // 扁担（横挂）
+    tools.setDepth(2);
+
+    // ── L2-2 水桶（右下角落） ──
+    const pxx = 18 * T, pyy = 12 * T;
+    const pail = this.add.graphics();
+    pail.fillStyle(METAL, 1);
+    pail.fillRoundedRect(pxx + 2, pyy + 3, 12, 10, 2);    // 桶身
+    pail.fillStyle(0x6a6a64, 1);
+    pail.fillRect(pxx + 7, pyy - 1, 2, 5);                // 提手
+    pail.fillStyle(0xb0b0a8, 0.5);
+    pail.fillEllipse(pxx + 8, pyy + 3, 10, 2.5);          // 桶口
+    pail.setDepth(2);
+
+    // ── L2-3 竹筐 + 旧瓶（左上角落，收起来的生活） ──
+    const yx = 1 * T, yy = 2 * T;
+    const crate = this.add.graphics();
+    crate.fillStyle(BAMBOO, 1);
+    crate.fillRoundedRect(yx + 2, yy + 4, 12, 10, 2);     // 竹筐
+    crate.lineStyle(1, 0xa88848, 0.8);
+    crate.lineBetween(yx + 4, yy + 6, yx + 12, yy + 6);
+    crate.fillStyle(0x7a8a5a, 0.85);
+    crate.fillRect(yx + 10, yy, 4, 8);                    // 旧瓶（绿色玻璃）
+    crate.fillStyle(OLD_TAN, 0.6);
+    crate.fillRect(yx + 11, yy - 1, 2, 2);                // 瓶口
+    crate.setDepth(2);
   }
 
   /** 玩家所在格是否在任一床铺格的相邻 1 格内（含床格本身） */
@@ -7354,8 +7623,10 @@ export class MapScene extends Phaser.Scene {
     Object.assign(toast.style, {
       position: 'fixed', bottom: '120px', left: '50%', transform: 'translateX(-50%)',
       zIndex: '560', display: 'flex', alignItems: 'center', gap: '10px',
-      background: 'rgba(20,18,12,0.95)', border: '1px solid #8a7a5a', borderRadius: '10px',
+      background: 'radial-gradient(1px 1px at 25% 25%,rgba(216,196,154,0.4) 50%,transparent 51%),rgba(36,41,54,0.95)',
+      border: '1px solid rgba(216,196,154,0.5)', borderLeft: '3px solid #d8c49a', borderRadius: '10px',
       padding: '10px 16px', color: '#e8d8c0', fontSize: '14px',
+      fontFamily: "'Noto Sans SC','Source Han Sans SC','PingFang SC','Microsoft YaHei',sans-serif",
       boxShadow: '0 4px 16px rgba(0,0,0,0.5)', pointerEvents: 'auto',
       maxWidth: '90vw', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
     });
@@ -7363,8 +7634,9 @@ export class MapScene extends Phaser.Scene {
     label.textContent = `📖 归星录新增照片《${title}》`;
     const btn = document.createElement('button');
     Object.assign(btn.style, {
-      fontSize: '13px', padding: '5px 12px', background: 'rgba(106,122,184,0.85)',
-      color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', flexShrink: '0',
+      fontSize: '13px', padding: '5px 12px', background: 'linear-gradient(180deg,#6b8fb3,#3e5f82)',
+      color: '#f5efdd', border: '1px solid rgba(216,196,154,0.4)', borderRadius: '8px', cursor: 'pointer', flexShrink: '0',
+      fontFamily: "'Noto Sans SC','Source Han Sans SC','PingFang SC','Microsoft YaHei',sans-serif",
     });
     btn.textContent = '查看';
     btn.addEventListener('click', (e) => {

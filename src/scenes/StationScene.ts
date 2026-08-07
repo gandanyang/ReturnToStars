@@ -34,8 +34,6 @@ const W = Math.max(1120, typeof window !== 'undefined' ? window.innerWidth / win
 const H = 600;
 const TILE = 16;
 
-/** 手机通知第 1 页短信播报文案（与 tools/gen_mainline_voice.py T 清单 hr_station_01 / voicebank 映射精确一致） */
-const PHONE_NOTIFY_VOICE_TEXT = '因业务流程智能化调整，您的岗位职责将进行重新分配。';
 /** 手机通知第 2 页短信播报文案（翻页后播报，每页只读第一句） */
 const PHONE_NOTIFY_PAGE2_VOICE_TEXT = '随着智能化系统升级，公司将对部分岗位进行调整。';
 
@@ -1016,10 +1014,10 @@ export class StationScene extends Phaser.Scene {
 
     requestAnimationFrame(() => { if (this.phoneOverlay) this.phoneOverlay.style.opacity = '1'; });
 
-    // 短信播报：弹窗出现即朗读第 1 页文案（豆包音色克隆 + 电话感 EQ，与 hr_station_02 同风格）。
+    // 短信播报：第 1 页不自动朗读（制作人 2026-08-08 决定：弹窗出现即响显多余，与第 2 页内容重复）；
+    // 翻页后朗读第 2 页第一句（豆包音色克隆 + 电话感 EQ，与 hr_station_02 同风格）。
     // 无手势被 autoplay 拒绝时由 VoiceBank 全局解锁兜底：玩家点击翻页（pointerdown）自动补播；
     // 翻页不打断播报（短信朗读不阻断阅读），关闭/跳过时 stop。
-    VoiceBank.play('', PHONE_NOTIFY_VOICE_TEXT);
 
     // 两页交互：第 1 页点击 → 翻页；第 2 页点击 → 关闭
     this.phoneOverlay.addEventListener('click', () => {

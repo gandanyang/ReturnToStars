@@ -16,7 +16,8 @@
         /* 背景氛围化：FIT 缩放产生的黑边区域用夜空渐变填充（与观星主题一致），
          * 避免纯色黑边突兀；PC 网页居中时外部填充同理 */
         background: radial-gradient(ellipse at 50% 20%, #1c2340 0%, #141a30 55%, #0d1122 100%);
-        font-family: sans-serif;
+        /* UI 升级 v1.0：正文思源黑体系回退栈（安卓内置 Noto Sans CJK SC = 思源黑体） */
+        font-family: 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
         /* 阻止移动端双指缩放与橡皮筋滚动 */
         touch-action: none;
         overscroll-behavior: none;

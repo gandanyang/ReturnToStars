@@ -91,7 +91,8 @@ export const GATE_OPENED_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, text: '他从来没跟我说过这些。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '有些事，要等你自己回来了，才会知道。' },
   { speaker: '', color: COLORS.system, text: '（夏雅拿出一把旧锄头。）' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '先开三块地。地要翻过，种子才肯住下。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '先开三块地。地要先翻过，才愿意接住新的种子。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '小时候觉得翻土很麻烦。现在才发现，土地一直在等有人重新照顾它。' },
   { speaker: '', color: COLORS.system, text: hint('获得物品：【旧锄头】  对着农田区域按 [E] 键锄地，清理 3 块土地。', '获得物品：【旧锄头】  对着农田区域点「交互」锄地，清理 3 块土地。') },
 ];
 
@@ -145,6 +146,7 @@ export const FIRST_HARVEST_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, text: '嗯。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '感觉怎么样？' },
   { speaker: '林澈', color: COLORS.linche, text: '比想象中重。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '看吧。它真的长出来了。有时候，土地比我们想象得更愿意回应。' },
 ];
 
 /** v0.5.3 剧情密度 E9：夏雅傍晚简单关心（v0.8 删 KPI/周报） */
@@ -170,6 +172,7 @@ export const XIYA_EVENING_OBS_DIALOGUE: DialogueLine[] = [
 /** 清理完成 → 播种（v0.7 生活化引导） */
 export const SOW_SEEDS_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '地翻好了。把萝卜种子撒下去，浇水后就会发芽。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '种下去的时候，看不到结果也没关系。很多事情，都是先有人开始，后来才慢慢有变化。' },
   { speaker: '', color: COLORS.system, text: '获得物品：【萝卜种子】×3' },
   { speaker: '', color: COLORS.system, text: hint('按 [R] 键切换到萝卜种子，然后对着锄过的土地按 [E] 播种。播种 3 块土地。', '对着锄过的土地点「交互」播种萝卜（默认种子）。播种 3 块土地。') },
 ];
@@ -178,6 +181,7 @@ export const SOW_SEEDS_DIALOGUE: DialogueLine[] = [
 export const WATER_CROPS_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '种下去，就得天天来看它。你爷爷说，庄稼最怕被忘记。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '种下去了，接下来就等它长大。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '有些东西不会马上改变，但每天照顾一点，就会慢慢回来。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '庄园还有不少地方需要修，等收成以后，可以拿去镇上的店换些钱。' },
   { speaker: '林澈', color: COLORS.linche, text: '卖掉？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯。留下需要的，换成需要的东西，这里才能慢慢恢复起来。' },
@@ -237,15 +241,20 @@ export const ELDER_BUSY_SHORT_DIALOGUE: DialogueLine[] = [
   { speaker: '村长', color: COLORS.elder, text: '这几天镇上忙着修缮。你先在农场安顿，明天来镇长家找我详谈你爷爷的事。' },
 ];
 
-/** 交付星之碎片（第一章完成） */
+/** 交付星之碎片（第一章完成）
+ *  v0.10.1（2026-08-08 制作人方向）：弱化"解释设定"，强化"老人经验 + 情感收尾"——
+ *  碎片不是旧答案（等着被发现的）+ 归乡的意义（终于又有人走到这里来）。 */
 export const SHARD_DELIVER_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, text: '镇长，星之碎片……我拿到了。' },
   { speaker: '', color: COLORS.system, text: '（林澈摊开手掌，一枚泛着幽蓝光芒的碎片静静躺在掌心。）' },
   { speaker: '村长', color: COLORS.elder, text: '这光泽……没错，就是星之碎片。你爷爷当年捡到第一片的时候，也是这样的光。' },
-  { speaker: '村长', color: COLORS.elder, text: '他跟我说过，这座岛上的碎片，只有真正"想留下来"的人才能拿起来。' },
-  { speaker: '村长', color: COLORS.elder, text: '你能把它带回来，说明这座岛……已经认你了。' },
+  { speaker: '村长', color: COLORS.elder, text: '林远山以前提过，岛上有些东西，不是留下来的，是等着被发现的。' },
+  { speaker: '村长', color: COLORS.elder, text: '他还说，这座岛上的碎片，只有真正"想留下来"的人才能拿起来。' },
+  { speaker: '村长', color: COLORS.elder, text: '你能把它带回来，说明这一次，是你自己选择了回来。' },
   { speaker: '林澈', color: COLORS.linche, text: '……我其实没做什么。它就在那儿，我只是走过去拿起来而已。' },
-  { speaker: '村长', color: COLORS.elder, text: '（笑）那就够了。有时候，不是人找到东西，是东西找到人。' },
+  { speaker: '村长', color: COLORS.elder, text: '（笑）那就够了。你愿意走过去，它就愿意回应你。' },
+  { speaker: '村长', color: COLORS.elder, text: '不过，比起它是什么，我更在意一件事——' },
+  { speaker: '村长', color: COLORS.elder, text: '这么多年过去，终于又有人走到这里来了。' },
   { speaker: '村长', color: COLORS.elder, text: '你爷爷以前啊，总喜欢在晚上去农田后面的地方坐一会儿。他说，那里的星星很亮。' },
   { speaker: '', color: COLORS.system, text: '夜晚，也许可以去看看爷爷曾经看过的天空。' },
   { speaker: '', color: COLORS.system, text: '主线任务完成：星之碎片（1/…）。' },
@@ -255,17 +264,36 @@ export const SHARD_DELIVER_DIALOGUE: DialogueLine[] = [
 
 // ============ 第一章：森林碎片（程序员能力展示） ============
 
-/** 森林采集对话（首次交互播放，结束后自动采集） */
+/** 后山观景台：环境铺垫对白（一次性，靠近观景台触发；v0.10.1 第二层——"先让环境说话"）
+ *  作用：告诉玩家归星岛过去不是"神秘"，而是"有人生活过"。
+ *  世界观适配：原建议"看看海"→ 星空意象（与观星夜/爷爷看天闭环）。 */
+export const FOREST_LOOKOUT_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（林间空地上，立着一座旧木台。木板已经发黑，边角的围栏塌了半边。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '……这里以前有个观景台。' },
+  { speaker: '林澈', color: COLORS.linche, text: '看风景用的？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '不算。大家只是喜欢坐在这里，看看星星。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '（抬头看了看树影间的天空）……爷爷也常来这里吗。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '嗯。他说这里的星星，比别处亮。' },
+];
+
+/** 森林采集对话（首次交互播放，结束后自动采集）
+ *  v0.10.1（2026-08-08 制作人方向）：碎片发现从"任务道具"升级为"林澈重新认识归星岛"的事件——
+ *  环境铺垫（这里曾有人生活）→ 碎片是"新变化"（夏雅也从没见过）→ 林澈情感反应（归来者视角）。 */
 export const FOREST_SHARD_DIALOGUE: DialogueLine[] = [
-  { speaker: '', color: COLORS.system, text: '（后山深处，一块泛着幽蓝光芒的碎片静静躺在树根旁。）' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '我们试过很多办法，可它一直没有反应。' },
+  { speaker: '', color: COLORS.system, text: '（后山的小路尽头，是一片安静的空地。石阶上覆着青苔，像是很久没有人走过了。）' },
+  { speaker: '', color: COLORS.system, text: '（一棵老树旁，一块泛着幽蓝光芒的碎片静静躺在树根之间。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '……这个，我以前从没见过。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '在岛上住了这么久，也没听人提过后山有这样的东西。' },
+  { speaker: '林澈', color: COLORS.linche, text: '（走近蹲下）……它一直在这里吗？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '不知道。也许，是这几天才出现的。' },
   { speaker: '林澈', color: COLORS.linche, text: '不是没有反应。' },
   { speaker: '林澈', color: COLORS.linche, text: '更像一个长期没有维护的系统。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '什么？' },
   { speaker: '林澈', color: COLORS.linche, text: '它在等待一个条件。没有回应，是因为条件还没满足。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '……你又在说奇怪的话了。' },
   { speaker: '林澈', color: COLORS.linche, text: '职业习惯。' },
-  { speaker: '', color: COLORS.girl, text: '……它沉睡太久了。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '（抬头看了看这座岛）我以为回来以后，只会看到一座快要消失的岛。' },
+  { speaker: '', color: COLORS.girl, text: '……它已经很久没有这样亮过了。' },
 ];
 
 // ============ 引导对话：砍树 + 挖矿 ============

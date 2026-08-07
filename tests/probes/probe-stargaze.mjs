@@ -176,6 +176,7 @@ async function run() {
 
     await page.evaluate(() => {
       window.debug.setStoryStep('done');
+      window.debug.nextDay(); // f7：第一天村长「暂时有事」不委托 → 推进到 Day 2 才能接任务
       window.debug.setTime(10, 0);
     });
 
@@ -195,14 +196,17 @@ async function run() {
     // ---------- 森林采集（程序员能力展示对话 → 自动采集） ----------
     await gotoScene(page, 'forest', { x: 328, y: 200 });
     await diag(page, 'forest-in');
+    // v0.10.2 观景台：碎片上方 (328,120) 靠近自动触发一次性环境铺垫对白，先走完再接近碎片
+    await teleport(page, 'forest', 328, 136, 'up');
+    await waitAndSkipDialogue(page, 6); // FOREST_LOOKOUT_DIALOGUE 6 行
     await teleport(page, 'forest', 328, 184, 'up'); // 碎片 (328,168)
     await pressE(page);
     await diag(page, 'forest-after-e');
-    await advanceN(page, 3); // 精确推进 3 行，停在"更像一个长期没有维护的系统"
+    await advanceN(page, 7); // v0.10.1 台词扩写后"更像一个长期没有维护的系统"为第 8 行（原第 4 行）
     await sleep(900); // 等待该行打字机播完
     const forestText = await dialogueText(page);
     result('森林对话：程序员能力展示', forestText.includes('更像一个长期没有维护的系统'), forestText.substring(0, 40));
-    await skipDialogue(page, 6); // FOREST_SHARD_DIALOGUE 9 行，剩 6 行 + 关闭 → 自动采集
+    await skipDialogue(page, 7); // FOREST_SHARD_DIALOGUE 14 行（v0.10.1 扩写），剩 7 行 + 关闭 → 自动采集
 
     // 采集后播放童年记忆闪回 overlay（9bf2ad8）：推进直到关闭，否则 collectShard 回调不触发
     await advanceFlashback(page);
@@ -214,7 +218,7 @@ async function run() {
     await teleport(page, 'town', 216, 184, 'up');
     await pressE(page);
     await diag(page, 'town2-after-e');
-    await waitAndSkipDialogue(page, 10); // SHARD_DELIVER_DIALOGUE 10 行（村长爷爷观星引导） → completed
+    await waitAndSkipDialogue(page, 20); // 交付=SHARD_DELIVER(13,v0.10.1扩写) + ELDER_WHY_FARM(7,T2) → completed
 
     // ---------- 夜晚 → 农场观星点 ----------
     await page.evaluate(() => window.debug.setTime(21, 0));

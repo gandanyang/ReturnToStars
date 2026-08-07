@@ -201,6 +201,7 @@ async function run() {
     await skipDialogue(page, 9); // 车站对白 9 行
     await page.evaluate(() => {
       window.debug.setStoryStep('done');
+      window.debug.nextDay(); // f7：第一天村长「暂时有事」不委托 → Day 2 才能接任务（与 probe-stargaze 同步）
       window.debug.setTime(10, 0);
     });
     console.log('  序章已快进，storyStep=done');
@@ -223,6 +224,9 @@ async function run() {
     console.log('\n--- 节点 3: 森林采集 ---');
     await gotoScene(page, 'forest', { x: 328, y: 200 });
     await shot(page, 'forest-arrive');
+    // v0.10.2 观景台：碎片上方 (328,120) 靠近自动触发一次性环境铺垫对白，先走完再接近碎片
+    await teleport(page, 'forest', 328, 136, 'up');
+    await walkDialogue(page, 'lookout');
     await teleport(page, 'forest', 328, 184, 'up');
     await pressE(page);
     await walkDialogue(page, 'forest-shard');
