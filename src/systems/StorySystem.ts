@@ -57,17 +57,20 @@ function hint(pc: string, mob: string): string {
 
 // ============ 对话数据 ============
 
-/** 车站开场（v0.7 程序员克制版） */
+/** 车站开场（v0.10 收口：压缩独白 + 目的地锚 + 出发前主动选择）
+ *  P0-3（2026-08-08 制作人拍板）：独白压到核心 4 句（五年/换个环境/爷爷说/自己选），
+ *  保留 station_01~04 配音匹配；删 2 个冗余旁白 + 末尾移动 hint（由 showMoveHint 承担）；
+ *  目的地锚「爷爷把这里留给了他」+ 出发前选择「现在就走吗？」/「再看看这里。」（选项行由
+ *  StationScene.onChoice 收尾，不影响流程/存档/step）。 */
 export const STATION_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（手机屏幕还亮着。HR 的话停在最后一句：）' },
   { speaker: '', color: COLORS.system, text: '「林先生，根据评估，你完全可以加入智能生态部门。」' },
-  { speaker: '', color: COLORS.system, text: '（收起手机。）' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '五年了。' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '……换个环境，也许也不错。' },
-  { speaker: '', color: COLORS.system, text: '（抬头，远处晨雾里的老院子。）' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '爷爷说，如果不知道往哪走，就回来看看。' },
-  { speaker: '林澈', color: COLORS.linche, text: '至少这次，是我自己选的离开。' },
-  { speaker: '', color: COLORS.system, text: hint('使用 [W/A/S/D] 或方向键控制林澈移动。前往星黎庄园。', '使用屏幕左下方摇杆控制林澈移动。前往星黎庄园。') },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '至少这次，是我自己选的离开。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '……爷爷把这里留给了我。' },
+  { speaker: '', color: COLORS.system, text: '', options: ['现在就走吗？', '再看看这里。'] },
 ];
 
 /** 初遇夏雅（v0.7 减少等待感） */

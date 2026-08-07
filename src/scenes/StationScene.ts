@@ -17,6 +17,7 @@ import { TouchControls } from '../systems/TouchControls';
 import { StoryDialogue } from '../ui/StoryDialogue';
 import {
   STATION_DIALOGUE,
+  COLORS,
   advanceStory,
   getStoryStep,
   setStoryStep,
@@ -34,9 +35,6 @@ const W = Math.max(1120, typeof window !== 'undefined' ? window.innerWidth / win
 const H = 600;
 const TILE = 16;
 
-/** 手机通知第 2 页短信播报文案（翻页后播报，每页只读第一句） */
-const PHONE_NOTIFY_PAGE2_VOICE_TEXT = '随着智能化系统升级，公司将对部分岗位进行调整。';
-
 export class StationScene extends Phaser.Scene {
   private player!: Player;
   private inputManager!: InputManager;
@@ -47,6 +45,7 @@ export class StationScene extends Phaser.Scene {
   private canMove = false;
   private mistParticles: Phaser.GameObjects.Rectangle[] = [];
   private introSkipped = false;
+  private stationPrologueDone = false; // P0-3：序章收尾幂等（选择/兜底只推进一次）
   private trainInterval: ReturnType<typeof setInterval> | null = null;
   private interactHintEl: HTMLDivElement | null = null;
   private nearestInteractable: { x: number; y: number; text: string } | null = null;
@@ -942,7 +941,10 @@ export class StationScene extends Phaser.Scene {
     });
   }
 
-  // ============ 手机通知（v0.7 两页） ============
+// ============ 手机通知（P0-3 合并一页，2026-08-08） ============
+
+  /** 手机通知播报文本（与 HR 男声系统音 play；关闭时播放一次，音色替原第2页段） */
+  private static readonly PHONE_NOTIFY_VOICE_TEXT = '林先生，随着公司业务流程优化，您开发的成果已列入智能系统服务。';
 
   private showPhoneNotification(onClose: () => void): void {
     this.phoneOverlay = document.createElement('div');
@@ -959,78 +961,36 @@ export class StationScene extends Phaser.Scene {
       opacity: '0', transition: 'opacity 0.8s',
     });
 
-    // === 第 1 页：裁员 + 中性感谢 ===
-    const page1 = document.createElement('div');
-
-    const title1 = document.createElement('div');
-    Object.assign(title1.style, { color: '#4a9eff', fontSize: '12px', marginBottom: '8px' });
-    title1.textContent = '人事通知';
+    // P0-3：两页合并为一页——只留「事实 + 结果」，不再提供「职业转换选择」（选项会增加"可回退"暗示，
+    // 冲淡主角已独自选择回岛的决意）；短信播报即首句，点击关闭后进入独白。
+    const title = document.createElement('div');
+    Object.assign(title.style, { color: '#4a9eff', fontSize: '12px', marginBottom: '8px' });
+    title.textContent = '人事通知';
 
     const msg1 = document.createElement('div');
     Object.assign(msg1.style, { color: '#7eb8ff', fontSize: '15px', lineHeight: '1.6' });
     msg1.textContent = '因业务流程智能化调整，您的岗位职责将进行重新分配。';
 
-    const msg1b = document.createElement('div');
-    Object.assign(msg1b.style, { color: '#7eb8ff', fontSize: '15px', lineHeight: '1.6', marginTop: '8px' });
-    msg1b.textContent = '您参与开发的相关成果，将继续服务于智能化系统升级。';
-
-    const hint1 = document.createElement('div');
-    Object.assign(hint1.style, { color: '#556', fontSize: '11px', marginTop: '14px', textAlign: 'center' });
-    hint1.textContent = '（点击翻页）';
-
-    page1.appendChild(title1);
-    page1.appendChild(msg1);
-    page1.appendChild(msg1b);
-    page1.appendChild(hint1);
-
-    // === 第 2 页：选择权 ===
-    const page2 = document.createElement('div');
-    page2.style.display = 'none';
-
-    const title2 = document.createElement('div');
-    Object.assign(title2.style, { color: '#4a9eff', fontSize: '12px', marginBottom: '8px' });
-    title2.textContent = '人事通知 · 职业转换支持计划';
-
     const msg2 = document.createElement('div');
-    Object.assign(msg2.style, { color: '#7eb8ff', fontSize: '14px', lineHeight: '1.7' });
-    msg2.textContent =
-      '随着智能化系统升级，公司将对部分岗位进行调整。\n\n' +
-      '根据员工意愿，您可以选择：\n\n' +
-      '1. 转入 AI 协作相关岗位（智能生态部门），继续参与公司业务\n' +
-      '2. 接受职业转换支持计划（含离职补偿），自行安排后续\n\n' +
-      '请您于 7 个工作日内回复意向。';
+    Object.assign(msg2.style, { color: '#7eb8ff', fontSize: '13px', lineHeight: '1.6', marginTop: '8px' });
+    msg2.textContent = '您参与开发的相关成果，将继续服务于智能化系统升级。';
 
-    const hint2 = document.createElement('div');
-    Object.assign(hint2.style, { color: '#556', fontSize: '11px', marginTop: '14px', textAlign: 'center' });
-    hint2.textContent = '（点击关闭）';
+    const hintEl = document.createElement('div');
+    Object.assign(hintEl.style, { color: '#556', fontSize: '11px', marginTop: '14px', textAlign: 'center' });
+    hintEl.textContent = '（点击关闭）';
 
-    page2.appendChild(title2);
-    page2.appendChild(msg2);
-    page2.appendChild(hint2);
-
-    this.phoneOverlay.appendChild(page1);
-    this.phoneOverlay.appendChild(page2);
+    this.phoneOverlay.appendChild(title);
+    this.phoneOverlay.appendChild(msg1);
+    this.phoneOverlay.appendChild(msg2);
+    this.phoneOverlay.appendChild(hintEl);
     document.body.appendChild(this.phoneOverlay);
 
     requestAnimationFrame(() => { if (this.phoneOverlay) this.phoneOverlay.style.opacity = '1'; });
 
-    // 短信播报：第 1 页不自动朗读（制作人 2026-08-08 决定：弹窗出现即响显多余，与第 2 页内容重复）；
-    // 翻页后朗读第 2 页第一句（豆包音色克隆 + 电话感 EQ，与 hr_station_02 同风格）。
-    // 无手势被 autoplay 拒绝时由 VoiceBank 全局解锁兜底：玩家点击翻页（pointerdown）自动补播；
-    // 翻页不打断播报（短信朗读不阻断阅读），关闭/跳过时 stop。
-
-    // 两页交互：第 1 页点击 → 翻页；第 2 页点击 → 关闭
+    // 短信播报：点击关闭时播放一句系统音（男声电子；VoiceBank 手势解锁兜底），不影响后续对话。
     this.phoneOverlay.addEventListener('click', () => {
       if (!this.phoneOverlay) return;
-      if (page1.style.display !== 'none') {
-        // 翻到第 2 页（并播报第 2 页第一句；无手势被拒时由 VoiceBank 手势解锁兜底补播）
-        page1.style.display = 'none';
-        page2.style.display = 'block';
-        VoiceBank.play('', PHONE_NOTIFY_PAGE2_VOICE_TEXT);
-        return;
-      }
-      // 第 2 页点击 → 关闭
-      VoiceBank.stop();
+      VoiceBank.play('', StationScene.PHONE_NOTIFY_VOICE_TEXT);
       this.phoneOverlay.style.opacity = '0';
       setTimeout(() => {
         if (this.phoneOverlay) {
@@ -1038,19 +998,37 @@ export class StationScene extends Phaser.Scene {
           this.phoneOverlay = null as any;
         }
         onClose();
-      }, 400);
+}, 400);
     });
   }
 
   // ============ 对话 ============
 
   private playStationDialogue(): void {
+    // P0-3：STATION_DIALOGUE 以「现在就走吗？/再看看这里。」选项行收尾（2026-08-08 制作人拍板），
+    // 选项行必须选择，不触发 onComplete（advance 在 options 前 return），流程推进放在 onChoice 收尾。
+    // 完整走完（跳过开场→对话）也是同样状态，两个选项不改变主线（只影响旅前一刻的小情绪）。
     this.storyDialogue.play(STATION_DIALOGUE, () => {
-      advanceStory(); // → station_move
-      this.canMove = true;
-      this.hideSkipButton(); // P2：剧情对话结束后隐藏跳过按钮
-      this.showMoveHint();
+      this.finishStationPrologue();
+    }, (index: number) => {
+      // 选择后先收尾（推进 step、可移动），再放一句轻台收尾（短句，播完即关，不二次收尾）。
+      this.finishStationPrologue();
+      if (index === 0) {
+        this.storyDialogue.play([{ speaker: '林澈', color: COLORS.linche, inner: true, text: '……走吧。' }]);
+      } else {
+        this.storyDialogue.play([{ speaker: '林澈', color: COLORS.linche, inner: true, text: '……再看一眼也没关系。' }]);
+      }
     });
+  }
+
+  /** 收尾：幂等，推进剧情再进入可移动 */
+  private finishStationPrologue(): void {
+    if (this.stationPrologueDone) return; // 幂等
+    this.stationPrologueDone = true;
+    advanceStory(); // → station_move
+    this.canMove = true;
+    this.hideSkipButton(); // P2：剧情对话结束后隐藏跳过按钮
+    this.showMoveHint();
   }
 
   /** 隐藏跳过开场按钮 */
