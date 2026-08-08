@@ -108,6 +108,52 @@ def fill_triangle(img: Image.Image, x0: int, y0: int, x1: int, y1: int, color) -
 # ============================================================================
 # 阔叶树（树冠团簇 + 树干）
 # ============================================================================
+def tree_big_frame_64() -> Image.Image:
+    """大树（64×64，树冠横跨 2 格）：2026-08-09 美术升级——树有大小，大树占两格。
+    绘制沿用 tree1 阔叶风格（同一调色板/光向/描边），仅放大团簇并加粗树干。
+    场景用法：setOrigin(0.5,1) 底部中心锚定树格，显示 32×32（2 格宽树冠）。"""
+    img = Image.new("RGBA", (64, 64), C.TRANSPARENT)
+    # 树冠：底层大团（暗）+ 四团（主色）+ 中央（中色）+ 高光
+    fill_circle(img, 32, 20, 22, T.LEAF_DARK)
+    fill_circle(img, 20, 14, 15, T.LEAF_MAIN)
+    fill_circle(img, 44, 14, 15, T.LEAF_MAIN)
+    fill_circle(img, 18, 28, 14, T.LEAF_MAIN)
+    fill_circle(img, 46, 28, 14, T.LEAF_MAIN)
+    fill_circle(img, 32, 20, 13, T.LEAF_MID)
+    # 高光（左上）
+    fill_circle(img, 24, 11, 5, T.LEAF_HI)
+    px(img, 22, 8, T.LEAF_HI)
+    px(img, 28, 8, T.LEAF_HI)
+    px(img, 36, 9, T.LEAF_HI)
+    # 树冠底部凹凸（叶缘，暗部）
+    px(img, 14, 33, T.LEAF_DARK)
+    px(img, 50, 33, T.LEAF_DARK)
+    px(img, 18, 37, T.LEAF_DARK)
+    px(img, 46, 37, T.LEAF_DARK)
+    px(img, 26, 39, T.LEAF_DARK)
+    px(img, 38, 39, T.LEAF_DARK)
+    # 树干（底部中央，y 42-62，宽 12px）
+    rect(img, 26, 42, 38, 62, T.TRUNK)
+    vline(img, 26, 42, 62, T.TRUNK_DARK)
+    vline(img, 38, 42, 62, T.TRUNK_DARK)
+    vline(img, 28, 42, 62, T.TRUNK_LIGHT)
+    # 树皮纹理
+    for y in range(44, 62):
+        if (y - 44) % 5 == 0:
+            px(img, 30, y, T.TRUNK_DARK)
+            px(img, 36, y, T.TRUNK_DARK)
+    # 树根分叉（底部，2 格宽内散开）
+    px(img, 24, 61, T.TRUNK)
+    px(img, 40, 61, T.TRUNK)
+    px(img, 23, 62, T.TRUNK_DARK)
+    px(img, 41, 62, T.TRUNK_DARK)
+    px(img, 30, 62, T.TRUNK_DARK)
+    px(img, 34, 62, T.TRUNK_DARK)
+
+    add_outline(img, C.OUTLINE)
+    return img
+
+
 def tree1_frame_32() -> Image.Image:
     img = blank_sprite()
     # 树冠：三大团 + 高光 + 暗部
@@ -440,6 +486,7 @@ def main() -> None:
     outputs = [
         ("tree1.png", tree1_frame_32(), "阔叶树"),
         ("tree2.png", tree2_frame_32(), "松树"),
+        ("tree_big.png", tree_big_frame_64(), "大树(2格)"),
         ("stump.png", stump_frame_32(), "树桩"),
         ("old_axe.png", old_axe_frame_32(), "旧斧头"),
         ("wood.png", wood_frame_32(), "木材"),
