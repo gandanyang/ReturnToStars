@@ -233,6 +233,8 @@ export class BackpackPanel {
   /** 打开背包 */
   open(): void {
     open = true;
+    // 声音补全 v1.0（2026-08-09）：面板打开轻确认音
+    play('ui_confirm');
     if (panelEl) {
       refresh();
       // A4 动效：面板 fadeIn

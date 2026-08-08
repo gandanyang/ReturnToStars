@@ -23,7 +23,7 @@ import { DialogueHistoryPanel } from './DialogueHistoryPanel';
 /** 对话立绘映射（§8.5 方案 A）：说话人 → 立绘资源；无映射角色回退首字色块 */
 const PORTRAIT_MAP: Record<string, string> = {
   林澈: 'assets/portraits/linchen_ai.webp',
-  夏雅: 'assets/portraits/xiya_ai_avatar_v2.webp',
+  夏雅: 'assets/portraits/xiya_ai_avatar_v3.webp', // 2026-08-09 形象基准 v3（成熟 18 岁少女，见夏雅角色圣经）
   村长: 'assets/portraits/elder_ai.webp',
   爷爷的笔记: 'assets/portraits/grandpa_ai.webp',
   爷爷: 'assets/portraits/grandpa_ai.webp',

@@ -68,6 +68,14 @@ export const PHOTO_DATABASE: Photo[] = [
     description: '田埂上两个人，肩并着肩。原来以前的青禾镇，是这个样子的。',
     source: '完成夏雅「整理旧照片」',
   },
+  {
+    // 80分灵感① 第一株作物纪念（2026-08-09 制作人拍板）：第一次播种即解锁，普通行为被赋予意义
+    id: 'first_crop',
+    title: '第一株新生命',
+    image: 'assets/photos/album/first_crop.webp',
+    description: '你在归星岛种下了第一颗种子。那一天，风很轻。',
+    source: '种下第一颗种子',
+  },
 ];
 
 /** 已解锁照片 ID（模块级 Set，存档恢复后重新填充） */

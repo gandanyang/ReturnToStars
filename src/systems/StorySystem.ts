@@ -430,6 +430,85 @@ export const XIYA_PHOTO_DONE_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, text: '（看了看手里的照片，没说话）' },
 ];
 
+// ============ 夏雅《春深有信·一》Demo Cut（D-011，对话逐字取自设计文档第一章定稿） ============
+// 4 段：开场（触发）→ 互动一（花苗）→ 互动二（旧花种记录）→ 收尾（春祭/烟花埋伏笔）
+
+/** 段 A 开场：演出 + 对白（设计文档 L47-119） */
+export const XIYA_LETTER_OPEN_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（夕阳落在田埂上。）' },
+  { speaker: '', color: COLORS.system, text: '（刚浇过水的土地泛着湿润的光泽。）' },
+  { speaker: '', color: COLORS.system, text: '（远处的风车慢慢转动。）' },
+  { speaker: '', color: COLORS.system, text: '（夏雅蹲在田边，整理一小片刚种下的花苗。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '你每天都会来这里看看？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '嗯。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '虽然现在还看不出来什么。' },
+  { speaker: '林澈', color: COLORS.linche, text: '不是已经种下了吗？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '种下去和长出来，中间还差一点时间。' },
+  { speaker: '林澈', color: COLORS.linche, text: '听起来像是在等一个很慢的结果。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '可能吧。' },
+  { speaker: '林澈', color: COLORS.linche, text: '你以前也是这样种东西？' },
+  { speaker: '', color: COLORS.system, text: '（夏雅停了一下。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '以前……' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '比现在更忙一点。' },
+  { speaker: '林澈', color: COLORS.linche, text: '为什么？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '因为那时候，总觉得岛上什么都不会消失。' },
+  { speaker: '', color: COLORS.system, text: '（她停了一会儿。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '后来呢？' },
+  { speaker: '', color: COLORS.system, text: '（夏雅看向远处。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '后来才发现。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '有些东西，如果没人记得，它就真的没有了。' },
+  { speaker: '', color: COLORS.system, text: '（沉默了一会儿。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '不过现在，好像又开始不一样了。' },
+  { speaker: '林澈', color: COLORS.linche, text: '因为我？' },
+  { speaker: '', color: COLORS.system, text: '（夏雅笑了一下。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '因为大家。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '你只是刚好回来了。' },
+];
+
+/** 段 B 互动一：整理花苗（设计文档 L121-131） */
+export const XIYA_LETTER_FLOWER_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（你走近那片花苗，蹲下看了看。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '这些花什么时候会开？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '快的话，几天。' },
+  { speaker: '林澈', color: COLORS.linche, text: '慢的话？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '可能要等一个季节。' },
+  { speaker: '林澈', color: COLORS.linche, text: '这么久？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '嗯。但花又不知道我们觉得它慢。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '它只是按照自己的时间长出。' },
+];
+
+/** 段 C 互动二：旧花种记录（设计文档 L133-142；物品以记忆 moment 表现，制作人拍板） */
+export const XIYA_LETTER_RECORD_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（夏雅递来一本翻旧了的册子。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '这是你的记录？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '嗯。' },
+  { speaker: '林澈', color: COLORS.linche, text: '写了好多年。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '有些花没种出来。' },
+  { speaker: '林澈', color: COLORS.linche, text: '为什么还留着？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '因为失败也算种过。' },
+];
+
+/** 段 D 收尾：对白续 + 演出 + 春祭/烟花埋伏笔（设计文档 L149-175） */
+export const XIYA_LETTER_FINAL_DIALOGUE: DialogueLine[] = [
+  { speaker: '林澈', color: COLORS.linche, text: '你一直都在做这些事情？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '差不多。' },
+  { speaker: '林澈', color: COLORS.linche, text: '不觉得累吗？' },
+  { speaker: '', color: COLORS.system, text: '（夏雅想了一下。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '会啊。' },
+  { speaker: '林澈', color: COLORS.linche, text: '那为什么还继续？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '因为总要有人先开始。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '以前爷爷也是这么说的。' },
+  { speaker: '', color: COLORS.system, text: '（风吹过田野。）' },
+  { speaker: '', color: COLORS.system, text: '（远处村子的旧路灯亮起。）' },
+  { speaker: '', color: COLORS.system, text: '（只是普通的晚上。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '对了。' },
+  { speaker: '林澈', color: COLORS.linche, text: '什么？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '下周岛上有个小活动。' },
+  { speaker: '林澈', color: COLORS.linche, text: '什么活动？' },
+  { speaker: '', color: COLORS.system, text: '（夏雅笑了一下。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '到时候你就知道了。' },
+];
+
 /** T3 老张「矿灯」：矿洞入口对白（交付铜矿×2） */
 export const MINER_LAMP_ENTRY_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（矿洞深处的墙上，挂着一盏锈迹斑斑的旧矿灯。）' },

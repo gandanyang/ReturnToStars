@@ -18,6 +18,9 @@ import { getRobotCount, runDailyAutomation } from './systems/AutomationSystem';
 import { setTileState as farmSetTile, setCrop as farmSetCrop, getTileState as farmGetTile } from './data/FarmState';
 import { unlockPhoto as albumUnlock, PHOTO_DATABASE } from './data/PhotoAlbum';
 import { triggerOnce, hasTriggered, markTriggered, getGameEventSaveData, type GameEventSaveData } from './systems/EventManager';
+import { getTriggeredTags } from './systems/GuiXingRecordSystem';
+import { MusicSystem } from './audio/MusicSystem';
+import { play as sfxPlay } from './systems/AudioSystem';
 import { isTouchDevice } from './config';
 
 // 桌面端标记：禁用竖屏提示层（避免开发者工具窄窗口误触发）
@@ -87,6 +90,59 @@ const game = new Phaser.Game({
 initAndroidBackHandler(game);
 // PC 端 Esc 系统菜单（浏览器/桌面端；与 Android 返回键行为一致）
 initPcEscapeHandler(game);
+
+/**
+ * P0 防黑屏（2026-08-09）：WebGL context lost 兜底。
+ * 背景：压测发现长时间切图后偶发黑屏（浏览器 GPU/渲染进程崩溃），且移动端 WebView
+ * 弱 GPU/内存受限时 context lost 更常见。Phaser 不内置 contextlost 恢复，
+ * 一旦丢失画面永久黑屏无反馈。这里监听 contextlost：
+ *  - preventDefault 配合浏览器/驱动可能的自动重建；
+ *  - 给 3 秒恢复窗口，contextrestored 触发则一切照旧（隐藏遮罩）；
+ *  - 超时未恢复 → GPU 已不可用，显示遮罩 + 刷新按钮（进度有 beforeunload 自动存档），
+ *    避免永久黑屏。
+ */
+function setupContextLostGuard(): void {
+  const canvas = game.canvas;
+  // 仅 WebGL 渲染器需要兜底（Canvas 渲染器不存在 context lost）
+  if (!canvas || game.renderer.type !== Phaser.WEBGL) return;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let overlayEl: HTMLDivElement | null = null;
+
+  const showOverlay = (): void => {
+    if (overlayEl) return;
+    overlayEl = document.createElement('div');
+    overlayEl.id = 'gl-lost-overlay';
+    overlayEl.style.cssText =
+      'position:fixed;top:0;right:0;bottom:0;left:0;background:#000;z-index:9999;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+      'font-family:Arial,sans-serif;text-align:center;padding:20px';
+    const title = document.createElement('div');
+    title.textContent = '图形渲染遇到问题';
+    title.style.cssText = 'font-size:18px;color:#ffe082;margin-bottom:12px';
+    const hint = document.createElement('div');
+    hint.textContent = '游戏画面无法继续渲染，请刷新页面（进度已自动保存）';
+    hint.style.cssText = 'font-size:13px;color:#aaa;max-width:80%;margin-bottom:16px';
+    const btn = document.createElement('button');
+    btn.textContent = '刷新页面重试';
+    btn.style.cssText = 'padding:8px 20px;font-size:14px;cursor:pointer';
+    btn.addEventListener('click', () => location.reload());
+    overlayEl.append(title, hint, btn);
+    document.body.appendChild(overlayEl);
+  };
+
+  const hideOverlay = (): void => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (overlayEl) { overlayEl.remove(); overlayEl = null; }
+  };
+
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(showOverlay, 3000);
+  });
+  canvas.addEventListener('webglcontextrestored', hideOverlay);
+}
+setupContextLostGuard();
 
 /**
  * 让 #game-container 尺寸 = 视口尺寸（全屏）。
@@ -165,7 +221,7 @@ applyAdaptiveLogicalSize();
 //   window.debug.getStoryStep()     获取当前教程步骤
 //   window.debug.getQuestState()     获取任务状态
 //   window.debug.setQuestState(s)    设置任务状态
-(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; events: { triggerOnce: (id: string, fn: () => void) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
+(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; sfx: (name: string) => void; events: { triggerOnce: (id: string, fn: () => void) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
   events: {
     triggerOnce,
     hasTriggered,
@@ -266,6 +322,12 @@ applyAdaptiveLogicalSize();
   // 相簿 debug 挂钩（指向游戏真实实例，供探针/测试驱动解锁，绕过 dev 双模块问题——同 dailyQuest 模式）
   unlockPhoto: (id: string) => albumUnlock(id),
   getPhotoTotal: () => PHOTO_DATABASE.length,
+  // v1.0 生活仪式感：归星记录一次性标签只读钩子（探针断言 first_hoe/first_water 等，绕过双模块）
+  guixingTags: () => Array.from(getTriggeredTags()),
+  // 声音补全 v1.0（2026-08-09）：BGM 当前曲目只读钩子（探针断言 town/spring_letter 播放）
+  musicCurrent: () => MusicSystem.current(),
+  // 声音补全 v1.0：SFX 冒烟钩子（探针调用各音效 key 验证可播放无异常）
+  sfx: (name: string) => sfxPlay(name as never),
 };
 
 // 每日任务 debug 挂载（指向游戏真实实例，供自动化测试驱动红点生命周期，绕过 dev 双模块问题）

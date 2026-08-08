@@ -14,10 +14,16 @@ import { getCtx } from '../systems/AudioSystem';
 
 // 文件实际位于 public/assets/audio/music/，必须带 assets/ 前缀
 const TRACKS: Record<string, string> = {
-  title: 'assets/audio/music/title.ogg',
+  // 主题曲（2026-08-09 制作人归档《Stars Gather》）：title_main.ogg；旧 title.ogg 保留未引用
+  title: 'assets/audio/music/title_main.ogg',
   farm_day: 'assets/audio/music/farm_day.ogg',
   stargaze_night: 'assets/audio/music/stargaze_night.ogg',
   stargaze_final: 'assets/audio/music/stargaze_final.ogg',
+  // 声音补全计划 v1.0（2026-08-09）：青禾镇日常 BGM + 夏雅《春深有信》专属音乐
+  town: 'assets/audio/music/town.ogg',
+  spring_letter: 'assets/audio/music/spring_letter.ogg',
+  // 林澈个人曲（2026-08-09 制作人归档《The Waiting Shore》）：主角清晨独处等内心时刻
+  linche_theme: 'assets/audio/music/linche_theme.ogg',
 };
 
 /** 根据浏览器支持选择最佳格式 */
@@ -60,6 +66,7 @@ function cacheSet(key: string, buf: AudioBuffer): void {
 const BGM_MUTED = false;
 let currentSource: AudioBufferSourceNode | null = null;
 let currentGain: GainNode | null = null;
+let currentKey: string | null = null; // 当前播放曲目（查询用：剧情中途回归补播等）
 let currentVolume = 0.35;
 let pendingKey: string | null = null;
 let retryBound = false;
@@ -109,6 +116,7 @@ async function loadAndDecode(key: string): Promise<AudioBuffer | null> {
 /** 停止当前播放 */
 function stopCurrent(): void {
   pendingKey = null;
+  currentKey = null;
   if (currentSource) {
     try {
       currentSource.stop();
@@ -152,6 +160,7 @@ export const MusicSystem = {
 
       currentSource = source;
       currentGain = gain;
+      currentKey = key;
 
       // 如果 AudioContext 被挂起，记录 pending 等用户交互补播
       if (ctx.state === 'suspended') {
@@ -166,6 +175,11 @@ export const MusicSystem = {
 
   stop(): void {
     stopCurrent();
+  },
+
+  /** 当前播放曲目 key（无播放返回 null；供剧情补播判断） */
+  current(): string | null {
+    return currentKey;
   },
 
   setVolume(v: number): void {

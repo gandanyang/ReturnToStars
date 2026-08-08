@@ -14,7 +14,9 @@ type SfxName =
   // v0.10.3 首次收获：风铃/木叶轻响（一次性、低音量，区别于普通 harvest 的丰收三连音）
   | 'harvest_first'
   // v0.10.4 观星夜 v2：微风（树叶沙沙 + 远处虫鸣，低音量一次性，约 20% 强度）
-  | 'wind';
+  | 'wind'
+  // 声音补全计划 v1.0（2026-08-09）：P0-4/5/6 成就感音效 + 高频通用音效
+  | 'quest_complete' | 'repair_complete' | 'shard_deliver' | 'ui_confirm' | 'door_open' | 'door_close';
 
 let ctx: AudioContext | null = null;
 
@@ -84,26 +86,31 @@ export function noise(duration: number, volume = 0.08, delay = 0): void {
 export function play(name: SfxName): void {
   switch (name) {
     case 'hoe':
-      // 锄地：低频碰撞感（中存在感，高频操作不能太响）
+      // 锄地：低频碰撞感 + 土屑/土块碎裂（声音补全 v1.0 升级——"土回应我"）
       tone(80, 0.12, 'triangle', 0.26);
       tone(60, 0.08, 'sine', 0.2, 0.02);
+      dirtBurst(0.09, 0.14, 0.03); // 土屑短促低通噪声（微延迟，贴合锄入瞬间）
       break;
 
     case 'plant':
-      // 播种：轻快短促的弹跳音
+      // 播种：轻快短促的弹跳音 + 种子落土（声音补全 v1.0——颗粒入土感）
       tone(600, 0.06, 'sine', 0.1);
       tone(800, 0.04, 'sine', 0.08, 0.03);
+      dirtBurst(0.05, 0.06, 0.02); // 极轻土粒覆盖（微颗粒，不抢弹跳音）
       break;
 
     case 'water':
-      // 浇水：柔和白噪声 + 水流感（中存在感）
+      // 浇水：柔和白噪声 + 水流 + 土壤吸水（声音补全 v1.0——低频下坠=水渗进土里）
       noise(0.25, 0.09);
       tone(400, 0.15, 'sine', 0.06, 0.05);
+      tone(300, 0.22, 'sine', 0.05, 0.12); // 吸水：缓降的湿润感
+      tone(220, 0.18, 'sine', 0.04, 0.2);
       break;
 
     case 'harvest':
-      // 收获：上行三连音，丰收的愉悦感（高存在感——最核心的奖励瞬间）
+      // 收获：上行三连音，丰收的愉悦感 + "啵"一声拔起（声音补全 v1.0）
       // v0.6 制作人反馈：原 880Hz 最高音偏尖锐，降频降幅使收成反馈更圆润
+      dirtBurst(0.06, 0.09, 0.0); // 拔起瞬间的泥土轻响
       tone(440, 0.08, 'triangle', 0.16);
       tone(554, 0.08, 'triangle', 0.16, 0.06);
       tone(660, 0.14, 'triangle', 0.2, 0.12);
@@ -248,5 +255,102 @@ export function play(name: SfxName): void {
       tone(1047, 0.7, 'sine', 0.035, 0.5);
       tone(1319, 0.8, 'sine', 0.028, 0.75);
       break;
+
+    // ──────────── 声音补全计划 v1.0（2026-08-09）：成就感音效 + 高频通用音效 ────────────
+
+    case 'quest_complete':
+      // P0-4 任务完成：完整上行和弦（do-mi-sol-do，triangle 圆润）+ 尾音轻钟声
+      // 区别于 levelup（XP 升级琶音）——"任务达成"更圆满、有收束感
+      tone(523, 0.1, 'triangle', 0.13);
+      tone(659, 0.1, 'triangle', 0.13, 0.07);
+      tone(784, 0.12, 'triangle', 0.14, 0.14);
+      tone(1047, 0.3, 'triangle', 0.16, 0.21);
+      tone(1568, 0.35, 'sine', 0.04, 0.24); // 钟声泛音，柔和不刺
+      break;
+
+    case 'repair_complete':
+      // P0-5 修复成功：温暖上行滑音（"建筑亮起来"的瞬间）+ 木料到位轻撞
+      {
+        const c = getCtx();
+        const t0 = c.currentTime;
+        const osc = c.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(420, t0);
+        osc.frequency.linearRampToValueAtTime(760, t0 + 0.4);
+        const g = c.createGain();
+        g.gain.setValueAtTime(0.001, t0);
+        g.gain.linearRampToValueAtTime(0.12, t0 + 0.12);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.55);
+        osc.connect(g); g.connect(c.destination);
+        osc.start(t0); osc.stop(t0 + 0.6);
+        tone(90, 0.1, 'triangle', 0.12, 0.02); // 木料撞击
+        tone(660, 0.16, 'triangle', 0.08, 0.3); // 尾声余韵
+      }
+      break;
+
+    case 'shard_deliver':
+      // P0-6 星之碎片交付：完整五声音阶上行 + 长衰减（"我做了一件改变岛屿的事"）
+      // 比采集 shard 更完整、更亮——交付是承诺完成的瞬间
+      tone(880, 0.12, 'sine', 0.11);
+      tone(1175, 0.12, 'sine', 0.1, 0.08);
+      tone(1568, 0.14, 'sine', 0.09, 0.16);
+      tone(2093, 0.4, 'sine', 0.07, 0.24);
+      tone(2637, 0.5, 'sine', 0.03, 0.3); // 高八度光感尾音
+      break;
+
+    case 'ui_confirm':
+      // 通用 UI 确认：轻快短促（面板打开等），低音量不打扰
+      tone(880, 0.05, 'triangle', 0.06);
+      tone(1320, 0.04, 'triangle', 0.04, 0.03);
+      break;
+
+    case 'door_open':
+      // 门开启：铰链吱呀（下滑短扫频，低音量）+ 到位轻撞（室内外进出）
+      {
+        const c = getCtx();
+        const t0 = c.currentTime;
+        const creak = c.createOscillator();
+        creak.type = 'sawtooth';
+        creak.frequency.setValueAtTime(130, t0);
+        creak.frequency.linearRampToValueAtTime(72, t0 + 0.45);
+        const cg = c.createGain();
+        cg.gain.setValueAtTime(0.001, t0);
+        cg.gain.linearRampToValueAtTime(0.05, t0 + 0.15);
+        cg.gain.linearRampToValueAtTime(0.001, t0 + 0.5);
+        creak.connect(cg); cg.connect(c.destination);
+        creak.start(t0); creak.stop(t0 + 0.55);
+        tone(80, 0.09, 'triangle', 0.1, 0.42); // 门板到位
+      }
+      break;
+
+    case 'door_close':
+      // 门关闭：木门轻撞（低频短促 + 极短噪声）
+      tone(110, 0.07, 'triangle', 0.13);
+      tone(85, 0.1, 'triangle', 0.09, 0.03);
+      noise(0.04, 0.06, 0.01);
+      break;
   }
+}
+
+/**
+ * 土屑/颗粒噪声短促爆发（声音补全 v1.0 辅助）：低通白噪声，带极短包络。
+ * 用于锄地土屑、播种落种、收获拔起等"泥土生活感"。
+ */
+function dirtBurst(duration: number, volume: number, delay: number): void {
+  const c = getCtx();
+  const bufferSize = Math.ceil(c.sampleRate * duration);
+  const buffer = c.createBuffer(1, bufferSize, c.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource();
+  src.buffer = buffer;
+  const filter = c.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 650; // 土感：中低频，避免"沙沙"电子感
+  const g = c.createGain();
+  g.gain.setValueAtTime(volume, c.currentTime + delay);
+  g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + delay + duration);
+  src.connect(filter); filter.connect(g); g.connect(c.destination);
+  src.start(c.currentTime + delay);
+  src.stop(c.currentTime + delay + duration + 0.01);
 }

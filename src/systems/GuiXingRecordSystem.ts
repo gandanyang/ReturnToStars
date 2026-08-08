@@ -23,6 +23,10 @@ import { getTime } from '../data/TimeSystem';
 export type GuiXingTag =
   | 'first_plant'
   | 'first_harvest'
+  | 'first_hoe'    // v1.0 生活仪式感：第一次锄地
+  | 'first_water'  // v1.0 生活仪式感：第一次浇水
+  | 'found_old_seed' // SHOP-01 商店复兴：第一次购买旧花苗（发现旧花种，剧情媒介）
+  | 'first_decor'    // SHOP-01 商店复兴：第一次购买装饰品（小灯笼/木牌）
   | 'restore_garden'
   | 'restore_oldhouse'
   | 'help_resident'

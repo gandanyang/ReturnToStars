@@ -159,7 +159,8 @@ export const FARM_TREE_POSITIONS: { col: number; row: number }[] = [
   { col: 1, row: 2 }, { col: 2, row: 3 }, { col: 3, row: 2 },
   { col: 1, row: 5 }, { col: 3, row: 6 },
   // ── 北侧边缘（稀疏散落） ──
-  { col: 8, row: 2 }, { col: 15, row: 2 }, { col: 25, row: 2 },
+  // 2026-08-09：col15,row2 原位于森林出口通道（col14-16,rows0-2）正中挡路，挪至右侧空地 col18,row2
+  { col: 8, row: 2 }, { col: 18, row: 2 }, { col: 25, row: 2 },
   { col: 32, row: 3 },
   // ── 东北角 ──
   { col: 37, row: 2 }, { col: 38, row: 3 }, { col: 37, row: 5 },
@@ -223,10 +224,22 @@ export function getAllTreeEntries(): [string, TreeState][] {
   return Array.from(trees.entries());
 }
 
-/** 恢复树木状态（存档恢复用） */
+/** 树位置迁移表（旧档 key "col,row" → 新坐标）：挪位时保持砍伐状态不丢失 */
+const TREE_KEY_MIGRATIONS: Record<string, [number, number]> = {
+  // 2026-08-09：col15,row2 原在森林出口通道挡路，挪至 col18,row2
+  '15,2': [18, 2],
+};
+
+/** 恢复树木状态（存档恢复用；旧档 key 命中迁移表时迁到新坐标） */
 export function restoreTreeEntries(entries: [string, TreeState][]): void {
-  for (const [key, state] of entries) {
-    trees.set(key, state);
+  for (const [key, rawState] of entries) {
+    const moved = TREE_KEY_MIGRATIONS[key];
+    if (moved) {
+      const [col, row] = moved;
+      trees.set(`${col},${row}`, { ...rawState, col, row });
+    } else {
+      trees.set(key, rawState);
+    }
   }
 }
 

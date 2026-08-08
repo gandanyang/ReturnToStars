@@ -31,6 +31,8 @@ import {
 } from '../data/Economy';
 import { addItem, getItemCount, itemIconHtml } from '../data/Inventory';
 import { play } from '../systems/AudioSystem';
+import { triggerOnce } from '../systems/EventManager';
+import { triggerTag } from '../systems/GuiXingRecordSystem';
 import { getRobotLevel, getUpgradeCost, getUpgradeEffect, setRobotLevel } from '../systems/AutomationSystem';
 import { panelFadeIn, panelFadeOut } from './dom-anim';
 import { SmartSellPreviewPanel } from './SmartSellPreviewPanel';
@@ -45,6 +47,17 @@ interface ShopItem {
   action: string;
   /** 购买/出售 */
   type: 'buy' | 'sell';
+  /** 商品分类（SHOP-01：数据准备，P0 不做分类 tab） */
+  category?: 'farm' | 'restore' | 'decor';
+  /** 商品描述（购买栏小字展示） */
+  description?: string;
+  /** 商品图标 emoji */
+  icon?: string;
+  /**
+   * 解锁条件（SHOP-01：第一版全部开放，不实现逻辑）
+   * 预留：未来如 { type: 'restore', value: 1 } 表示恢复 1 处后解锁
+   */
+  unlockCondition?: { type: 'restore'; value: number };
   /** 检查是否可操作 */
   canDo: () => boolean;
   /** 执行操作 */
@@ -56,67 +69,131 @@ const SHOP_ITEMS: ShopItem[] = [
   // 本阶段不实现钻石支付；itemId 已在 Inventory.ITEM_DEFS 注册，获取途径：暂无（待商城）。
   // 出售（作物 → 金币）
   {
-    id: 'radish', label: '萝卜', price: RADISH_PRICE, action: 'sell-radish', type: 'sell',
+    id: 'radish', label: '萝卜', price: RADISH_PRICE, action: 'sell-radish', type: 'sell', category: 'farm', icon: '🥕',
     canDo: () => getItemCount('radish') > 0,
     do: () => { addItem('radish', -1); addCoins(RADISH_PRICE); },
   },
   {
-    id: 'tomato', label: '番茄', price: TOMATO_PRICE, action: 'sell-tomato', type: 'sell',
+    id: 'tomato', label: '番茄', price: TOMATO_PRICE, action: 'sell-tomato', type: 'sell', category: 'farm', icon: '🍅',
     canDo: () => getItemCount('tomato') > 0,
     do: () => { addItem('tomato', -1); addCoins(TOMATO_PRICE); },
   },
   {
-    id: 'corn', label: '玉米', price: CORN_PRICE, action: 'sell-corn', type: 'sell',
+    id: 'corn', label: '玉米', price: CORN_PRICE, action: 'sell-corn', type: 'sell', category: 'farm', icon: '🌽',
     canDo: () => getItemCount('corn') > 0,
     do: () => { addItem('corn', -1); addCoins(CORN_PRICE); },
   },
   {
-    id: 'strawberry', label: '草莓', price: STRAWBERRY_PRICE, action: 'sell-strawberry', type: 'sell',
+    id: 'strawberry', label: '草莓', price: STRAWBERRY_PRICE, action: 'sell-strawberry', type: 'sell', category: 'farm', icon: '🍓',
     canDo: () => getItemCount('strawberry') > 0,
     do: () => { addItem('strawberry', -1); addCoins(STRAWBERRY_PRICE); },
   },
-  // 出售矿石
+  // 出售矿石/木材（岛屿修复资源）
   {
-    id: 'stone', label: '石头', price: STONE_PRICE, action: 'sell-stone', type: 'sell',
+    id: 'stone', label: '石头', price: STONE_PRICE, action: 'sell-stone', type: 'sell', category: 'restore', icon: '🪨',
     canDo: () => getItemCount('stone') > 0,
     do: () => { addItem('stone', -1); addCoins(STONE_PRICE); },
   },
   {
-    id: 'copper', label: '铜矿', price: COPPER_PRICE, action: 'sell-copper', type: 'sell',
+    id: 'copper', label: '铜矿', price: COPPER_PRICE, action: 'sell-copper', type: 'sell', category: 'restore', icon: '🟤',
     canDo: () => getItemCount('copper') > 0,
     do: () => { addItem('copper', -1); addCoins(COPPER_PRICE); },
   },
   {
-    id: 'iron', label: '铁矿', price: IRON_PRICE, action: 'sell-iron', type: 'sell',
+    id: 'iron', label: '铁矿', price: IRON_PRICE, action: 'sell-iron', type: 'sell', category: 'restore', icon: '⚪',
     canDo: () => getItemCount('iron') > 0,
     do: () => { addItem('iron', -1); addCoins(IRON_PRICE); },
   },
-  // 出售木材
   {
-    id: 'wood', label: '木材', price: WOOD_PRICE, action: 'sell-wood', type: 'sell',
+    id: 'wood', label: '木材', price: WOOD_PRICE, action: 'sell-wood', type: 'sell', category: 'restore', icon: '🪵',
     canDo: () => getItemCount('wood') > 0,
     do: () => { addItem('wood', -1); addCoins(WOOD_PRICE); },
   },
   // 购买（金币 → 种子）
   {
-    id: 'radish_seed', label: '萝卜种子', price: 10, action: 'buy-radish-seed', type: 'buy',
+    id: 'radish_seed', label: '萝卜种子', price: 10, action: 'buy-radish-seed', type: 'buy', category: 'farm', icon: '🌱',
+    description: '种在锄过的土地上，浇水后 1 天成熟。',
     canDo: () => getCoins() >= 10,
     do: () => { if (spendCoins(10)) addItem('radish_seed', 1); },
   },
   {
-    id: 'tomato_seed', label: '番茄种子', price: 20, action: 'buy-tomato-seed', type: 'buy',
+    id: 'tomato_seed', label: '番茄种子', price: 20, action: 'buy-tomato-seed', type: 'buy', category: 'farm', icon: '🌱',
+    description: '红润饱满的番茄，浇水后 2 天成熟。',
     canDo: () => getCoins() >= 20,
     do: () => { if (spendCoins(20)) addItem('tomato_seed', 1); },
   },
   {
-    id: 'corn_seed', label: '玉米种子', price: 15, action: 'buy-corn-seed', type: 'buy',
+    id: 'corn_seed', label: '玉米种子', price: 15, action: 'buy-corn-seed', type: 'buy', category: 'farm', icon: '🌱',
+    description: '金黄饱满的玉米，浇水后 3 天成熟。',
     canDo: () => getCoins() >= 15,
     do: () => { if (spendCoins(15)) addItem('corn_seed', 1); },
   },
   {
-    id: 'strawberry_seed', label: '草莓种子', price: 50, action: 'buy-strawberry-seed', type: 'buy',
+    id: 'strawberry_seed', label: '草莓种子', price: 50, action: 'buy-strawberry-seed', type: 'buy', category: 'farm', icon: '🌱',
+    description: '稀有作物，浇水后 3 天成熟，价值极高。',
     canDo: () => getCoins() >= 50,
     do: () => { if (spendCoins(50)) addItem('strawberry_seed', 1); },
+  },
+  // ── SHOP-01 青禾镇商店复兴（2026-08-09 制作人拍板）──
+  // 岛屿修复类：让玩家理解"我在买让岛屿恢复生活的东西"
+  {
+    id: 'wood', label: '整捆木材', price: 8, action: 'buy-wood-bundle', type: 'buy', category: 'restore', icon: '🪵',
+    description: '晒干后的木材，适合修补旧屋和木制设施。',
+    canDo: () => getCoins() >= 8,
+    // 防倒卖：木材卖 8G/根，买 8G=1 根（平价无套利）
+    do: () => { if (spendCoins(8)) addItem('wood', 1); },
+  },
+  {
+    id: 'stone', label: '整齐石料', price: 12, action: 'buy-stone-stack', type: 'buy', category: 'restore', icon: '🪨',
+    description: '青禾镇附近常见的石材。',
+    canDo: () => getCoins() >= 12,
+    // 防倒卖：石头卖 5G/块，买 12G=2 块（6G/块 > 5G 无套利）
+    do: () => { if (spendCoins(12)) addItem('stone', 2); },
+  },
+  {
+    id: 'flower_seedling', label: '旧花苗', price: 30, action: 'buy-flower-seedling', type: 'buy', category: 'restore', icon: '🌷',
+    description: '有人曾经精心照料过它。',
+    canDo: () => getCoins() >= 30,
+    // 纯叙事（制作人拍板：玩家行为改变世界，而非花钱购买世界变化）：
+    // 不加速花园修复；第一次购买 → 老板台词 + 归星记录"发现旧花种"（后续夏雅任务可引用）
+    do: () => {
+      if (spendCoins(30)) {
+        addItem('flower_seedling', 1);
+        triggerOnce('shop_first_flower_seed', () => {
+          triggerTag('found_old_seed');
+          setTimeout(() => showToast('老板：这种花以前岛上很多地方都有。'), 400);
+        });
+      }
+    },
+  },
+  // 生活装饰类：不产生数值，让玩家觉得"我在建设我的岛"
+  {
+    id: 'lantern', label: '小灯笼', price: 25, action: 'buy-lantern', type: 'buy', category: 'decor', icon: '🏮',
+    description: '暖黄色的光，照亮回家的路。',
+    canDo: () => getCoins() >= 25,
+    do: () => {
+      if (spendCoins(25)) {
+        addItem('lantern', 1);
+        triggerOnce('shop_first_decor', () => {
+          triggerTag('first_decor');
+          setTimeout(() => showToast('你买了些能点亮生活的东西。'), 400);
+        });
+      }
+    },
+  },
+  {
+    id: 'wood_sign', label: '木牌', price: 15, action: 'buy-wood-sign', type: 'buy', category: 'decor', icon: '🪧',
+    description: '可以写上字，也可以什么都不写。',
+    canDo: () => getCoins() >= 15,
+    do: () => {
+      if (spendCoins(15)) {
+        addItem('wood_sign', 1);
+        triggerOnce('shop_first_decor', () => {
+          triggerTag('first_decor');
+          setTimeout(() => showToast('你买了些能点亮生活的东西。'), 400);
+        });
+      }
+    },
   },
 ];
 
@@ -451,6 +528,7 @@ function refresh(): void {
           <span style="display:flex;align-items:center;gap:6px;">${itemIconHtml(item.id, 20)} ${item.label}</span>
           <button data-action="${item.action}" data-can-sell="${canBuy ? '1' : '0'}" style="${canBuy ? btnActive : btnDisabled}">买 ${item.price}G</button>
         </div>
+        ${item.description ? `<div style="font-size:10px;color:#9a8a72;margin-top:2px;">${item.description}</div>` : ''}
         ${hint}
       </div>`;
     }).join('');
@@ -496,6 +574,8 @@ export class ShopPanel {
   /** 打开商店 */
   open(): void {
     open = true;
+    // 声音补全 v1.0（2026-08-09）：面板打开轻确认音
+    play('ui_confirm');
     if (panelEl) {
       refresh();
       // A4 动效：面板 fadeIn

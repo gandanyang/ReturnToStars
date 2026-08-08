@@ -37,6 +37,10 @@ export interface QuestFlags {
   sideMinerLampDone?: boolean;
   sideGardenerPlumAsked?: boolean;
   sideGardenerPlumDone?: boolean;
+  sideShopCropAsked?: boolean;
+  sideShopCropDone?: boolean;
+  xiyaLetterAsked?: boolean;
+  xiyaLetterDone?: boolean;
 }
 
 /** 支线任务定义（解锁/进行中/完成判定基于注入 flags） */
@@ -98,6 +102,15 @@ const SIDE_QUESTS: SideQuestDef[] = [
     isUnlocked: (f) => f.sideGardenerPlumAsked === true,
     isAsked: (f) => f.sideGardenerPlumAsked === true,
     isDone: (f) => f.sideGardenerPlumDone === true,
+  },
+  {
+    id: 'xiya_letter',
+    title: '春深有信·一',
+    lockHint: '下午/傍晚在农场花田边遇到夏雅后解锁',
+    objective: '和夏雅一起整理花田，看看那本旧花种记录',
+    isUnlocked: (f) => f.xiyaLetterAsked === true,
+    isAsked: (f) => f.xiyaLetterAsked === true,
+    isDone: (f) => f.xiyaLetterDone === true,
   },
 ];
 
@@ -309,7 +322,8 @@ function createDom(): void {
     const claim = target.dataset?.claim;
     if (claim) {
       if (claimReward(claim)) {
-        play('levelup');
+        // 声音补全 v1.0（2026-08-09）：任务完成专属成就感音效（区别于 XP 升级 levelup）
+        play('quest_complete');
         // 小结算：帮助居民时触发事件标签
         const quest = getDailyQuests().find((q) => q.id === claim);
         if (quest && quest.objective.type === 'talk_npc') {
@@ -357,6 +371,8 @@ export class QuestPanel {
 
   open(): void {
     open = true;
+    // 声音补全 v1.0（2026-08-09）：面板打开轻确认音
+    play('ui_confirm');
     if (panelEl) {
       refresh('daily');
       // A4 动效：面板 fadeIn

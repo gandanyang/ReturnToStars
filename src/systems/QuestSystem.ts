@@ -13,7 +13,9 @@
 
 import { addXp } from '../data/FarmProgress';
 import { getTime } from '../data/TimeSystem';
+import { markRestored } from '../data/FarmRestore';
 import { hasTriggered } from './EventManager';
+import { play } from './AudioSystem';
 import { COLORS, ELDER_QUEST_DIALOGUE, ELDER_BUSY_DIALOGUE, ELDER_BUSY_SHORT_DIALOGUE, SHARD_DELIVER_DIALOGUE, ELDER_WHY_FARM_DIALOGUE, type DialogueLine, getStoryStep, isTutorialDone, isObservatoryComplete } from './StorySystem';
 
 /** 任务状态 */
@@ -46,11 +48,16 @@ export function collectShard(): void {
   }
 }
 
-/** 交付任务：collected → completed（与村长对话触发，附带剧情） */
+/** 交付任务：collected → completed（与村长对话触发，附带剧情）
+ *  P0-5（2026-08-08 制作人拍板）：交付成功即标记 farmWarm（农场环境回暖），
+ *  状态随 worldRestore 入档，玩家回到农场时展示暖色反馈。 */
 export function deliverQuest(): void {
   if (questState === 'collected') {
     questState = 'completed';
+    markRestored('farmWarm');
     addXp(30, 'quest');
+    // 声音补全 v1.0（2026-08-09）：P0-6 星之碎片交付——"我做了一件改变岛屿的事"的声音回应
+    play('shard_deliver');
   }
 }
 

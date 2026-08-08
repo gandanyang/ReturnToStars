@@ -31,7 +31,7 @@ import {
   getPlotCenter,
   type FarmPlotId,
 } from '../data/FarmPlot';
-import { getProjectShortfall, isRestored, markRestored } from '../data/FarmRestore';
+import { getProjectShortfall, isRestored, markRestored, getRevivalLevel } from '../data/FarmRestore';
 import { addItem, getItemCount, itemIconHtml } from '../data/Inventory';
 import { formatTime, getTime, nextDay as timeNextDay, setTime, setTimeFull, tick as timeTick } from '../data/TimeSystem';
 import { getCoins, spendCoins, addCoins } from '../data/Economy';
@@ -61,7 +61,7 @@ import {
 } from '../systems/DailyQuestSystem';
 import { InputManager } from '../systems/InputManager';
 import * as AmbienceSystem from '../systems/AmbienceSystem';
-import { triggerTag, getTriggeredTags } from '../systems/GuiXingRecordSystem';
+import { triggerTag } from '../systems/GuiXingRecordSystem';
 import { triggerOnce, hasTriggered } from '../systems/EventManager';
 import { unlockPhoto, isPhotoUnlocked, PHOTO_DATABASE } from '../data/PhotoAlbum';
 import { TouchControls, setActionButtonLabel, setWaitHandler } from '../systems/TouchControls';
@@ -118,6 +118,12 @@ import {
 export interface MapSceneFlags {
   shardDialoguePlayed: boolean;
   firstHarvestShown: boolean;
+  /** v1.0 生活仪式感：第一次锄地/播种/浇水（一次性入档，读档不重复） */
+  firstHoe?: boolean;
+  firstPlant?: boolean;
+  firstWater?: boolean;
+  /** SHOP-01 商店复兴：商店老板复兴台词已播档位（-1=未播；0/1/2 对应复兴度，档位推进才播，读档不重复） */
+  shopRevivalTier?: number;
   woodcutTipShown: boolean;
   mineTipShown: boolean;
   tutorialProgress: number;
@@ -392,6 +398,12 @@ export class MapScene extends Phaser.Scene {
   private oldRobotFixed = false;
   // v0.5.3 剧情密度 E2：第一次收获反馈（一次性，内存 flag，不进存档）
   private firstHarvestShown = false;
+  // v1.0 生活仪式感：第一次锄地/播种/浇水（一次性，mapFlags 入档，读档不重复）
+  private firstHoe = false;
+  private firstPlant = false;
+  private firstWater = false;
+  // SHOP-01 商店复兴：老板复兴台词已播档位（-1=未播；档位推进才播一次，随 mapFlags 入档）
+  private shopRevivalTier = -1;
   // M1-3 花园清理引导：玩家靠近花园区域时首次提示（一次性，内存 flag）
   private gardenHintShown = false;
   // 教程提示 DOM
@@ -500,6 +512,10 @@ export class MapScene extends Phaser.Scene {
     return {
       shardDialoguePlayed: inst.shardDialoguePlayed,
       firstHarvestShown: inst.firstHarvestShown,
+      firstHoe: inst.firstHoe,
+      firstPlant: inst.firstPlant,
+      firstWater: inst.firstWater,
+      shopRevivalTier: inst.shopRevivalTier,
       woodcutTipShown: inst.woodcutTipShown,
       mineTipShown: inst.mineTipShown,
       tutorialProgress: inst.tutorialProgress,
@@ -538,6 +554,10 @@ export class MapScene extends Phaser.Scene {
     if (saved) {
       this.shardDialoguePlayed = saved.shardDialoguePlayed;
       this.firstHarvestShown = saved.firstHarvestShown;
+      this.firstHoe = saved.firstHoe ?? false;
+      this.firstPlant = saved.firstPlant ?? false;
+      this.firstWater = saved.firstWater ?? false;
+      this.shopRevivalTier = saved.shopRevivalTier ?? -1;
       this.woodcutTipShown = saved.woodcutTipShown;
       this.mineTipShown = saved.mineTipShown;
       this.tutorialProgress = saved.tutorialProgress;
@@ -645,10 +665,11 @@ export class MapScene extends Phaser.Scene {
     if (this.mapKey === 'farm' && !this.textures.exists('farm_plot')) {
       this.load.spritesheet('farm_plot', 'assets/sprites/farm_plot.png', { frameWidth: 16, frameHeight: 16 });
     }
-    // 砍树贴图：树1（阔叶）/树2（松树）/树桩（农场场景）
+    // 砍树贴图：树1（阔叶）/树2（松树）/大树（2 格）/树桩（农场场景）
     if (this.mapKey === 'farm') {
       if (!this.textures.exists('tree1')) this.load.image('tree1', 'assets/sprites/tree1.png');
       if (!this.textures.exists('tree2')) this.load.image('tree2', 'assets/sprites/tree2.png');
+      if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprites/tree_big.png');
       if (!this.textures.exists('stump')) this.load.image('stump', 'assets/sprites/stump.png');
     }
   }
@@ -1170,9 +1191,13 @@ export class MapScene extends Phaser.Scene {
 
     // 环境音：进入地图按 mapKey + 当前小时启动氛围音（白天鸟叫/夜晚虫鸣等）
     AmbienceSystem.start(this.mapKey, getTime().hour);
-    // BGM?????? / ??????19:00-5:00?
+    // BGM 声音补全 v1.0（2026-08-09）：青禾镇白天播专属日常 BGM（夜晚保持观星音乐统一夜景氛围）
     const mHour = getTime().hour;
-    MusicSystem.play(mHour >= 19 || mHour < 5 ? 'stargaze_night' : 'farm_day');
+    if (this.mapKey === 'town' && mHour >= 5 && mHour < 19) {
+      MusicSystem.play('town');
+    } else {
+      MusicSystem.play(mHour >= 19 || mHour < 5 ? 'stargaze_night' : 'farm_day');
+    }
   }
 
   /**
@@ -1524,6 +1549,10 @@ export class MapScene extends Phaser.Scene {
         this.cameras.main.fadeOut(300, 0, 0, 0);
         const target = ex.target;
         const spawn = ex.spawn;
+        // 声音补全 v1.0（2026-08-09）：室内外进出播门开启音（户外路径切换不响，避免每张图都"门声"违和）
+        if (this.mapKey === 'house' || this.mapKey === 'elder_house' || target === 'house' || target === 'elder_house') {
+          play('door_open');
+        }
         this.cameras.main.once('camerafadeoutcomplete', () => {
           this.scene.start(target, { spawn });
         });
@@ -1672,6 +1701,8 @@ export class MapScene extends Phaser.Scene {
     
     // 显示提示并切换到村长家场景
     this.showDialogueText('村长不在镇上，去村长家看看？');
+    // 声音补全 v1.0（2026-08-09）：进村长家播门开启音
+    play('door_open');
     // 延迟后切换到村长家场景
     this.time.delayedCall(1000, () => {
       this.scene.start('elder_house', { spawn: { x: 5 * TILE_SIZE, y: 8 * TILE_SIZE } });
@@ -1978,6 +2009,8 @@ export class MapScene extends Phaser.Scene {
     this.firstMorningDone = true;
     triggerOnce('first_morning_response', () => {
       // ① 睡醒演出：窗外阳光旁白（鸟叫/风由 farm 白天 ambience 自动播放）
+      // 林澈个人曲（2026-08-09 制作人归档《The Waiting Shore》）：主角清晨独处的内心时刻
+      MusicSystem.play('linche_theme');
       showMemoryMoment('清晨。阳光从老屋的窗户透进来，外面传来鸟叫和风吹树叶的声音。');
       // ② 夏雅自动出现在老屋门口（老屋东侧空地，看着农田；避开 oldHouseRestore 锚点 col11,row20 与 house 出口）
       const T = TILE_SIZE;
@@ -1992,6 +2025,9 @@ export class MapScene extends Phaser.Scene {
       // ③ 演出后自动播对白（不等玩家靠近）
       this.time.delayedCall(2600, () => {
         if (this.inStargazeCutscene) return; // P1 守卫：观星夜演出中不播清晨对白（验收遗留，2026-08-08）
+        // 林澈个人曲仅属于主角独处时刻——夏雅对白开始（世界的声音回来）即恢复农场场景 BGM
+        const h = getTime().hour;
+        MusicSystem.play(h >= 19 || h < 5 ? 'stargaze_night' : 'farm_day');
         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
         this.storyDialogue.play(FIRST_MORNING_RESPONSE_DIALOGUE, () => {
           // ④ 对白结束：注入复兴引导任务（收获/种植/清理）→ 刷新面板/HUD → 存档（含 triggerOnce 状态）
@@ -3293,10 +3329,16 @@ export class MapScene extends Phaser.Scene {
       if (!tree) continue;
       const cx = pos.col * TILE_SIZE + TILE_SIZE / 2;
       const cy = pos.row * TILE_SIZE + TILE_SIZE / 2;
+      // 美术升级 2026-08-09：树有大有小——(col+row)%3===0 的树用大树（树冠占 2 格宽），其余小树交替阔叶/松
+      const isBig = !tree.isStump && (pos.col + pos.row) % 3 === 0;
       const textureKey = tree.isStump
         ? 'stump'
-        : (pos.col + pos.row) % 2 === 0 ? 'tree1' : 'tree2';
+        : isBig
+          ? 'tree_big'
+          : (pos.col + pos.row) % 2 === 0 ? 'tree1' : 'tree2';
+      // 大树：锚点底部中心（树冠向上展开 2 格宽视觉），显示 32×32；碰撞仅底部树格 1 格（不堵 2 格路）
       const sprite = this.add.image(cx, cy, textureKey);
+      if (isBig) sprite.setOrigin(0.5, 1);
       sprite.setScale(0.5);
       sprite.setDepth(4);
       // 静态物理体（树桩也建 body，便于 3 天后恢复为树时重新启用碰撞）
@@ -3311,7 +3353,10 @@ export class MapScene extends Phaser.Scene {
           this.scheduleStumpFade(sprite, tree);
         }
       } else {
-        // 树木碰撞
+        // 树木碰撞：小树 1 格；大树收窄到底部树格（sprite 显示 32×32 锚点底中：树格=相对左上 offset(8,24) 的 16×16）
+        if (isBig) {
+          (sprite.body as Phaser.Physics.Arcade.StaticBody).setSize(16, 16, false).setOffset(8, 24);
+        }
         this.physics.add.collider(this.player, sprite);
       }
       this.treeSprites.set(`${pos.col},${pos.row}`, sprite);
@@ -4247,6 +4292,87 @@ export class MapScene extends Phaser.Scene {
     }
   }
 
+  // ============ v1.0 生活仪式感：普通动作即时反馈（零资源 Graphics/emoji，tween 自动销毁） ============
+
+  /** 锄地土屑：6 颗土色颗粒向两侧扇形喷出 + 渐隐（每次锄地） */
+  private soilDust(worldX: number, worldY: number): void {
+    const COLORS = [0x8a6a42, 0x6a4a28, 0x9a7a50];
+    for (let i = 0; i < 6; i++) {
+      const p = this.add.circle(worldX, worldY, 1.8, COLORS[i % 3], 0.9);
+      p.setDepth(6);
+      const angle = Phaser.Math.FloatBetween(-Math.PI * 0.9, -Math.PI * 0.1);
+      const dist = Phaser.Math.Between(8, 16);
+      this.tweens.add({
+        targets: p,
+        x: worldX + Math.cos(angle) * dist,
+        y: worldY + Math.sin(angle) * dist - 3,
+        alpha: 0, scale: 0.3,
+        duration: Phaser.Math.Between(260, 460),
+        ease: 'Quad.Out',
+        onComplete: () => p.destroy(),
+      });
+    }
+  }
+
+  /** 播种落种：🌱 从上方落入土中 + 土粒覆盖 + 小芽短暂出现（每次播种，快速不打断） */
+  private seedDrop(worldX: number, worldY: number): void {
+    const seed = this.add.text(worldX, worldY - 14, '🌱', { fontSize: '13px' }).setOrigin(0.5).setDepth(7);
+    this.tweens.add({
+      targets: seed, y: worldY - 4, alpha: 0.9,
+      duration: 220, ease: 'Quad.In',
+      onComplete: () => seed.destroy(),
+    });
+    // 土粒覆盖（3 颗小土点落向落点）
+    for (let i = 0; i < 3; i++) {
+      const g = this.add.circle(worldX + Phaser.Math.Between(-5, 5), worldY - 8, 1.4, 0x7a5a38, 0.85);
+      g.setDepth(6);
+      this.tweens.add({
+        targets: g, y: worldY - 3, alpha: 0,
+        duration: 280, ease: 'Quad.In',
+        onComplete: () => g.destroy(),
+      });
+    }
+    // 小芽短暂出现（绿点 + 两片小叶，模拟"种下去了"）
+    const sprout = this.add.graphics();
+    sprout.fillStyle(0x5a8a3a, 0.95);
+    sprout.fillCircle(worldX, worldY - 6, 1.6);
+    sprout.fillRect(worldX - 1, worldY - 7.5, 1, 2.2);
+    sprout.fillRect(worldX + 0.6, worldY - 7.8, 1.2, 1.8);
+    sprout.setDepth(6);
+    this.tweens.add({
+      targets: sprout, alpha: 0, scaleY: 1.25,
+      duration: 460, ease: 'Quad.Out', delay: 120,
+      onComplete: () => sprout.destroy(),
+    });
+  }
+
+  /** 浇水湿润：格子深棕湿润色 overlay 渐隐（每次浇水，配合水花粒子） */
+  private moistDarken(worldX: number, worldY: number): void {
+    const wet = this.add.graphics();
+    wet.fillStyle(0x4a3018, 0.4);
+    wet.fillRoundedRect(worldX - 7, worldY - 7, 14, 14, 3);
+    wet.setDepth(4);
+    this.tweens.add({
+      targets: wet, alpha: 0,
+      duration: 320, ease: 'Quad.Out',
+      onComplete: () => wet.destroy(),
+    });
+  }
+
+  /** first moment 柔和高亮：格子圆形光晕渐隐（第一次锄地/播种用，500ms） */
+  private tileGlowHighlight(worldX: number, worldY: number, color = 0xffe082): void {
+    const glow = this.add.graphics();
+    glow.fillStyle(color, 0.55);
+    glow.fillCircle(worldX, worldY, 9);
+    glow.setDepth(5);
+    this.tweens.add({
+      targets: glow, alpha: 0, scale: 1.5,
+      duration: 520, ease: 'Quad.Out',
+      onComplete: () => glow.destroy(),
+    });
+  }
+
+
   /**
    * 批量浇水反馈：区域水波扩散（从 Plot 中心向外扩散的两圈圆环）
    * 替代 16 次逐格水花——一次操作感知"整块田都浇到了"。
@@ -4303,7 +4429,13 @@ export class MapScene extends Phaser.Scene {
     // T3.5 商店老板「镇子热闹了」：首次卖出作物后，白天对话触发（一次性）
     // 在欢迎剧本前注入入口对白（asked）或交付链（done），不抢走 shopkeeper 打开商店流程
     const shopSide = this.buildShopSideDialogue();
-    const finalLines = shopSide ? [...shopSide, ...lines] : lines;
+    // SHOP-01 商店复兴：老板「复兴度观察者」三阶段台词（档位推进才播，优先级低于 T3.5 事件链）
+    const revivalLines = this.buildShopRevivalDialogue();
+    const finalLines = shopSide
+      ? [...shopSide, ...(revivalLines ?? []), ...lines]
+      : revivalLines
+        ? [...revivalLines, ...lines]
+        : lines;
     this.storyDialogue.play(finalLines, () => {
       // BUG-041：神秘少女对白末尾「消失在林间」→ 对话完成隐藏精灵（演出层，不存档）
       if (npc.id === 'mystery') {
@@ -4373,6 +4505,32 @@ export class MapScene extends Phaser.Scene {
       }, 250);
     });
     return doneLines;
+  }
+
+  /**
+   * SHOP-01 商店复兴：老板「复兴度观察者」三阶段台词（2026-08-09 制作人拍板）
+   * - 档位 = getRevivalLevel()（Lv0 荒废 / Lv1 初步恢复 / Lv2 小型社区），三建设点派生
+   * - 只在档位推进时播一次（shopRevivalTier 入档，读档不重复）：
+   *   Lv0 首次开店 → 「好久没人买这么多东西了。」（冷清）
+   *   Lv1 到达     → 「最近镇上的人好像又多起来了。」（有人气）
+   *   Lv2 到达     → 「没想到这间店还能重新热闹起来。」（重新营业感）
+   * - 台词内联于 MapScene（StorySystem 冻结区单写者制，只读导入，不新增剧情数据）
+   */
+  private buildShopRevivalDialogue(): DialogueLine[] | null {
+    const tier = getRevivalLevel();
+    if (tier <= this.shopRevivalTier) return null;
+    this.shopRevivalTier = tier;
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    const lines: DialogueLine[] = tier === 0
+      ? [{ speaker: '商店老板', color: '#8ac8a0', text: '好久没人买这么多东西了。' }]
+      : tier === 1
+        ? [{ speaker: '商店老板', color: '#8ac8a0', text: '最近镇上的人好像又多起来了。' }]
+        : [{ speaker: '商店老板', color: '#8ac8a0', text: '没想到这间店还能重新热闹起来。' }];
+    return lines;
   }
 
   /**
@@ -4900,6 +5058,16 @@ export class MapScene extends Phaser.Scene {
    */
   private createStarField(): void {
     if (this.mapKey !== 'farm') return;
+    // P0 修复（2026-08-09）：farm 场景多次重进时，Phaser shutdown 会自动销毁场景内对象，
+    // 但 starTwinkle/stargazeDust/starCross 数组不会自动清空，残留已销毁的精灵/粒子引用。
+    // 观星夜 setStarFieldVisible 对悬垂 emitter 调 start() 会触发 Phaser resetCounters 的 null.fill 崩溃
+    // （probe-full-story-run 观星夜复现，堆栈：setStarFieldVisible → start → resetCounters）。
+    this.starTwinkle = [];
+    this.starCross = [];
+    this.stargazeDust = [];
+    this.stargazeMoon = null;
+    this.stargazeTownLights = null;
+    this.starField = null;
     const wb = this.physics.world.bounds;
     const W = wb.width;
     const H = wb.height;
@@ -6096,6 +6264,8 @@ export class MapScene extends Phaser.Scene {
       this.buildGardenRestored();
       markRestored('garden');
       triggerTag('restore_garden');
+      // 声音补全 v1.0（2026-08-09）：修复成功——"岛屿正在恢复"的成就感
+      play('repair_complete');
       // 归星录·相簿：完成「整理旧花园」→ 解锁《夏日花园》（幂等）
       if (!isPhotoUnlocked('summer_garden')) {
         unlockPhoto('summer_garden');
@@ -6256,6 +6426,8 @@ export class MapScene extends Phaser.Scene {
     spendCoins(100);
     markRestored('oldHouse');
     g.restored = true;
+    // 声音补全 v1.0（2026-08-09）：修复成功——老屋恢复的成就感
+    play('repair_complete');
     // FEATURE-041：老屋修复完成 → 归星记录「修复老屋」（木匠回归判定的状态条件之一）
     triggerTag('restore_oldhouse');
     this.buildOldHouseRestored();
@@ -6710,6 +6882,8 @@ export class MapScene extends Phaser.Scene {
     markRestored('forestRoad');
     g.restored = true;
     this.buildForestRoadRestored();
+    // 声音补全 v1.0（2026-08-09）：修复成功——后山道路恢复的成就感
+    play('repair_complete');
     // 里程碑入档：完成后立即保存（刷新/重进保持恢复态）
     save({
       x: this.player.x, y: this.player.y,
@@ -7040,6 +7214,8 @@ export class MapScene extends Phaser.Scene {
       const dx = this.player.x - this.letterXiya.x;
       const dy = this.player.y - this.letterXiya.y;
       if (dx * dx + dy * dy > R) return false;
+      // 声音补全 v1.0（2026-08-09）：《春深有信》专属音乐随剧情开场起播，D 段收尾恢复地图 BGM
+      MusicSystem.play('spring_letter');
       this.xiyaLetterAsked = true;
       this.xiyaLetterStage = 1;
       this.saveLetterFlags();
@@ -7057,6 +7233,8 @@ export class MapScene extends Phaser.Scene {
       const dx = this.player.x - this.letterFlowerMark.x;
       const dy = this.player.y - this.letterFlowerMark.y;
       if (dx * dx + dy * dy > R) return false;
+      // 声音补全 v1.0：剧情中途回归场景时补播专属音乐（A 段已起播/场景切换已 stop）
+      if (MusicSystem.current() !== 'spring_letter') MusicSystem.play('spring_letter');
       this.xiyaLetterStage = 2;
       this.saveLetterFlags();
       this.storyDialogue.play(XIYA_LETTER_FLOWER_DIALOGUE, () => {
@@ -7073,6 +7251,8 @@ export class MapScene extends Phaser.Scene {
       const dx = this.player.x - this.letterRecordMark.x;
       const dy = this.player.y - this.letterRecordMark.y;
       if (dx * dx + dy * dy > R) return false;
+      // 声音补全 v1.0：剧情中途回归场景时补播专属音乐
+      if (MusicSystem.current() !== 'spring_letter') MusicSystem.play('spring_letter');
       this.xiyaLetterStage = 3;
       this.saveLetterFlags();
       this.storyDialogue.play(XIYA_LETTER_RECORD_DIALOGUE, () => {
@@ -7098,6 +7278,9 @@ export class MapScene extends Phaser.Scene {
         this.clearLetterXiya();
         this.updateHUD();
         this.saveLetterFlags();
+        // 声音补全 v1.0（2026-08-09）：剧情收尾恢复农场地图 BGM（白天 farm_day / 夜晚 stargaze_night）
+        const t = getTime().hour;
+        MusicSystem.play(t >= 19 || t < 5 ? 'stargaze_night' : 'farm_day');
       });
       return true;
     }
@@ -7548,8 +7731,11 @@ export class MapScene extends Phaser.Scene {
       this.showDialogueText('把机器人放在农田边上吧。');
       return false;
     }
-    if (getTileState(pc, pr) !== 'empty') {
-      this.showDialogueText('这里已经有东西了，换个位置。');
+    // BUG-046 修复（2026-08-09）：已开垦（tilled）的空地应允许部署——机器人是"放在田边照顾整片田"，
+    // 玩家先开垦再放机器人的自然流程必须成立；仅拒绝"格子上已有作物"（planted/watered，机器人不能压作物）。
+    const st = getTileState(pc, pr);
+    if (st === 'planted' || st === 'watered') {
+      this.showDialogueText('这里种了东西，换个位置。');
       return false;
     }
     if (getRobotAt(pc, pr)) {
@@ -8023,6 +8209,7 @@ export class MapScene extends Phaser.Scene {
       }
       if (this.tillTileAt(col, row)) {
         play('hoe');
+        this.soilDust(tileCenterX, tileCenterY); // v1.0 土屑粒子（普通锄地即时反馈）
         this.showFloatText(tileCenterX, tileCenterY, '锄地');
       }
     } else if (state === 'tilled') {
@@ -8033,6 +8220,7 @@ export class MapScene extends Phaser.Scene {
         // 选中的种子有库存，直接种
         if (this.plantTileAt(col, row, this.selectedCropType)) {
           play('plant');
+          this.seedDrop(tileCenterX, tileCenterY); // v1.0 落种反馈（每次播种）
           this.showFloatText(tileCenterX, tileCenterY, `${CROP_DEFS[this.selectedCropType].icon} ${CROP_DEFS[this.selectedCropType].name} · 🌱种子-1`, '#ffe082');
           this.updateDailyQuestPanel();
         }
@@ -8055,6 +8243,7 @@ export class MapScene extends Phaser.Scene {
           // 只有一种可用种子 → 直接种（不打断）
           if (this.plantTileAt(col, row, availableSeeds[0].cropType)) {
             play('plant');
+            this.seedDrop(tileCenterX, tileCenterY); // v1.0 落种反馈
             this.showFloatText(tileCenterX, tileCenterY, `${CROP_DEFS[availableSeeds[0].cropType].icon} ${CROP_DEFS[availableSeeds[0].cropType].name} · 🌱种子-1`, '#ffe082');
             this.updateDailyQuestPanel();
           }
@@ -8079,6 +8268,7 @@ export class MapScene extends Phaser.Scene {
       if (this.waterTileAt(col, row)) {
         play('water');
         this.waterSplash(tileCenterX, tileCenterY); // 制作人反馈：手机端浇水特效不明显 → 水花粒子增强
+        this.moistDarken(tileCenterX, tileCenterY); // v1.0 土壤湿润色变反馈
         this.showFloatText(tileCenterX, tileCenterY, '浇水');
         this.updateDailyQuestPanel();
       }
@@ -8111,6 +8301,13 @@ export class MapScene extends Phaser.Scene {
     if (getItemCount('old_hoe') <= 0) return false;
     setTileState(col, row, 'tilled');
     this.checkTutorialProgress('till');
+    // v1.0 生活仪式感：第一次锄地（一次性，mapFlags 入档；地块柔和高亮 + 极短 inner ≤1s）
+    if (!this.firstHoe) {
+      this.firstHoe = true;
+      triggerTag('first_hoe');
+      this.tileGlowHighlight(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2);
+      showMemoryMoment('原来土地是这样的感觉。');
+    }
     return true;
   }
 
@@ -8123,11 +8320,25 @@ export class MapScene extends Phaser.Scene {
     setTileState(col, row, 'planted');
     setCrop(col, row, { cropType, plantDay: getTime().day, watered: false });
     addXp(3, 'plant');
-    if (!getTriggeredTags().has('first_plant')) {
+    if (!this.firstPlant) {
+      this.firstPlant = true;
       triggerTag('first_plant');
+      // v1.0 生活仪式感：第一次播种——地块柔和高亮（memoryMoment/提示沿用已有，不新增台词）
+      this.tileGlowHighlight(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, 0xa8e6a0);
       showMemoryMoment('城市里的人已经很久没有亲手种下一颗种子了。');
       // T2-1 Day1 引导链：播种 → 成长 → 出售 → 修复（底部提示条，4 秒自动消失，不打断）
       this.showDialogueText('种下了……等它长大，收成能换钱修镇上的旧东西。');
+      // 80分灵感① 第一株作物纪念：归星录·相簿解锁《第一株新生命》（幂等，随 album 入档）
+      if (!isPhotoUnlocked('first_crop')) {
+        unlockPhoto('first_crop');
+        this.notifyPhotoUnlocked('first_crop');
+        // 纪念解锁立即入档（日常播种不保存，但"第一次"值得立即持久化，防播种后立刻刷新丢失）
+        save({
+          x: this.player.x, y: this.player.y,
+          scene: this.mapKey, facing: this.player.facing,
+          dailyQuest: getDailyQuestSaveData(),
+        } as any);
+      }
     }
     onDQPlant();
     this.checkTutorialProgress('sow');
@@ -8144,6 +8355,12 @@ export class MapScene extends Phaser.Scene {
     addXp(1, 'water');
     onDQWater();
     this.checkTutorialProgress('water');
+    // v1.0 生活仪式感：第一次浇水（一次性，mapFlags 入档；复用已有台词，不新增文本）
+    if (!this.firstWater) {
+      this.firstWater = true;
+      triggerTag('first_water');
+      showMemoryMoment('有些东西不会马上改变，但每天照顾一点，就会慢慢回来。');
+    }
     return true;
   }
 
@@ -8159,12 +8376,24 @@ export class MapScene extends Phaser.Scene {
     onDQHarvest(cropType);
     // v0.5.3 剧情密度 E2：第一次收获反馈（一次性，夏雅口头肯定，不影响收获本身）
     // v0.10.3：首次收获升级为"情绪瞬间"——轻音效 + 角色停顿表现 + 对白延迟（复用 firstHarvestShown，不新增存档/系统/剧情）
+    // v1.0：+作物镜头（0.9s）——收获物放大→上浮→渐隐，"作物本身成为记忆镜头"（不破坏移动流畅）
     if (!this.firstHarvestShown) {
       this.firstHarvestShown = true;
       triggerTag('first_harvest');
       // ① 风铃/木叶轻响（区别于普通 harvest 三连音，低音量一次性）
       play('harvest_first');
-      // ② 角色停顿表现（短促 scale 脉冲，body 为固定 24×24 不受影响；不阻塞输入/update）
+      // ② 作物镜头（0.9s）：收获物在格子上放大上浮渐隐，随后进入背包——"作物本身成为记忆镜头"
+      const cropShotIcon = CROP_DEFS[cropType]?.icon ?? '🥕';
+      const cx = col * TILE_SIZE + TILE_SIZE / 2;
+      const cy = row * TILE_SIZE + TILE_SIZE / 2;
+      const cropShot = this.add.text(cx, cy, cropShotIcon, { fontSize: '22px' }).setOrigin(0.5).setDepth(8);
+      this.tweens.add({
+        targets: cropShot,
+        scale: 1.9, y: cy - 16, alpha: 0,
+        duration: 900, ease: 'Sine.out',
+        onComplete: () => cropShot.destroy(),
+      });
+      // ③ 角色停顿表现（短促 scale 脉冲，body 为固定 24×24 不受影响；不阻塞输入/update）
       // 注意：玩家原始 scale=0.5，必须基于当前 scale 做相对脉冲，不能写死 1
       const baseScale = this.player.scaleX;
       this.tweens.add({
@@ -8174,7 +8403,7 @@ export class MapScene extends Phaser.Scene {
         onComplete: () => this.player.setScale(baseScale, baseScale),
       });
       showMemoryMoment('小时候爷爷告诉我，土地不会辜负认真照料它的人。');
-      // ③ 320ms 轻停顿后再弹夏雅对白（"角色看了看手里的东西"的节奏，不打断玩家操作）
+      // ④ 320ms 轻停顿后再弹夏雅对白（"角色看了看手里的东西"的节奏，不打断玩家操作）
       this.time.delayedCall(320, () => {
         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
         this.storyDialogue.play(FIRST_HARVEST_DIALOGUE, () => {
@@ -8222,6 +8451,7 @@ export class MapScene extends Phaser.Scene {
     }
     if (n > 0) {
       play('hoe'); // 批量只播一次音效（不 16 次）
+      this.soilDust(center.x, center.y); // v1.0 批量锄地土屑（center 一次，不逐格）
       this.showFloatText(center.x, center.y, `锄地 ×${n}`, '#ffe082');
     }
     this.refreshPlotVisual(plotId);
@@ -8258,6 +8488,7 @@ export class MapScene extends Phaser.Scene {
     }
     if (planted > 0) {
       play('plant');
+      this.seedDrop(center.x, center.y); // v1.0 批量落种反馈（center 一次）
       this.showFloatText(center.x, center.y, `播种 ×${planted}`, '#ffe082');
       this.updateDailyQuestPanel();
     } else {
@@ -8284,6 +8515,7 @@ export class MapScene extends Phaser.Scene {
     if (n > 0) {
       play('water');
       this.plotWaterRipple(plotId); // 区域水波扩散（替代逐格水花）
+      this.moistDarken(center.x, center.y); // v1.0 批量湿润色变（center 一次）
       this.showFloatText(center.x, center.y, `浇水 ×${n}`, '#64b5f6');
       this.updateDailyQuestPanel();
     }

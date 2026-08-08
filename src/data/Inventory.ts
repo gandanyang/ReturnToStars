@@ -5,7 +5,9 @@
  */
 
 /** 物品类型 */
-export type ItemType = 'radish' | 'tomato' | 'corn' | 'strawberry' | 'radish_seed' | 'tomato_seed' | 'corn_seed' | 'strawberry_seed' | 'star_shard' | 'diamond' | 'stone' | 'copper' | 'iron' | 'manor_key' | 'old_hoe' | 'old_watering_can' | 'old_axe' | 'wood' | 'auto_farmer_robot';
+export type ItemType = 'radish' | 'tomato' | 'corn' | 'strawberry' | 'radish_seed' | 'tomato_seed' | 'corn_seed' | 'strawberry_seed' | 'star_shard' | 'diamond' | 'stone' | 'copper' | 'iron' | 'manor_key' | 'old_hoe' | 'old_watering_can' | 'old_axe' | 'wood' | 'auto_farmer_robot'
+  // SHOP-01 青禾镇商店复兴（2026-08-09）：岛屿修复类 + 生活装饰类商品
+  | 'flower_seedling' | 'lantern' | 'wood_sign';
 
 /** 出售优先级标签（FEATURE-039 智能出售） */
 export type SellPriority = 'normal' | 'reserve' | 'forbidden';
@@ -43,6 +45,10 @@ export const ITEM_DEFS: Record<ItemType, ItemDef> = {
   old_axe: { id: 'old_axe', name: '旧斧头', desc: '一把生锈的斧头，砍几棵树应该没问题。', icon: '🪓', sellPriority: 'forbidden' },
   wood: { id: 'wood', name: '木材', desc: '砍树获得的木材，可用于建筑或出售。', icon: '🪵', sellPriority: 'reserve' },
   auto_farmer_robot: { id: 'auto_farmer_robot', name: '自动农业机器人', desc: '放置在农田附近，每天清晨自动浇水、自动收获成熟作物。', icon: '🤖', sellPriority: 'forbidden' },
+  // SHOP-01 商店复兴商品（2026-08-09，制作人拍板）
+  flower_seedling: { id: 'flower_seedling', name: '旧花苗', desc: '有人曾经精心照料过它。', icon: '🌷', sellPriority: 'forbidden' },
+  lantern: { id: 'lantern', name: '小灯笼', desc: '暖黄色的光，照亮回家的路。', icon: '🏮', sellPriority: 'forbidden' },
+  wood_sign: { id: 'wood_sign', name: '木牌', desc: '可以写上字，也可以什么都不写。', icon: '🪧', sellPriority: 'forbidden' },
 };
 
 /** 库存数据：物品类型 → 数量 */
@@ -66,6 +72,9 @@ const inventory: Record<ItemType, number> = {
   old_axe: 0,
   wood: 0,
   auto_farmer_robot: 0,
+  flower_seedling: 0,
+  lantern: 0,
+  wood_sign: 0,
 };
 
 /** 读取某物品数量 */

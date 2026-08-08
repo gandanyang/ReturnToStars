@@ -23,17 +23,19 @@ type AmbientName =
   | 'voices'    // 小镇人声底噪
   | 'water'     // 水声
   | 'warmth'    // 屋内暖声
-  | 'rain';     // 雨天环境音
+  | 'rain'      // 雨天环境音
+  | 'waves';    // 远处海浪（P1 环境音 2026-08-09：农场"远处海声"）
 
 /** 每张地图的环境音组合 */
 const MAP_AMBIENT: Record<string, { day: AmbientName[]; night: AmbientName[] }> = {
-  farm:    { day: ['birds', 'wind'],        night: ['crickets', 'wind'] },
-  forest:  { day: ['birds', 'leaves'],      night: ['crickets', 'leaves'] },
-  mine:    { day: ['mine'],                 night: ['mine'] },
-  town:    { day: ['voices', 'wind'],       night: ['crickets'] },
-  gate:    { day: ['wind'],                 night: ['wind', 'crickets'] },
-  station: { day: ['wind'],                 night: ['wind'] },
-  house:   { day: ['warmth'],               night: ['warmth'] },
+  farm:    { day: ['birds', 'wind', 'waves'],  night: ['crickets', 'wind'] },
+  forest:  { day: ['birds', 'leaves'],         night: ['crickets', 'leaves'] },
+  mine:    { day: ['mine'],                    night: ['mine'] },
+  // P1 环境音 2026-08-09：青禾镇白天补鸟叫（镇子有鸟）；犬/猫叫为事件音不进循环组合
+  town:    { day: ['voices', 'wind', 'birds'], night: ['crickets'] },
+  gate:    { day: ['wind'],                    night: ['wind', 'crickets'] },
+  station: { day: ['wind'],                    night: ['wind'] },
+  house:   { day: ['warmth'],                  night: ['warmth'] },
 };
 
 /** 有雨天气的室外地图（矿洞/屋内/车站有顶，不下雨） */
@@ -202,6 +204,88 @@ function scheduleBird(): void {
   next();
 }
 
+// ===== P1 环境音（2026-08-09 制作人"环境音交给你"）：海鸥/犬吠/猫叫 事件音 =====
+
+/** 海鸥叫：高频下滑啁啾（sine 滑音，比普通鸟叫更"滑"更尖） */
+function seagullChirp(): void {
+  const c = getCtx();
+  const t0 = c.currentTime;
+  const osc = c.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(1500 + Math.random() * 200, t0);
+  osc.frequency.linearRampToValueAtTime(900 + Math.random() * 150, t0 + 0.18);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(0.028, t0 + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+  osc.connect(g); g.connect(c.destination);
+  osc.start(t0); osc.stop(t0 + 0.25);
+}
+
+/** 犬吠：2-3 声低频短 burst（锯齿下滑，比高频鸟叫厚重，符合"远处生活感"） */
+function barkSound(): void {
+  const count = 2 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < count; i++) {
+    const c = getCtx();
+    const t0 = c.currentTime + i * 0.26 + Math.random() * 0.05;
+    const osc = c.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(190, t0);
+    osc.frequency.linearRampToValueAtTime(95, t0 + 0.12);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.04, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.18);
+    osc.connect(g); g.connect(c.destination);
+    osc.start(t0); osc.stop(t0 + 0.2);
+  }
+}
+
+/** 猫叫：短促上行-下行滑音（meow 的两段式） */
+function meowSound(): void {
+  const c = getCtx();
+  const t0 = c.currentTime;
+  const osc = c.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(420, t0);
+  osc.frequency.linearRampToValueAtTime(640, t0 + 0.16);
+  osc.frequency.linearRampToValueAtTime(470, t0 + 0.34);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(0.03, t0 + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.4);
+  osc.connect(g); g.connect(c.destination);
+  osc.start(t0); osc.stop(t0 + 0.42);
+}
+
+/** 通用事件音调度链（P1 2026-08-09）：按地图+昼夜随机播 鸟/海鸥/犬吠/猫叫 */
+function scheduleEvents(): void {
+  const myToken = scheduleToken;
+  const next = (ms: number) => setTimeout(() => {
+    if (stopped || scheduleToken !== myToken) return;
+    scheduleEvents();
+  }, ms);
+
+  if (stopped || !activeMap) return;
+  if (currentNight) { next(8000 + Math.random() * 6000); return; } // 夜晚无声事件（虫鸣循环已覆盖）
+
+  if (activeMap === 'farm') {
+    // 农场白天：鸟为主，偶尔海鸥（远处海声呼应）
+    if (Math.random() < 0.7) { scheduleBird(); next(4000 + Math.random() * 5000); }
+    else { seagullChirp(); next(15000 + Math.random() * 12000); }
+  } else if (activeMap === 'forest') {
+    scheduleBird(); next(4000 + Math.random() * 5000);
+  } else if (activeMap === 'town') {
+    // 镇子白天：鸟 50% / 犬吠 35% / 猫叫 15%（"偶尔犬/猫叫"的生活感）
+    const r = Math.random();
+    if (r < 0.5) { scheduleBird(); next(4000 + Math.random() * 5000); }
+    else if (r < 0.85) { barkSound(); next(18000 + Math.random() * 15000); }
+    else { meowSound(); next(22000 + Math.random() * 18000); }
+  } else {
+    next(8000 + Math.random() * 6000);
+  }
+}
+
 /** 启动环境音（进入地图时调用） */
 export function start(mapKey: string, hour: number): void {
   stop();
@@ -246,6 +330,10 @@ export function start(mapKey: string, hour: number): void {
         // 雨声：中频噪声 + 快速起伏（模拟雨滴连续感）
         playing.push(loopSource('noise', { filterFreq: 2000, volume: 0.04, lfoHz: 0.8, lfoDepth: 0.35 }));
         break;
+      case 'waves':
+        // P1 远处海浪：低通噪声 + 极低频大起伏（0.07Hz ≈ 14s 一个浪头，浪涌感）
+        playing.push(loopSource('noise', { filterFreq: 320, volume: 0.03, lfoHz: 0.07, lfoDepth: 0.75 }));
+        break;
     }
   }
 
@@ -254,11 +342,10 @@ export function start(mapKey: string, hour: number): void {
     setRain(true);
   }
 
-  // 鸟叫调度（仅 farm/forest 白天）：链式 setTimeout，4-9s 随机间隔，避免机械节拍
-  if (list.includes('birds')) {
-    scheduleToken++;
-    scheduleBird();
-  }
+  // P1 环境音事件链（2026-08-09）：farm/forest 白天鸟叫、farm 海鸥、town 鸟/犬吠/猫叫
+  // 由 scheduleEvents 按 activeMap 分发；夜晚自动跳过（虫鸣循环已覆盖）
+  scheduleToken++;
+  scheduleEvents();
 }
 
 /**
