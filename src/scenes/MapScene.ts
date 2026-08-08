@@ -5119,12 +5119,12 @@ export class MapScene extends Phaser.Scene {
     this.time.delayedCall(6200, () => this.spawnShootingStar());
     this.time.delayedCall(10200, () => this.spawnShootingStar());
     // v2 镜头三段（克制版，纯 pan 零 zoom——farm 640×400 右下角拉远会露背景灰边）：
-    // 段1 近景（2s）：pan 至观星点偏左上 20px ——"抬头看天"（终点上抬，末段模拟抬头）
-    this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y - 20, 2000, () => {
+    // 段1 近景（2s）：pan 至观星点中心——"抬头看天"（玩家原位与观星点近，天然抬头幅度）
+    this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 2000, () => {
       // 段2 中景（3s）：pan 看向农田/老屋方向——"我刚刚做的事情留在这个世界里"
       this.panCameraTo(400, 220, 3000, () => {
-        // 段3 远景（3s）：pan 回观星点上抬位 + 星空展开——小镇灯光淡入 + 亮度脉冲 + 流星
-        this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y - 20, 3000, () => {
+        // 段3 远景（3s）：pan 回观星点中心 + 星空展开——小镇灯光淡入 + 亮度脉冲 + 流星
+        this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 3000, () => {
           // 小镇灯光淡入（远景地平线亮起——"青禾镇还亮着"）
           if (this.stargazeTownLights) {
             this.stargazeTownLights.setVisible(true).setAlpha(0);
@@ -5132,15 +5132,19 @@ export class MapScene extends Phaser.Scene {
           }
           // 星空亮度脉冲一次（"爷爷记忆里的星空"）
           this.tweens.add({ targets: this.starField, alpha: 0.72, duration: 700, yoyo: true, ease: 'Sine.out' });
-          // v2 对话阶段：一次极慢横移 30px / 8s（打破静止，不切机位——镜头开始"活着"）
-          // 从当前滚动位置慢右移；分支独白 zoom 开始前会 stop（避免与 zoom 冲突）
+          // v2 对话阶段：绕观星点中心极慢横移（±12px 往返，1.6s 一个周期，持续到分支独白）
+          // 不单向漂移（会逐渐把观星点推出屏幕中心）——保持"画面中央=观星点"的前提下轻微呼吸
           const cam = this.cameras.main;
+          const baseX = cam.scrollX;
           this.stargazeDriftTween = this.tweens.add({
             targets: cam,
-            scrollX: cam.scrollX + 30,
-            duration: 8000,
-            ease: 'Linear',
+            scrollX: baseX + 12,
+            duration: 1600,
+            ease: 'Sine.inOut',
+            yoyo: true,
+            repeat: -1,
           });
+          // 分支独白 zoom 开始前会 stop（避免与 zoom 冲突），停时回到 baseX 附近
           // 镜头到位后显示记忆片段 + 开始对话
           showMemoryMoment('这片星空，和爷爷记忆里的一样。');
           this.storyDialogue?.play(
@@ -5196,7 +5200,7 @@ export class MapScene extends Phaser.Scene {
   private playStargazeAfter(branch: DialogueLine[]): void {
     if (!this.storyDialogue) return;
     // v2 分支独白：镜头拉近（2.0→2.15，1.5s）聚焦角色（以观星点为中心，配合上抬位）
-    this.zoomCameraAt(this.STARGAZE_POS.x, this.STARGAZE_POS.y - 20, 2.15, 1500);
+    this.zoomCameraAt(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 2.15, 1500);
     this.storyDialogue.play(branch, () => {
       this.storyDialogue!.play(DEMO_ENDING_FINALE, () => {
         // v2 分支独白结束后镜头缓缓拉回 2.0（晨曦全景），zoom 复位避免状态残留
@@ -5210,7 +5214,7 @@ export class MapScene extends Phaser.Scene {
           onUpdate: () => {
             cam.zoom = p2.z;
             cam.scrollX = this.STARGAZE_POS.x - cam.width / (2 * cam.zoom);
-            cam.scrollY = this.STARGAZE_POS.y - 20 - cam.height / (2 * cam.zoom);
+            cam.scrollY = this.STARGAZE_POS.y - cam.height / (2 * cam.zoom);
           },
         });
         // v2 第一缕阳光：晨曦中段（1.6s）地平线斜向一道淡金线扫过 1.5s（"新一天的第一束光"）
