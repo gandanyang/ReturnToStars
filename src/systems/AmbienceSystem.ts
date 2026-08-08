@@ -343,9 +343,11 @@ export function start(mapKey: string, hour: number): void {
   }
 
   // P1 环境音事件链（2026-08-09）：farm/forest 白天鸟叫、farm 海鸥、town 鸟/犬吠/猫叫
-  // 由 scheduleEvents 按 activeMap 分发；夜晚自动跳过（虫鸣循环已覆盖）
-  scheduleToken++;
-  scheduleEvents();
+  // 仅白天启动（夜晚由虫鸣循环覆盖，事件音静默）；scheduleEvents 按 activeMap 分发
+  if (!isNight(hour)) {
+    scheduleToken++;
+    scheduleEvents();
+  }
 }
 
 /**
