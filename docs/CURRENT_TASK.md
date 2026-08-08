@@ -23,8 +23,8 @@
 
 ### 验收遗留（下次开工优先，均未动代码）
 
-- ⚠️ 观星夜防御缺口：`MapScene.ts:1872` 清晨对白 delayedCall 缺 `inStargazeCutscene` 二次守卫（P1）
-- ⚠️ 探针陈旧：`probe-first-playtest-audit.mjs` 未适配后山两段式，建议修复或归档（P2）
+- ⚠️ 观星夜防御缺口：`MapScene.ts:1872` 清晨对白 delayedCall 缺 `inStargazeCutscene` 二次守卫（P1）—— ✅ 已修（commit `a51664d`，连同木匠/阿风两处同源守卫）
+- ⚠️ 探针陈旧：`probe-first-playtest-audit.mjs` 未适配后山两段式，建议修复或归档（P2）—— ⏳ 待定（`probe-stargaze` 已修时序并 14/14）
 
 ### 下一阶段方向（制作人拍板）
 
