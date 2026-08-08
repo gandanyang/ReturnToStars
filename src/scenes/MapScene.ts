@@ -421,6 +421,10 @@ export class MapScene extends Phaser.Scene {
   private starField: Phaser.GameObjects.Graphics | null = null;
   private starTwinkle: Phaser.GameObjects.Ellipse[] = [];
   private starFieldVisible = false;
+  // v0.10.4 远景小镇灯光（观星夜远景装饰，与星空同显同隐）
+  private stargazeTownLights: Phaser.GameObjects.Graphics | null = null;
+  // v0.10.4 观星夜演出互斥：镜头演出期间抑制其他自动演出（FIRST_MORNING/阿风），防止抢占观星对白
+  private inStargazeCutscene = false;
   /** 小地图（宽高小于相机视野）居中标记：不跟随、每帧保持居中 */
   private centerSmallMap = false;
   private lastQuestObj: string = '';
@@ -1137,10 +1141,26 @@ export class MapScene extends Phaser.Scene {
    * 额外偏移 width/2*(1-1/zoom)（zoom=2, width=1299 时偏 324.75px），
    * 观星夜演出画面整体偏向右下（#29 反推时的错误前提，2026-08-08 修复）。
    */
+  /**
+   * 相机平滑移动到世界坐标 (wx, wy)（相机中心）。
+   * v0.10.4 重写：改用 tween + 手动 zoom 补偿——原实现 cam.pan 有两个缺陷：
+   * ① Phaser Pan 的 destScroll 换算不含 zoom（zoom2 时 pan(504,232) 实际中心只有 304，#29 说的
+   *    "zoom 补偿"其实从未实现 → 观星点从未真正居中，画面偏左）；
+   * ② 链式 pan（回调里再发新 pan）会被 force=false 吞掉（旧 pan 尚 isRunning 时新 pan 直接 return）
+   *    → 观星夜镜头三段回调链断裂，后段不执行。
+   * 现实现：tween cam.scrollX/Y，目标 = wx - width/(2*zoom)，链式靠 tween onComplete，无 force 问题。
+   */
   private panCameraTo(wx: number, wy: number, duration: number, onComplete?: () => void): void {
     const cam = this.cameras.main;
-    cam.pan(wx, wy, duration, 'Power2', false, (_c: unknown, progress: number) => {
-      if (progress === 1) onComplete?.();
+    const destX = wx - cam.width / (2 * cam.zoom);
+    const destY = wy - cam.height / (2 * cam.zoom);
+    this.tweens.add({
+      targets: cam,
+      scrollX: destX,
+      scrollY: destY,
+      duration,
+      ease: 'Power2',
+      onComplete: () => onComplete?.(),
     });
   }
 
@@ -1845,6 +1865,7 @@ export class MapScene extends Phaser.Scene {
    */
   private tryFirstMorningSequence(): void {
     if (this.mapKey !== 'farm') return;
+    if (this.inStargazeCutscene) return; // v0.10.4 观星夜演出中不触发
     if (!isTutorialDone()) return;
     if (getTime().day < 2) return;
     if (hasTriggered('first_morning_response')) return;
@@ -1865,6 +1886,7 @@ export class MapScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(6);
       // ③ 演出后自动播对白（不等玩家靠近）
       this.time.delayedCall(2600, () => {
+        if (this.inStargazeCutscene) return; // P1 守卫：观星夜演出中不播清晨对白（验收遗留，2026-08-08）
         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
         this.storyDialogue.play(FIRST_MORNING_RESPONSE_DIALOGUE, () => {
           // ④ 对白结束：注入复兴引导任务（收获/种植/清理）→ 刷新面板/HUD → 存档（含 triggerOnce 状态）
@@ -1910,6 +1932,7 @@ export class MapScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(6);
       // ③ 演出后自动播对白（不等玩家靠近）
       this.time.delayedCall(2600, () => {
+        if (this.inStargazeCutscene) return; // P1 守卫：观星夜演出中不播木匠回归对白（同 first-morning）
         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
         this.storyDialogue.play(CARPENTER_RETURN_DIALOGUE, () => {
           // ④ 对白结束：木匠成为常驻 NPC → 刷新 HUD → 存档（含 triggerOnce 状态）
@@ -1933,6 +1956,7 @@ export class MapScene extends Phaser.Scene {
    */
   private tryAdventurerWelcome(): void {
     if (this.mapKey !== 'farm') return;
+    if (this.inStargazeCutscene) return; // v0.10.4 观星夜演出中不触发
     if (!isTutorialDone()) return;
     if (!isCh1TownIntroDone()) return;
     if (hasTriggered('adventurer_welcome_back')) return;
@@ -1951,6 +1975,7 @@ export class MapScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(6);
       // 演出后自动播对白（不等玩家靠近）
       this.time.delayedCall(1800, () => {
+        if (this.inStargazeCutscene) return; // P1 守卫：观星夜演出中不播阿风欢迎对白（同 first-morning）
         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
         this.storyDialogue.play(ADVENTURER_WELCOME_BACK_DIALOGUE, () => {
           // 对白结束：阿风离开（移除演出精灵）→ 刷新 HUD → 存档（含 triggerOnce 状态）
@@ -4793,6 +4818,27 @@ export class MapScene extends Phaser.Scene {
     this.starField.lineTo(W * 0.3, 0);
     this.starField.closePath();
     this.starField.fillPath();
+    // v0.10.4 银河叠淡蓝带（A 档：更"银河"感——真实夜晚而非幻想，0.04 蓝叠加白带）
+    this.starField.fillStyle(0x8fb8ff, 0.04);
+    this.starField.beginPath();
+    this.starField.moveTo(W * 0.22, 0);
+    this.starField.lineTo(W * 0.42, H);
+    this.starField.lineTo(W * 0.58, H);
+    this.starField.lineTo(W * 0.32, 0);
+    this.starField.closePath();
+    this.starField.fillPath();
+    // v0.10.4 远景小镇灯光（观星夜远景：地平线一排暖黄光点——"青禾镇还亮着"，纯装饰）
+    // 与星空同显同隐（setStarFieldVisible 同步）
+    this.stargazeTownLights = this.add.graphics();
+    this.stargazeTownLights.fillStyle(0xffddaa, 0.85);
+    const townY = H * 0.62;
+    for (let i = 0; i < 9; i++) {
+      const lx = W * (0.30 + 0.44 * (i / 8)) + (rand() - 0.5) * 6;
+      const ly = townY + (rand() - 0.5) * 4;
+      this.stargazeTownLights.fillCircle(lx, ly, 1 + rand() * 0.8);
+    }
+    this.stargazeTownLights.setDepth(15); // 与星空底同层，低于闪烁星(16)
+    this.stargazeTownLights.setVisible(false);
     // 动态星点（20~40 颗闪烁）
     this.starTwinkle = [];
     for (let i = 0; i < 30; i++) {
@@ -4813,6 +4859,8 @@ export class MapScene extends Phaser.Scene {
   private setStarFieldVisible(visible: boolean): void {
     this.starFieldVisible = visible;
     if (this.starField) this.starField.setVisible(visible);
+    // v0.10.4 远景小镇灯光与星空同显同隐
+    if (this.stargazeTownLights) this.stargazeTownLights.setVisible(visible);
     this.setStarTwinkleVisible(visible);
   }
 
@@ -4894,11 +4942,13 @@ export class MapScene extends Phaser.Scene {
   /** 观星夜触发主体（原 tryStargaze 后半段）：标记终态 + 播放收尾剧情 */
   private startStargaze(): void {
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.inStargazeCutscene = true; // v0.10.4 演出互斥：镜头期间抑制其他自动演出
     markObservatoryComplete();
     triggerTag('stargaze_night');
     MusicSystem.play('stargaze_final');
     play('stargaze'); // 观星夜演出音效（试玩-14）
-    // 显示星空（MVP：静态星野底 + 星点闪烁）
+    play('wind');     // v0.10.4 微风：树叶沙沙 + 远处虫鸣（低音量一次性，约 20% 强度）
+    // 显示星空（v0.10.4 A 档：静态星野底 + 银河叠淡蓝 + 远景小镇灯光 + 星点闪烁）
     this.setStarFieldVisible(true);
     // 解除相机跟随 + 边界（#29 补丁 2026-08-08）：
     // 1. useBounds=false：观星点 (504,232) 靠近地图右下缘，zoom=2 视野 400x300 下
@@ -4909,19 +4959,65 @@ export class MapScene extends Phaser.Scene {
     //    手机端表现为"画面中心不在屏幕正中间"。演出期间相机必须钉在观星点。
     this.cameras.main.stopFollow();
     this.cameras.main.useBounds = false;
-    // 镜头调度：缓推至观星点上空（2s，zoom 补偿见 panCameraTo，#29）
+    // v0.10.4 流星：演出期间随机 2-3 颗划过（2.2s/6.2s/10.2s，一次性销毁）
+    this.time.delayedCall(2200, () => this.spawnShootingStar());
+    this.time.delayedCall(6200, () => this.spawnShootingStar());
+    this.time.delayedCall(10200, () => this.spawnShootingStar());
+    // v0.10.4 镜头三段（克制版，纯 pan 零 zoom——farm 640×400 右下角拉远会露背景灰边）：
+    // 段1 近景（2s）：pan 至观星点——"人在岛上"（玩家/夏雅尺度）
     this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 2000, () => {
-      // 镜头到位后显示记忆片段 + 开始对话
-      showMemoryMoment('这片星空，和爷爷记忆里的一样。');
-      this.storyDialogue?.play(
-        DEMO_ENDING_DIALOGUE,
-        () => this.finishStargaze(),
-        (index: number) => {
-          const choice: EndingChoice = index === 0 ? 'try_stay' : index === 1 ? 'unknown' : 'tonight';
-          setEndingChoice(choice);
-          this.playStargazeAfter(DEMO_ENDING_BRANCHES[choice]);
-        },
-      );
+      // 段2 中景（3s）：pan 看向农田/老屋方向——"我刚刚做的事情留在这个世界里"
+      this.panCameraTo(400, 220, 3000, () => {
+        // 段3 远景（3s）：pan 回观星点 + 星空展开——小镇灯光淡入 + 亮度脉冲 + 流星
+        this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 3000, () => {
+          // 小镇灯光淡入（远景地平线亮起——"青禾镇还亮着"）
+          if (this.stargazeTownLights) {
+            this.stargazeTownLights.setVisible(true).setAlpha(0);
+            this.tweens.add({ targets: this.stargazeTownLights, alpha: 1, duration: 1500, ease: 'Sine.out' });
+          }
+          // 星空亮度脉冲一次（"爷爷记忆里的星空"）
+          this.tweens.add({ targets: this.starField, alpha: 0.72, duration: 700, yoyo: true, ease: 'Sine.out' });
+          // 镜头到位后显示记忆片段 + 开始对话
+          showMemoryMoment('这片星空，和爷爷记忆里的一样。');
+          this.storyDialogue?.play(
+            DEMO_ENDING_DIALOGUE,
+            () => this.finishStargaze(),
+            (index: number) => {
+              const choice: EndingChoice = index === 0 ? 'try_stay' : index === 1 ? 'unknown' : 'tonight';
+              setEndingChoice(choice);
+              this.playStargazeAfter(DEMO_ENDING_BRANCHES[choice]);
+            },
+          );
+        });
+      });
+    });
+  }
+
+  /** v0.10.4 流星：头亮尾淡的短尾迹，斜向划过 1.2s，一次性销毁（纯 Graphics + tween） */
+  private spawnShootingStar(): void {
+    if (!this.starFieldVisible) return;
+    const W = 640, H = 400; // farm 世界尺寸（与 createStarField 一致）
+    const sx = W * (0.25 + Math.random() * 0.45);
+    const sy = H * (0.12 + Math.random() * 0.18);
+    const angle = Math.PI / 4 + Math.random() * Math.PI / 8; // 斜向（右上→左下）
+    const vx = Math.cos(angle), vy = Math.sin(angle);
+    const c = this.add.container(sx, sy).setDepth(16);
+    const g = this.add.graphics();
+    // 头部亮点 + 递减尾迹（3 段，从头部向后 60px）
+    g.fillStyle(0xffffff, 0.95);
+    g.fillCircle(0, 0, 1.8);
+    g.lineStyle(1.5, 0xffffff, 0.35);
+    g.lineBetween(0, 0, -vx * 22, -vy * 22);
+    g.lineStyle(1.2, 0xffffff, 0.18);
+    g.lineBetween(-vx * 22, -vy * 22, -vx * 44, -vy * 44);
+    g.lineStyle(1, 0xffffff, 0.08);
+    g.lineBetween(-vx * 44, -vy * 44, -vx * 62, -vy * 62);
+    c.add(g);
+    this.tweens.add({
+      targets: c,
+      x: sx + vx * 240, y: sy + vy * 240,
+      duration: 1200, ease: 'Linear',
+      onComplete: () => c.destroy(),
     });
   }
 
@@ -4937,18 +5033,19 @@ export class MapScene extends Phaser.Scene {
     if (!this.storyDialogue) return;
     this.storyDialogue.play(branch, () => {
       this.storyDialogue!.play(DEMO_ENDING_FINALE, () => {
-        // 晨曦过渡（MVP：2s 天色从深蓝渐变暖橙）
+        // 晨曦过渡（v0.10.4：2s → 3.5s，制作人拍板节奏——0s 夜空 → 1.5s 变亮 → 3.5s 角色站晨光里）
+        // 不是"新一天开始"的高潮，而是"昨晚发生的事情是真的"；ease Sine.easeOut 前快后缓
         const cam = this.cameras.main;
         this.tweens.add({
           targets: cam,
-          duration: 2000,
-          ease: 'Power2',
+          duration: 3500,
+          ease: 'Sine.easeOut',
           onUpdate: (_tween, target: Phaser.Cameras.Scene2D.Camera) => {
-            // 渐变天空颜色（通过 tint 模拟晨曦）
+            // 渐变天空颜色（通过 tint 模拟晨曦；_tween.progress 已含 ease 曲线）
             const progress = _tween.progress;
-            const r = Math.floor(10 + progress * 40);
-            const g = Math.floor(22 + progress * 30);
-            const b = Math.floor(40 - progress * 20);
+            const r = Math.floor(8 + progress * 52);
+            const g = Math.floor(16 + progress * 40);
+            const b = Math.floor(38 - progress * 10);
             target.setBackgroundColor(`rgb(${r},${g},${b})`);
           },
           onComplete: () => {
@@ -4970,6 +5067,7 @@ export class MapScene extends Phaser.Scene {
               }
               if (!this.endingPanel) this.endingPanel = new EndingPanel();
               save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+              this.inStargazeCutscene = false; // v0.10.4 演出结束，恢复自动演出
               this.endingPanel.open();
             });
           },
@@ -5269,6 +5367,29 @@ export class MapScene extends Phaser.Scene {
     crate.fillStyle(OLD_TAN, 0.6);
     crate.fillRect(yx + 11, yy - 1, 2, 2);                // 瓶口
     crate.setDepth(2);
+
+    // ── v0.10.3 补两件小物（最多两件，不再加） ──
+    // 茶杯（餐桌上，白瓷 + 茶色水线）
+    const cup = this.add.graphics();
+    cup.fillStyle(LINEN, 1);
+    cup.fillEllipse(tx + 46, ty + 8, 8, 4);               // 杯口
+    cup.fillStyle(0x9a6a3a, 1);
+    cup.fillEllipse(tx + 46, ty + 8.5, 5.5, 2.4);         // 茶色水面
+    cup.fillStyle(LINEN, 1);
+    cup.fillRect(tx + 43, ty + 7, 6, 7);                  // 杯身
+    cup.lineStyle(1, OLD_TAN, 0.5);
+    cup.lineBetween(tx + 44, ty + 10, tx + 49, ty + 9);   // 杯身旧痕
+    cup.setDepth(2);
+    // 小凳（餐桌左下，矮木凳 + 使用痕迹）
+    const stool = this.add.graphics();
+    stool.fillStyle(WOOD_MID, 1);
+    stool.fillRoundedRect(tx - 14, ty + 30, 18, 4, 2);    // 坐面
+    stool.fillStyle(WOOD_DARK, 0.9);
+    stool.fillRect(tx - 14, ty + 34, 4, 8);               // 腿
+    stool.fillRect(tx, ty + 34, 4, 8);
+    stool.fillStyle(OLD_TAN, 0.35);
+    stool.fillRect(tx - 10, ty + 31, 10, 1.5);            // 坐面磨痕
+    stool.setDepth(2);
   }
 
   /** 玩家所在格是否在任一床铺格的相邻 1 格内（含床格本身） */
@@ -7436,17 +7557,32 @@ export class MapScene extends Phaser.Scene {
     addXp(10, 'harvest');
     onDQHarvest(cropType);
     // v0.5.3 剧情密度 E2：第一次收获反馈（一次性，夏雅口头肯定，不影响收获本身）
+    // v0.10.3：首次收获升级为"情绪瞬间"——轻音效 + 角色停顿表现 + 对白延迟（复用 firstHarvestShown，不新增存档/系统/剧情）
     if (!this.firstHarvestShown) {
       this.firstHarvestShown = true;
       triggerTag('first_harvest');
+      // ① 风铃/木叶轻响（区别于普通 harvest 三连音，低音量一次性）
+      play('harvest_first');
+      // ② 角色停顿表现（短促 scale 脉冲，body 为固定 24×24 不受影响；不阻塞输入/update）
+      // 注意：玩家原始 scale=0.5，必须基于当前 scale 做相对脉冲，不能写死 1
+      const baseScale = this.player.scaleX;
+      this.tweens.add({
+        targets: this.player,
+        scaleX: baseScale * 1.08, scaleY: baseScale * 0.92,
+        duration: 130, yoyo: true, ease: 'Sine.out',
+        onComplete: () => this.player.setScale(baseScale, baseScale),
+      });
       showMemoryMoment('小时候爷爷告诉我，土地不会辜负认真照料它的人。');
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play(FIRST_HARVEST_DIALOGUE, () => {
-        // T2-1 Day1 引导链：收获 → 出售 → 修复（底部提示条，3 秒自动消失，不打断）
-        this.showDialogueText(this.hintText(
-          '收获的作物可以拿到农田右下角的商店卖掉换金币！这些收成，是镇上老房子的建材费。',
-          '收获的作物可以拿到农田右下角的商店卖掉换金币！这些收成，是镇上老房子的建材费。'));
-        this.updateHUD();
+      // ③ 320ms 轻停顿后再弹夏雅对白（"角色看了看手里的东西"的节奏，不打断玩家操作）
+      this.time.delayedCall(320, () => {
+        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+        this.storyDialogue.play(FIRST_HARVEST_DIALOGUE, () => {
+          // T2-1 Day1 引导链：收获 → 出售 → 修复（底部提示条，3 秒自动消失，不打断）
+          this.showDialogueText(this.hintText(
+            '收获的作物可以拿到农田右下角的商店卖掉换金币！这些收成，是镇上老房子的建材费。',
+            '收获的作物可以拿到农田右下角的商店卖掉换金币！这些收成，是镇上老房子的建材费。'));
+          this.updateHUD();
+        });
       });
     }
     return cropType;

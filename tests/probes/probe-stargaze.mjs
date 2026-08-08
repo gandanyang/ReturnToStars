@@ -227,8 +227,8 @@ async function run() {
     await teleport(page, 'farm', 504, 240, 'up'); // 观星点 (504,232)
     await pressE(page);
     await diag(page, 'farm-after-e');
-    // 观星夜对话在 camera.pan(2s) 完成后才播放，先等镜头到位再检查
-    await sleep(3000);
+    // 观星夜对话在相机三段镜头（近2s + 中3s + 远3s = 8s，v0.10.4）完成后才播放，先等镜头到位再检查
+    await sleep(9500);
     await diag(page, 'farm-after-pan');
     await sleep(700);
     const endOpen1 = await page.evaluate(() => {
@@ -271,13 +271,20 @@ async function run() {
     await screenshot(page, 'stargaze-branch');
 
     await skipDialogue(page, 4); // unknown 分支 4 行 → FINALE
-    await skipDialogue(page, 5); // FINALE 5 行 → 结算面板
+    await skipDialogue(page, 5); // FINALE 5 行 → 晨曦过渡(3.5s)+镜头回拉(1s)后才开面板
 
-    const panel = await page.evaluate(() => {
-      const el = document.getElementById('ending-panel');
-      return { exists: !!el, display: el?.style.display ?? '' };
-    });
-    result('结算面板打开', panel.exists && panel.display === 'flex', JSON.stringify(panel));
+    // v0.10.4 晨曦 2s→3.5s：面板在动画链完成后才 open，轮询等待而非立即断言
+    let panel = { exists: false, display: '', openAtMs: null };
+    const panelT0 = Date.now();
+    for (let i = 0; i < 30; i++) {
+      panel = await page.evaluate(() => {
+        const el = document.getElementById('ending-panel');
+        return { exists: !!el, display: el?.style.display ?? '' };
+      });
+      if (panel.exists && panel.display === 'flex') { panel.openAtMs = Date.now() - panelT0; break; }
+      await sleep(250);
+    }
+    result('结算面板打开', panel.exists && panel.display === 'flex', JSON.stringify({ ...panel, tookMs: panel.openAtMs ?? 'timeout' }));
     await screenshot(page, 'stargaze-ending-panel');
 
     // A6：归星记录内容真实渲染（五段 + 标题）——此前只验纯函数，这里补真实面板内容断言
@@ -299,6 +306,7 @@ async function run() {
     const info = await sceneInfo(page);
     result('storyStep = observatory_complete', info.step === 'observatory_complete', `步骤=${info.step}`);
 
+    // 存档断言须在面板打开后执行（save 在 EndingPanel.open 前一行，opened 即已入档）
     const saved = await page.evaluate(() => {
       try {
         const raw = localStorage.getItem('return_star_save');
