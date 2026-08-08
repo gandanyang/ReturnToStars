@@ -3,7 +3,7 @@
  *
  * 验证目标（Level 2）：
  *  1. 任务面板有「支线」页签，点击切换
- *  2. 默认（flags 全 false）：5 条支线全部 🔒 锁定 + lockHint
+ *  2. 默认（flags 全 false）：6 条支线全部 🔒 锁定 + lockHint
  *  3. 注入 asked → 该支线显示「进行中」+ objective
  *  4. 注入 done → 显示 ✅ 已完成
  *  5. 居民需求渲染在支线页签内（「—— 居民需求 ——」分隔 + 待交付行）
@@ -69,10 +69,12 @@ async function run() {
 
     let st = await readSide();
     check('1. 任务面板含「支线」页签', st.tabs.includes('支线'), `tabs=${st.tabs.join(',')}`);
-    check('2. 支线页签已激活（内容为支线列表）', st.body.includes('院子有人照顾') && st.body.includes('一株小梅花'),
-      (st.body || '').replace(/\s+/g, ' ').slice(0, 120));
-    check('3. 默认 5 条支线全部锁定 🔒', (st.body.match(/🔒/g) ?? []).length === 5, `locks=${(st.body.match(/🔒/g) ?? []).length}`);
-    check('4. 锁定提示展示解锁条件', st.body.includes('完成「整理旧花园」后解锁') && st.body.includes('进入矿洞后解锁'), '');
+    check('2. 支线页签已激活（内容为支线列表）', st.body.includes('院子有人照顾') && st.body.includes('一株小梅花') &&
+      st.body.includes('春深有信·一'),
+      (st.body || '').replace(/\s+/g, ' ').slice(0, 140));
+    check('3. 默认 6 条支线全部锁定 🔒', (st.body.match(/🔒/g) ?? []).length === 6, `locks=${(st.body.match(/🔒/g) ?? []).length}`);
+    check('4. 锁定提示展示解锁条件', st.body.includes('完成「整理旧花园」后解锁') && st.body.includes('进入矿洞后解锁') &&
+      st.body.includes('下午/傍晚在农场花田边遇到夏雅后解锁'), '');
     check('5. 居民需求已并入支线页签', st.body.includes('居民需求') && st.body.includes('花匠小梅') && st.body.includes('矿工老张'),
       (st.body || '').replace(/\s+/g, ' ').slice(0, 100));
 
@@ -88,7 +90,7 @@ async function run() {
     st = await readSide();
     check('6. 注入 asked 后该支线进入「进行中」', st.body.includes('院子有人照顾') && st.body.includes('进行中') &&
       st.body.includes('交付木材×3'), (st.body || '').replace(/\s+/g, ' ').slice(0, 150));
-    check('6b. 其余支线仍锁定', (st.body.match(/🔒/g) ?? []).length === 4, `locks=${(st.body.match(/🔒/g) ?? []).length}`);
+    check('6b. 其余支线仍锁定', (st.body.match(/🔒/g) ?? []).length === 5, `locks=${(st.body.match(/🔒/g) ?? []).length}`);
 
     // 3. 注入 done → 已完成
     await page.evaluate(() => {

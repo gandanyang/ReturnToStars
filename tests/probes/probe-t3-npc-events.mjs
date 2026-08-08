@@ -37,6 +37,9 @@ const makeSave = (scene, x, y, opts = {}) => ({
   farm: { tiles: [], crops: [], trees: [], restore: opts.restore ?? {} },
   story: { storyStep: opts.storyStep ?? 'done' },
   mapFlags: opts.mapFlags,
+  // 老屋修复后进 farm 会触发木匠回归自动演出（2.6s 后自动播对白），劫持本探针的文本断言；
+  // 统一标记已触发，跳过该演出（mine/town 场景无副作用）
+  gameState: { triggeredEvents: { carpenter_returned: true } },
 });
 
 async function run() {

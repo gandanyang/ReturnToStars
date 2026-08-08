@@ -63,10 +63,13 @@ async function run() {
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
     headless: false,
-    defaultViewport: { width: 375, height: 812, isMobile: true, hasTouch: true },
+    // 项目只支持横屏：移动端模拟用 844×390 横屏视口（禁止竖屏，竖屏会触发 rotate-hint 拦截层）
+    defaultViewport: { width: 844, height: 390, isMobile: true, hasTouch: true },
     args: ['--no-sandbox'],
   });
   const page = await browser.newPage();
+  // isTouchDevice() 走 UA 判定（Android/iPhone/Mobile），必须注入移动 UA，否则 handleFarmTap 直接 return
+  await page.setUserAgent('Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36');
   page.on('console', (msg) => {
     const t = msg.text();
     if (t.includes('[DEBUG] handleFarmTap') || t.includes('[DEBUG] tryFarmInteractAt') || t.includes('[DEBUG] hoe applied') || t.includes('[DEBUG] handleFarmTap guards')) console.log('  🐛', t);
@@ -97,7 +100,9 @@ async function run() {
     console.log(`1. 车站 + 跳过教程 → 场景=${info.scene}, 步骤=${info.step}`);
 
     // 车站出口 → 农场（教程 done 后出口直达 farm）
-    await teleport(page, 'station', 970, 460, 'right');
+    // 注意：W = max(1120, innerWidth/innerHeight*600)，横屏 844×390 下 W≈1298，出口阈值 W-160≈1138，
+    // 旧坐标 970 在竖屏时代够用、横屏下不足，必须传送到阈值右侧
+    await teleport(page, 'station', 1180, 460, 'right');
     await sleep(3500);
     info = await sceneInfo(page);
     console.log(`2. 进入农场 → 场景=${info.scene}${info.scene === 'farm' ? ' ✅' : ' ❌'}`);
