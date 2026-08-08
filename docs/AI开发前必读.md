@@ -17,3 +17,18 @@
 已有可直接用的：`SaveSystem` / `EventManager` / `StorySystem` / `QuestSystem` / `DailyQuestSystem` / `PhotoAlbum` / `NPCSystem` / `AmbienceSystem`。
 
 已有工具脚本：`tools/` 下 50+ 个（语音/出图/音频/打包，先查再写）；**GPT 请示桥** `tools/gpt-bridge.mjs`（网页版 ChatGPT 传话，制作人要求"请示 GPT"时用，见 `docs/工具-GPT请示桥.md`）。
+
+---
+
+## AI 项目记忆层（开工快速定位）
+
+| 问题 | 文件 |
+|---|---|
+| 这个游戏是什么？ | 根目录 `PROJECT_CONTEXT.md` + `docs/AI_CONTEXT.md` |
+| 什么不能做（设计）？ | `docs/DESIGN_RULES.md` |
+| 什么不能做（施工）？ | `docs/AI_GUARDRAIL.md` |
+| 现在干什么？ | `docs/CURRENT_TASK.md` |
+| 为什么这么决定？ | `docs/DESIGN_DECISIONS.md` |
+| 历史变化？ | 根目录 `CHANGELOG.md` |
+
+> 开工顺序：**AGENTS.md → 本文件 → AI_GUARDRAIL.md → CURRENT_TASK.md → 对应任务文档**。

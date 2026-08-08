@@ -1062,3 +1062,55 @@ Batch A 体验闭环（E-07/E-08 ✅ → 一键出售 ✅ → FEATURE-036 ⏳）
 - 关系记录系统 v0.7 启动时机（测试轮次后）
 - 夏雅年龄/视觉 ｜ 林澈车站调查物/雨夜 ｜ M1 可变区域选型
 - Batch D 剩余范围（商店/地图/32×32）
+
+---
+
+# 20. 会话收尾归档 #7（2026-08-08 · 语音线 + 体验收口 + 制度线）
+
+> 本节点由 Trae 写入，供下次会话无缝恢复。
+
+## 20.1 本会话完成
+
+| # | 内容 | 状态 |
+|---|---|---|
+| 1 | **林澈全量语音重录**：按制作人定音色 A（Chinese (Mandarin)_Gentle_Youth，温柔青年），MiniMax T2A v2 接口全量重录 67 条旧 VoxCPM 音频（linche 66 + HR 电话 1） | ✅ 已完成 |
+| 2 | 修复 hr 角色目录映射 bug（voice_normalized/hr/ → system/），保留电话感 EQ（lowpass 3400 / highpass 300） | ✅ 已完成 |
+| 3 | ogg 压缩（libvorbis q5）→ voicebank re-emit（203 条）→ tsc 归零 | ✅ 已完成 |
+| 4 | 试听确认（67 条试听页）→ 更新配音选角表 → 打包成功（29.5MB，APK 内已验证 66+3 条新 ogg） | ✅ 已完成 |
+| 5 | **豆包短信播报调整**：删除 hr_station_01 自动朗读，保留翻页朗读 hr_station_03 | ✅ 已完成 |
+| 6 | **项目整体情况文档**：创建 docs/项目整体情况与AI诊断简报.md（11 章节自包含上下文，供其他 AI 诊断） | ✅ 已完成 |
+| 7 | **体验收口优先级盘点**：P0 三项 + P1 老屋 L1/L2 已由并行 Agent（v0.10.1/10.2）落地，未重复施工；制作人验收 P0 全关、P1 全关（setupHouseFurniture / NPC 首次回应达标），P2 观星升级暂缓 | ✅ 已完成 |
+| 8 | 修改重构表：教程四句「全部走夏雅」→「根据叙事位置分配角色」（锄=夏雅 / 播浇收=林澈 inner），§7.4 优先级表加状态列 | ✅ 已完成 |
+| 9 | **AI 项目管理制度**：三文档 + 代码常量（docs/AI_CONTEXT.md、docs/AI_GUARDRAIL.md、docs/DESIGN_DECISIONS.md D-001~D-010、src/constants/platform.ts MOBILE_ORIENTATION='landscape'、AGENTS.md 开工必读 6 条 + 横屏警示） | ✅ 已完成 |
+
+## 20.2 当前项目状态
+
+- **版本**：v0.10 收口施工中；15-30 分钟 Demo 闭环成立
+- **语音**：全角色已转 MiniMax 云端管线，voicebank 203 条；林澈新音色已打包
+- **体验重构**：前 15 分钟 P0/P1 全部验收关闭，P2 观星升级暂缓待设计稿
+- **打包产物**：dist_apk/latest-release.apk（29.5MB，含林澈重录 + 体验优化）
+
+## 20.3 遗留与待办
+
+| 项 | 状态 |
+|---|---|
+| APK 装机复验（林澈新声线 + 短信播报改动） | 制作人执行 |
+| 观星夜演出施工线（P0 在途，另一 Agent） | 独立线 |
+| StorySystem 4 条新台词缺 voicebank（另一 Agent 责任） | 非本会话范围 |
+| probe-farm-tap 基线失败 | ✅ 已闭环（2026-08-08）：探针自身 3 处过期——竖屏 375×812 视口 → 844×390 横屏 + Android UA 注入；传送坐标 970 → 1180。重跑锄地/批量/连点全过，游戏无回归。横屏红线已写入 MEMORY.md + 记忆日志 |
+| probe-stargaze 基线失败 | ✅ 已闭环（2026-08-08）：v0.10.4 观星夜镜头三段调度（8s）完成后才播对话，施工方已同步 sleep(3000→9500)；本会话全流程探针实测观星夜链（镜头→17 行+三选项→分支→FINALE→EndingPanel）全绿 |
+| **全剧情流程模拟探针 probe-full-story-run.mjs** | ✅ 已完成（2026-08-08）：制作人需求「模拟真实玩家跑完剧情全流程」，方案=剧情全真实+时空钩子。844×390 横屏 + Android UA，新档到结局全流程 **48/48 全绿 ×2**，14 张截图。关键经验：对话打开时出口检测被跳过（车站/MapScene update return）→ 自动剧情对话需 walkDialogue 走完再走出口；Day2 清晨演出仅在重进 farm 场景触发（回老屋睡→出屋）；村长 elderHouseHint 与站位重叠需 setTime(10,0) |
+| 6 个残留临时探针清理 | ✅ 已闭环：_diag-shop-touch / _diag-house-cam2 / _diag-house-cam / _diag-voice2 / _diag-voice 5 个 _diag-* + _tmp_farmtap_landscape.mjs 已删；_tmp_dbg_texture.mjs 前已删 |
+
+## 20.4 本轮改动文件清单（供 opencode 提交）
+
+- docs/项目整体情况与AI诊断简报.md（新）
+- docs/AI_CONTEXT.md（新）/ docs/AI_GUARDRAIL.md（新）/ docs/DESIGN_DECISIONS.md（新）
+- tests/probes/probe-full-story-run.mjs（新，全剧情流程模拟探针，48/48 全绿 ×2）
+- src/constants/platform.ts（新）
+- AGENTS.md（开工必读更新）
+- docs/design/配音选角表-v0.1.md（林澈/HR 行更新）
+- docs/design/前15分钟体验重构表-v0.1.md（说话人表述 + 优先级状态）
+- docs/制作人控制台.md（短信播报决策记录）
+- src/scenes/StationScene.ts（删 hr_station_01 自动朗读）
+- src/audio/voicebank.data.ts + public/audio/voice_normalized/（67 条语音重录，资产）
