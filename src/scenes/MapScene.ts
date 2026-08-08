@@ -373,10 +373,15 @@ export class MapScene extends Phaser.Scene {
   } | null = null;
   // P0-5 农场回暖（2026-08-08 制作人拍板）：星之碎片交付后农场环境回暖反馈。
   // 视觉 = 全屏暖橙 ADD overlay（提亮整体 + 暗部回暖）+ 暖金光尘粒子（光照感）；
-  // 状态持久化 = FarmRestore.isRestored('farmWarm')（随 worldRestore 入档）。
-  // 首次展示 5 秒渐变过渡（from 荒凉 → to 暖色）；此后（重进/读档）直接应用。
+  // 状态持久化 = FarmRestore.isRestored('farmWarm')（随 worldRestore 入档）；
+  // 过渡只播一次 = EventManager.triggerOnce('farm_warm_intro')（随 gameState 入档）。
   private farmWarmOverlay: Phaser.GameObjects.Rectangle | null = null;
   private farmWarmParticles: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
+  // v2 三幕式：第一幕光晕扩散只播一次（本场景实例内）
+  private farmWarmPulsePlayed = false;
+  // v2.1 夕阳感（2026-08-09 制作人拍板）：世界坐标暖橙垂直渐变天光（顶部亮→底部弱），
+  // 模拟"太阳低垂从地图上方斜射"，与全屏罩色叠加出方向层次；depth 4.4 盖地面、不罩 NPC/玩家
+  private farmWarmSkyGlow: Phaser.GameObjects.Graphics | null = null;
   // M1-3 夏雅见证：花园恢复完成后，夏雅在花园旁出现，靠近触发 GARDEN_RESTORED_XIYA_DIALOGUE
   private gardenXiya: Phaser.GameObjects.Sprite | null = null;
   private gardenXiyaLabel: Phaser.GameObjects.Text | null = null;
@@ -1027,9 +1032,11 @@ export class MapScene extends Phaser.Scene {
       this.setupGrandpaNote();
     }
 
-    // P0-5 农场回暖：星之碎片交付后（farmWarm 已标记），农场展示暖色环境反馈
+    // P0-5 农场回暖 v2：星之碎片交付后（farmWarm 已标记），农场展示暖色环境反馈。
+    // 传玩家位置为第一幕光晕扩散中心——交付后首次回 farm（farm_warm_intro 首播）时
+    // 从玩家所在处扩散"暖光迎上来"，叙事上 = 交付完成回到农场的情绪落点。
     if (this.mapKey === 'farm' && isRestored('farmWarm')) {
-      this.setupFarmWarm();
+      this.setupFarmWarm(this.player.x, this.player.y);
     }
 
     // 触屏控件（摇杆+交互按钮，DOM 单例；移动端额外显示背包按钮）
@@ -1402,6 +1409,8 @@ export class MapScene extends Phaser.Scene {
     this.updateStargaze();
     // 星空闪烁动画
     this.updateStarField();
+    // P0-5 农场回暖 v2：暖度随时辰平滑趋近（第二幕时间感）+ 光尘密度微调
+    this.updateFarmWarm();
 
     // 剧情对话打开时：禁止移动，E/空格推进对话
     if (this.storyDialogue) {
@@ -4656,6 +4665,11 @@ export class MapScene extends Phaser.Scene {
             this.sideElderTeaAsked = true;
             this.storyDialogue!.play(ELDER_TEA_QUEST_DIALOGUE, () => this.updateHUD());
           }
+          // P0-5 农场回暖 v2：交付在 farm 场景内完成时的兜底（村长实际白天在 town，
+          // 该路径通常走不到；首次回 farm 的光晕由 create 时 farm_warm_intro 首播负责）
+          if (this.mapKey === 'farm' && isRestored('farmWarm') && !this.farmWarmOverlay) {
+            this.setupFarmWarm();
+          }
           // 里程碑保存（v0.5.2 P0）：主线交付后立即入档
           save({
             x: this.player.x, y: this.player.y,
@@ -5734,23 +5748,48 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * P0-5 农场回暖（2026-08-08 制作人拍板）：星之碎片交付后，农场环境回暖反馈。
+   * P0-5 农场回暖 v2（2026-08-08 制作人拍板；2026-08-09 升级三幕式叙事）
    * 触发：QuestSystem.deliverQuest() 标记 FarmRestore 'farmWarm'（随 worldRestore 入档），
-   *       本方法在 create 时检测到该标记后调用。
-   * 视觉（复用既有能力，零新资源）：
-   *   - 全屏暖橙 ADD overlay：整体提亮 + 暗部回暖（草地变暖、小花亮起），alpha 目标 0.10
-   *   - 暖金光尘粒子：稀疏慢漂（复用森林萤火虫模式，tint 换暖金），光照感
-   * 首屏（本次会话首次进农场）播 5 秒渐变过渡；此后直接应用（读档/重进保持暖色）。
+   *       本方法在 create 时检测到该标记后调用；交付发生在 farm 场景时由对话结束回调调用。
+   *
+   * 视觉（复用既有能力，零新资源）：三幕式"回暖"叙事——
+   *   第一幕「事件感」：交付瞬间，从交付点（或屏幕中心）一轮暖金光晕扩散，
+   *                     overlay 2s 内快速上冲（不再是"悄悄蒙层"，而是"发生了"）。
+   *   第二幕「苏醒·时间感」：此后 overlay alpha 随时辰缓慢起伏（白天 0.07~0.12 呼吸），
+   *                    "回暖是活的"；光尘粒子密度随时辰微调（正午最密）。
+   *   第三幕「记忆色·黄昏」：18:00-20:00 时段 alpha 加深至 0.22（v2.1 拍板 0.16→0.22），
+   *                    叠加暖橙垂直渐变天光（farmWarmSkyGlow，顶部 0.8 亮→底部弱），
+   *                    呼应"爷爷记忆里的暖光"，给一天的情绪落点。
+   * 首屏（本次会话首次进农场）播 3 秒渐变过渡；此后按当前时辰直接应用。
+   *
+   * @param originX / originY 第一幕光晕扩散中心（世界坐标）；缺省 = 玩家当前位置
    */
-  private setupFarmWarm(): void {
+  private setupFarmWarm(originX?: number, originY?: number): void {
     if (this.mapKey !== 'farm' || !this.groundLayer) return;
+    if (this.farmWarmOverlay) return; // 幂等：同一场景实例内不重复创建
     // 全屏暖橙 ADD overlay（覆盖地图整体，depth 4.5：盖过地面/装饰(≤4)，NPC(5)/玩家(10) 不被盖）
-    const w = this.groundLayer.width;
-    const h = this.groundLayer.height;
-    const overlay = this.add.rectangle(0, 0, w, h, 0xffc98a, 0)
+    // 注意1：TilemapLayer.width/height 是瓦片数而非像素；必须用 displayWidth/displayHeight 才是实际覆盖尺寸。
+    // 注意2：add.rectangle 的第 6 参是 Shape 的 fillAlpha 而非 GameObject alpha——传 0 会导致填充永不绘制
+    //       （tween/setAlpha 改的是 GameObject alpha，渲染时两者相乘仍为 0）。必须 fillAlpha=1 + setAlpha 控制。
+    const w = this.groundLayer.displayWidth;
+    const h = this.groundLayer.displayHeight;
+    const overlay = this.add.rectangle(0, 0, w, h, 0xffc98a, 1)
       .setOrigin(0).setDepth(4.5)
-      .setBlendMode(Phaser.BlendModes.ADD);
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0);
     this.farmWarmOverlay = overlay;
+
+    // 夕阳感 v2.1：世界坐标暖橙垂直渐变天光（顶部亮→底部弱，模拟太阳低垂从画面上方斜射）。
+    // depth 4.4：盖过地面/装饰(≤4)，低于全屏罩色(4.5)、NPC(5)/玩家(10)；ADD 混合 → 越靠上越"浸入夕照"。
+    // 渐变 alpha 烘焙在 fillGradientStyle 的四角（顶部 0.5 → 底部 0.02），整体随 updateFarmWarm 调 setAlpha。
+    // 注意：fillGradientStyle 是 WebGL 专属，canvas 回退时渐变不绘制（仅少一层光，不影响功能）。
+    const skyGlow = this.add.graphics();
+    skyGlow.setDepth(4.4);
+    skyGlow.fillGradientStyle(0xffa050, 0xffa050, 0xffa050, 0xffa050, 0.5, 0.5, 0.02, 0.02);
+    skyGlow.fillRect(0, 0, w, h);
+    skyGlow.setBlendMode(Phaser.BlendModes.ADD);
+    skyGlow.setAlpha(0);
+    this.farmWarmSkyGlow = skyGlow;
 
     // 暖金光尘粒子：稀疏慢漂（分布农场中部几处，视觉"光照粒子增加"）
     const spots: Array<[number, number]> = [
@@ -5774,18 +5813,106 @@ export class MapScene extends Phaser.Scene {
       this.farmWarmParticles.push(p);
     });
 
-    // 首次进入（本会话）→ 5 秒渐变过渡；重进/读档 → 直接应用
-    if (!this.farmWarmIntroShown) {
-      this.farmWarmIntroShown = true;
-      this.tweens.add({
-        targets: overlay,
-        alpha: { from: 0, to: 0.1 },
-        duration: 5000,
-        ease: 'Sine.easeOut',
+    // 首屏（交付后首次进 farm）播 3 秒渐变过渡 + 第一幕光晕；此后（重进/读档）按时辰直接应用
+    const baseAlpha = this.farmWarmAlphaForHour(getTime().hour);
+    if (!hasTriggered('farm_warm_intro')) {
+      triggerOnce('farm_warm_intro', () => {
+        this.tweens.add({
+          targets: overlay,
+          alpha: { from: 0, to: baseAlpha },
+          duration: 3000,
+          ease: 'Sine.easeOut',
+        });
+        // 第一幕「事件感」：交付后首次回 farm，暖光从玩家位置扩散（"回暖发生了"）
+        if (originX !== undefined && originY !== undefined) {
+          this.playFarmWarmPulse(originX, originY);
+        }
       });
     } else {
-      overlay.setAlpha(0.1);
+      overlay.setAlpha(baseAlpha);
     }
+  }
+
+  /**
+   * 第一幕「事件感」：一轮暖金光晕从交付点扩散 + overlay 短暂上冲（"回暖发生了"）。
+   * 只播一次（本场景实例内），2.2s 演出，零资源（Graphics 圆环扩散 + 亮度脉冲）。
+   */
+  private playFarmWarmPulse(originX: number, originY: number): void {
+    if (!this.farmWarmOverlay || this.farmWarmPulsePlayed) return;
+    this.farmWarmPulsePlayed = true;
+    const overlay = this.farmWarmOverlay;
+    const g = this.add.graphics();
+    g.setDepth(4.6);
+    // 扩散圆环（世界坐标，随场景滚动）
+    const ring = this.add.graphics();
+    ring.setDepth(4.6);
+    const maxR = Math.max(this.groundLayer?.displayWidth ?? 400, 300);
+    this.tweens.add({
+      targets: { r: 24 },
+      r: maxR,
+      duration: 1800,
+      ease: 'Sine.out',
+      onUpdate: (_t, target: { r: number }) => {
+        ring.clear();
+        ring.lineStyle(6, 0xffe9b8, 0.55);
+        ring.strokeCircle(originX, originY, target.r);
+      },
+      onComplete: () => ring.destroy(),
+    });
+    // 亮度脉冲：overlay 快速冲到 0.28 再回落（"暖色亮起"，必须高于全天最高暖度 0.22 才有上冲感）
+    this.tweens.add({
+      targets: overlay,
+      alpha: { from: overlay.alpha, to: 0.28 },
+      duration: 500,
+      yoyo: true,
+      hold: 300,
+      ease: 'Sine.out',
+      onComplete: () => {
+        // 回落回当前时辰应有的暖度
+        overlay.setAlpha(this.farmWarmAlphaForHour(getTime().hour));
+      },
+    });
+    void g;
+  }
+
+  /**
+   * 第二幕/第三幕：随时辰计算 overlay 目标暖度。
+   *   - 夜晚/清晨（<6 或 >=21）：0.07（微暖底）
+   *   - 白天（6-17）：0.08~0.12 缓呼吸（正午最暖）
+   *   - 黄昏（18-20）：0.22（"记忆色"，全天最暖；v2.1 制作人拍板 0.16→0.22 强化夕阳感）
+   * 每帧由 updateFarmWarm 调用（平滑趋近，避免跳变）。
+   */
+  private farmWarmAlphaForHour(hour: number): number {
+    if (hour >= 18 && hour < 21) return 0.22;
+    if (hour >= 6 && hour < 18) {
+      // 正午（12-14）最暖 0.12，早/晚 0.08 —— 一条倒 V
+      const noon = Math.max(0, 1 - Math.abs(hour - 13) / 6);
+      return 0.08 + 0.04 * noon;
+    }
+    return 0.07;
+  }
+
+  /** 每帧：回暖暖度随时辰平滑趋近（第二幕时间感）+ 夕阳天光同步 */
+  private updateFarmWarm(): void {
+    if (!this.farmWarmOverlay) return;
+    const hour = getTime().hour;
+    // 全屏罩色：每帧最多走 1/3 差距，避免跨小时跳变
+    const target = this.farmWarmAlphaForHour(hour);
+    const cur = this.farmWarmOverlay.alpha;
+    this.farmWarmOverlay.setAlpha(cur + (target - cur) * 0.33);
+    // 夕阳天光：同样平滑趋近，让"夕照强度"随时辰增减（黄昏最浓）
+    if (this.farmWarmSkyGlow) {
+      const skyTarget = this.farmWarmSkyAlphaForHour(hour);
+      const skyCur = this.farmWarmSkyGlow.alpha;
+      this.farmWarmSkyGlow.setAlpha(skyCur + (skyTarget - skyCur) * 0.33);
+    }
+  }
+
+  /** v2.1 夕阳天光强度（叠加在罩色之上）：黄昏(18-20)最浓，白天微暖，夜晚回落 */
+  private farmWarmSkyAlphaForHour(hour: number): number {
+    if (hour >= 18 && hour < 21) return 0.8;
+    if (hour >= 6 && hour < 18) return 0.35;
+    return 0.12;
   }
 
   /** 与爷爷笔记交互（靠近按 E → 播放当天一条笔记） */
