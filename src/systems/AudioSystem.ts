@@ -10,7 +10,11 @@
 type SfxName =
   | 'hoe' | 'plant' | 'water' | 'harvest' | 'buy' | 'sell' | 'levelup' | 'chop' | 'tree_fall' | 'invalid'
   // 演出音效（试玩-14）：列车 / 大门 / 星之碎片 / 观星夜
-  | 'train' | 'train_hiss' | 'gate_open' | 'shard' | 'stargaze';
+  | 'train' | 'train_hiss' | 'gate_open' | 'shard' | 'stargaze'
+  // v0.10.3 首次收获：风铃/木叶轻响（一次性、低音量，区别于普通 harvest 的丰收三连音）
+  | 'harvest_first'
+  // v0.10.4 观星夜 v2：微风（树叶沙沙 + 远处虫鸣，低音量一次性，约 20% 强度）
+  | 'wind';
 
 let ctx: AudioContext | null = null;
 
@@ -104,6 +108,22 @@ export function play(name: SfxName): void {
       tone(554, 0.08, 'triangle', 0.16, 0.06);
       tone(660, 0.14, 'triangle', 0.2, 0.12);
       tone(830, 0.18, 'triangle', 0.11, 0.2);
+      break;
+
+    case 'harvest_first':
+      // 首次收获：风铃/木叶轻响——"土地回应"的瞬间（低音量、sine 柔、上扬尾音、不循环）
+      tone(880, 0.1, 'sine', 0.08);
+      tone(1175, 0.12, 'sine', 0.07, 0.08);
+      tone(1568, 0.22, 'sine', 0.05, 0.16);
+      break;
+
+    case 'wind':
+      // 观星夜微风（v0.10.4）：树叶沙沙（低通噪声 2.2s，音量 0.07≈20%）+ 远处虫鸣（高频短点，极轻）
+      // 一次性、不循环——"声音告诉玩家：这里活着"
+      noise(2.2, 0.07);
+      tone(2500, 0.06, 'sine', 0.022, 0.5);
+      tone(3200, 0.05, 'sine', 0.016, 1.0);
+      tone(2800, 0.06, 'sine', 0.018, 1.5);
       break;
 
     case 'buy':
