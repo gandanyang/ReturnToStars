@@ -99,6 +99,7 @@ import {
   GARDENER_PLUM_ENTRY_DIALOGUE, GARDENER_PLUM_DONE_DIALOGUE,
   FIRST_HARVEST_DIALOGUE,
   OLD_ROBOT_DIALOGUE,
+  XIYA_LETTER_OPEN_DIALOGUE, XIYA_LETTER_FLOWER_DIALOGUE, XIYA_LETTER_RECORD_DIALOGUE, XIYA_LETTER_FINAL_DIALOGUE,
 } from '../systems/StorySystem';
 import { hasSave, load, apply, save, getLastIncompatibleVersion, clearIncompatibleVersion, SAVE_VERSION, isAutoSaveSuppressed } from '../systems/SaveSystem';
 import { play } from '../systems/AudioSystem';
@@ -144,6 +145,11 @@ export interface MapSceneFlags {
   /** T3.5 商店老板「镇子热闹了」：首次卖出作物后，白天对话触发（一次性入档） */
   sideShopCropAsked?: boolean;
   sideShopCropDone?: boolean;
+  /** D-011 夏雅《春深有信·一》：剧情专线 Demo Cut（花田边剧情夏雅，4 段逐步交互，一次性入档） */
+  xiyaLetterAsked?: boolean;
+  xiyaLetterDone?: boolean;
+  /** D-011 剧情阶段（0=未开始 / 1=开场完成 / 2=整理花苗完成 / 3=旧花种记录完成；读档恢复现场用） */
+  xiyaLetterStage?: number;
 }
 
 /** 存档中保存的 MapScene flag（模块级暂存，apply 时写入，MapScene.create 时消费） */
@@ -397,12 +403,21 @@ export class MapScene extends Phaser.Scene {
   // T3.5 商店老板「镇子热闹了」flags（随 mapFlags 存档，读档不重复触发）
   private sideShopCropAsked = false;
   private sideShopCropDone = false;
+  // D-011 夏雅《春深有信·一》剧情专线 flags（随 mapFlags 存档，读档不重复触发）
+  private xiyaLetterAsked = false;
+  private xiyaLetterDone = false;
+  private xiyaLetterStage = 0;
   /** T3.5 前置：本会话是否卖出过作物（会话级，不入档；读档后需重新卖出才可触发） */
   private shopSoldOnce = false;
   // T3 互动点视觉（场景级，destroy 时清理）
   private xiyaPhotoMark: Phaser.GameObjects.Text | null = null;
   private minerLampGroup: Phaser.GameObjects.Container | null = null;
   private plumMark: Phaser.GameObjects.Text | null = null;
+  // D-011 夏雅《春深有信·一》剧情专线场景级对象（花田边剧情夏雅 + 花苗/记录交互点；destroy 时清理）
+  private letterXiya: Phaser.GameObjects.Sprite | null = null;
+  private letterXiyaLabel: Phaser.GameObjects.Text | null = null;
+  private letterFlowerMark: Phaser.GameObjects.Text | null = null;
+  private letterRecordMark: Phaser.GameObjects.Text | null = null;
   // 教程进度计数（锄地/播种/浇水各需3次）
   private tutorialProgress = 0;
   private readonly TUTORIAL_TARGET = 3;
@@ -421,6 +436,14 @@ export class MapScene extends Phaser.Scene {
   private starField: Phaser.GameObjects.Graphics | null = null;
   private starTwinkle: Phaser.GameObjects.Ellipse[] = [];
   private starFieldVisible = false;
+  // v2 星空强化：8 颗带十字光芒的大星（旋转慢闪，随闪烁星显隐）
+  private starCross: Phaser.GameObjects.Container[] = [];
+  // v2 月光：观星点旁一轮淡月（光晕 + 月轮，让旧墙/石头收到月光）
+  private stargazeMoon: Phaser.GameObjects.Container | null = null;
+  // v2 星光粒子：观星点上空淡蓝白星光慢漂（复用森林萤火虫粒子模式，tint 0xddeeff, ADD）
+  private stargazeDust: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
+  // v2 对话阶段镜头的极慢横移 tween（分支独白 zoom 前需停止，避免属性冲突）
+  private stargazeDriftTween: Phaser.Tweens.Tween | null = null;
   // v0.10.4 远景小镇灯光（观星夜远景装饰，与星空同显同隐）
   private stargazeTownLights: Phaser.GameObjects.Graphics | null = null;
   // v0.10.4 观星夜演出互斥：镜头演出期间抑制其他自动演出（FIRST_MORNING/阿风），防止抢占观星对白
@@ -484,6 +507,9 @@ export class MapScene extends Phaser.Scene {
       sideGardenerPlumDone: inst.sideGardenerPlumDone,
       sideShopCropAsked: inst.sideShopCropAsked,
       sideShopCropDone: inst.sideShopCropDone,
+      xiyaLetterAsked: inst.xiyaLetterAsked,
+      xiyaLetterDone: inst.xiyaLetterDone,
+      xiyaLetterStage: inst.xiyaLetterStage,
       dawnXiyaDay: inst.dawnXiyaDay,
       eveningXiyaDay: inst.eveningXiyaDay,
     };
@@ -519,6 +545,9 @@ export class MapScene extends Phaser.Scene {
       this.sideGardenerPlumDone = saved.sideGardenerPlumDone ?? false;
       this.sideShopCropAsked = saved.sideShopCropAsked ?? false;
       this.sideShopCropDone = saved.sideShopCropDone ?? false;
+      this.xiyaLetterAsked = saved.xiyaLetterAsked ?? false;
+      this.xiyaLetterDone = saved.xiyaLetterDone ?? false;
+      this.xiyaLetterStage = saved.xiyaLetterStage ?? 0;
       this.dawnXiyaDay = saved.dawnXiyaDay ?? 0;
       this.eveningXiyaDay = saved.eveningXiyaDay ?? 0;
     }
@@ -548,6 +577,8 @@ export class MapScene extends Phaser.Scene {
     // E1/E9 夏雅精灵清理（场景切换时销毁，防止残留）
     this.clearDawnXiya();
     this.clearEveningXiya();
+    // D-011 《春深有信·一》剧情专线精灵/交互点清理（场景切换时销毁，防止残留）
+    this.clearLetterXiya();
     // 相簿解锁 toast 清理（DOM，防跨场景残留）
     this.hidePhotoUnlockToast();
     // M1-3 夏雅见证精灵清理（场景切换时销毁，防止残留）
@@ -980,6 +1011,11 @@ export class MapScene extends Phaser.Scene {
       this.setupEveningXiya();
     }
 
+    // D-011 夏雅《春深有信·一》：剧情专线（花田边剧情夏雅，下午/傍晚时段，未完成时生成）
+    if (this.mapKey === 'farm' && isTutorialDone()) {
+      this.setupLetterXiya();
+    }
+
     // v0.5.3 剧情密度 E5：爷爷的笔记（庄园角落可读物件，多条轮换、不解释）
     if (this.mapKey === 'farm') {
       this.setupGrandpaNote();
@@ -1052,6 +1088,10 @@ export class MapScene extends Phaser.Scene {
         sideMinerLampDone: this.sideMinerLampDone,
         sideGardenerPlumAsked: this.sideGardenerPlumAsked,
         sideGardenerPlumDone: this.sideGardenerPlumDone,
+        sideShopCropAsked: this.sideShopCropAsked,
+        sideShopCropDone: this.sideShopCropDone,
+        xiyaLetterAsked: this.xiyaLetterAsked,
+        xiyaLetterDone: this.xiyaLetterDone,
       }),
     );
     // E-09 消磨时间：移动端等待按钮 → 打开等待面板
@@ -1160,6 +1200,32 @@ export class MapScene extends Phaser.Scene {
       scrollY: destY,
       duration,
       ease: 'Power2',
+      onComplete: () => onComplete?.(),
+    });
+  }
+
+  /**
+   * v2 观星夜分支独白"拉近"：围绕世界点 (wx,wy) 缩放，保持该点始终在镜头中心。
+   * 不用 Phaser zoomTo（其只改 zoom 不改 scroll，放大围绕左上角，角色会偏出画面）：
+   * tween 一个线性 progress，每帧按 zoom 反算 scroll（scroll = center - size/(2*zoom)），
+   * 保证"世界点钉在屏幕中心"，与 panCameraTo 的 zoom 补偿同一套公式（#29 同源）。
+   */
+  private zoomCameraAt(wx: number, wy: number, toZoom: number, duration: number, onComplete?: () => void): void {
+    const cam = this.cameras.main;
+    const from = cam.zoom;
+    this.stargazeDriftTween?.stop(); // 先停对话慢横移，避免 scrollX 双写冲突
+    this.stargazeDriftTween = null;
+    this.tweens.add({
+      targets: { p: 0 },
+      p: 1,
+      duration,
+      ease: 'Sine.out',
+      onUpdate: (_t, target: { p: number }) => {
+        const zoom = from + (toZoom - from) * target.p;
+        cam.zoom = zoom;
+        cam.scrollX = wx - cam.width / (2 * zoom);
+        cam.scrollY = wy - cam.height / (2 * zoom);
+      },
       onComplete: () => onComplete?.(),
     });
   }
@@ -4500,6 +4566,11 @@ export class MapScene extends Phaser.Scene {
       if (this.trySideXiyaPhoto()) return;
     }
 
+    // D-011 夏雅《春深有信·一》：剧情专线（花田边，下午/傍晚时段；独立于 E9 傍晚闲聊）
+    if (this.mapKey === 'farm' && isTutorialDone()) {
+      if (this.tryXiyaLetterInteract()) return;
+    }
+
     // FEATURE-037 后山道路修复（未恢复时靠近按 E：资源交付一次完成）
     if (this.mapKey === 'forest' && this.forestRoadRestore && !this.forestRoadRestore.restored) {
       if (this.tryForestRoadRestoreInteract()) return;
@@ -4792,39 +4863,49 @@ export class MapScene extends Phaser.Scene {
     this.starField = this.add.graphics();
     this.starField.setDepth(15); // 高于玩家(10)和作物(2-3)，盖住农田
     this.starField.setScrollFactor(1);
-    // 深蓝夜空渐变
-    this.starField.fillGradientStyle(0x0a1628, 0x0a1628, 0x1a2a4a, 0x1a2a4a, 1, 1, 1, 1);
+    // 深蓝夜空渐变（v2 微调：暗部略提亮 0x0a1628→0x0d1a30）
+    this.starField.fillGradientStyle(0x0d1a30, 0x0d1a30, 0x1a2a4a, 0x1a2a4a, 1, 1, 1, 1);
     this.starField.fillRect(0, 0, W, H);
-    // 静态星点（确定性，基于位置哈希）
+    // 静态星点（确定性，基于位置哈希；v2 分两层：近层亮 + 远层暗）
     const rng = (seed: number) => {
       let s = seed;
       return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
     };
     const rand = rng(42);
-    for (let i = 0; i < 120; i++) {
+    // 近层 80 颗（亮 0.6~0.9，稍大）
+    for (let i = 0; i < 80; i++) {
       const sx = rand() * W;
       const sy = rand() * H;
-      const size = 0.5 + rand() * 1.5;
-      const alpha = 0.3 + rand() * 0.5;
+      const size = 1 + rand() * 1.4;
+      const alpha = 0.6 + rand() * 0.3;
       this.starField.fillStyle(0xffffff, alpha);
       this.starField.fillCircle(sx, sy, size);
     }
-    // 银河带（半透明白色带状）
+    // 远层 60 颗（暗 0.2~0.4，偏小）
+    for (let i = 0; i < 60; i++) {
+      const sx = rand() * W;
+      const sy = rand() * H;
+      const size = 0.5 + rand() * 0.9;
+      const alpha = 0.2 + rand() * 0.2;
+      this.starField.fillStyle(0xffffff, alpha);
+      this.starField.fillCircle(sx, sy, size);
+    }
+    // 银河带（半透明白色带状，v2 宽度微增——更"银河"感）
     this.starField.fillStyle(0xffffff, 0.06);
+    this.starField.beginPath();
+    this.starField.moveTo(W * 0.18, 0);
+    this.starField.lineTo(W * 0.38, H);
+    this.starField.lineTo(W * 0.64, H);
+    this.starField.lineTo(W * 0.28, 0);
+    this.starField.closePath();
+    this.starField.fillPath();
+    // v0.10.4 银河叠淡蓝带（A 档：更"银河"感——真实夜晚而非幻想，0.04 蓝叠加白带，宽度同步微增）
+    this.starField.fillStyle(0x8fb8ff, 0.04);
     this.starField.beginPath();
     this.starField.moveTo(W * 0.2, 0);
     this.starField.lineTo(W * 0.4, H);
-    this.starField.lineTo(W * 0.6, H);
+    this.starField.lineTo(W * 0.62, H);
     this.starField.lineTo(W * 0.3, 0);
-    this.starField.closePath();
-    this.starField.fillPath();
-    // v0.10.4 银河叠淡蓝带（A 档：更"银河"感——真实夜晚而非幻想，0.04 蓝叠加白带）
-    this.starField.fillStyle(0x8fb8ff, 0.04);
-    this.starField.beginPath();
-    this.starField.moveTo(W * 0.22, 0);
-    this.starField.lineTo(W * 0.42, H);
-    this.starField.lineTo(W * 0.58, H);
-    this.starField.lineTo(W * 0.32, 0);
     this.starField.closePath();
     this.starField.fillPath();
     // v0.10.4 远景小镇灯光（观星夜远景：地平线一排暖黄光点——"青禾镇还亮着"，纯装饰）
@@ -4839,9 +4920,34 @@ export class MapScene extends Phaser.Scene {
     }
     this.stargazeTownLights.setDepth(15); // 与星空底同层，低于闪烁星(16)
     this.stargazeTownLights.setVisible(false);
-    // 动态星点（20~40 颗闪烁）
+    // 动态星点（v2：50 颗闪烁——8 颗大星带十字光芒 + 42 颗普通，旋转慢闪）
     this.starTwinkle = [];
-    for (let i = 0; i < 30; i++) {
+    this.starCross = [];
+    // 大星（8 颗：十字光芒 = 4 条短 line 交叉，container 整体旋转慢闪）
+    for (let i = 0; i < 8; i++) {
+      const cx = rand() * W;
+      const cy = rand() * H;
+      const c = this.add.container(cx, cy);
+      const g = this.add.graphics();
+      g.lineStyle(1, 0xffffff, 0.55);
+      g.lineBetween(-7, 0, 7, 0);
+      g.lineBetween(0, -7, 0, 7);
+      g.lineStyle(1, 0xddeeff, 0.3);
+      g.lineBetween(-11, 0, -7, 0);
+      g.lineBetween(7, 0, 11, 0);
+      g.lineBetween(0, -11, 0, -7);
+      g.lineBetween(0, 7, 0, 11);
+      c.add(g);
+      const star = this.add.ellipse(0, 0, 2.4, 2.4, 0xffffff, 0.9);
+      c.add(star);
+      c.setDepth(16);
+      c.setData('phase', rand() * Math.PI * 2);
+      c.setData('speed', 0.5 + rand() * 1.0);
+      this.starCross.push(c);
+      this.starTwinkle.push(star);
+    }
+    // 普通闪烁星（42 颗）
+    for (let i = 0; i < 42; i++) {
       const tx = rand() * W;
       const ty = rand() * H;
       const tSize = 1 + rand() * 2;
@@ -4851,6 +4957,42 @@ export class MapScene extends Phaser.Scene {
       star.setData('speed', 0.5 + rand() * 1.5);
       this.starTwinkle.push(star);
     }
+    // v2 月光：淡月（天空）+ 观星点旁月光斑（让旧墙/石头收到月光，ADD 泛光）
+    this.stargazeMoon = this.add.container(0, 0);
+    const moonGlow = this.add.graphics();
+    moonGlow.fillStyle(0xcfe0ff, 0.1);
+    moonGlow.fillCircle(W * 0.62, H * 0.16, 18);
+    moonGlow.fillStyle(0xdbe8ff, 0.35);
+    moonGlow.fillCircle(W * 0.62, H * 0.16, 7);
+    this.stargazeMoon.add(moonGlow);
+    const groundMoon = this.add.ellipse(this.STARGAZE_POS.x, this.STARGAZE_POS.y + 14, 90, 30, 0xa9c4ff, 0.1);
+    groundMoon.setBlendMode(Phaser.BlendModes.ADD);
+    this.stargazeMoon.add(groundMoon);
+    this.stargazeMoon.setDepth(15);
+    this.stargazeMoon.setVisible(false);
+    // v2 星光粒子：观星点上空 20 颗淡蓝白星光慢漂（复用森林萤火虫模式，ADD）
+    const dustSpots: Array<[number, number]> = [
+      [this.STARGAZE_POS.x - 10, this.STARGAZE_POS.y - 46],
+      [this.STARGAZE_POS.x + 18, this.STARGAZE_POS.y - 60],
+      [this.STARGAZE_POS.x + 44, this.STARGAZE_POS.y - 38],
+      [this.STARGAZE_POS.x + 6, this.STARGAZE_POS.y - 74],
+    ];
+    dustSpots.forEach(([dx, dy]) => {
+      const p = this.add.particles(dx, dy, '__WHITE', {
+        lifespan: 3400,
+        speedY: { min: -16, max: 16 },
+        speedX: { min: -14, max: 14 },
+        quantity: 1,
+        frequency: 480,
+        alpha: { start: 0.5, end: 0 },
+        scale: { start: 0.24, end: 0.08 },
+        tint: 0xddeeff,
+        blendMode: 'ADD',
+      });
+      p.setDepth(17); // 高于闪烁星(16)，星光点近景感
+      p.stop();
+      this.stargazeDust.push(p);
+    });
     this.starField.setVisible(false);
     this.setStarTwinkleVisible(false);
   }
@@ -4861,12 +5003,18 @@ export class MapScene extends Phaser.Scene {
     if (this.starField) this.starField.setVisible(visible);
     // v0.10.4 远景小镇灯光与星空同显同隐
     if (this.stargazeTownLights) this.stargazeTownLights.setVisible(visible);
+    // v2 月光 / 星光粒子随星空同显同隐（粒子启动/停止）
+    if (this.stargazeMoon) this.stargazeMoon.setVisible(visible);
+    for (const p of this.stargazeDust) {
+      if (visible) p.start(); else p.stop();
+    }
     this.setStarTwinkleVisible(visible);
   }
 
   /** 控制闪烁星点显隐 */
   private setStarTwinkleVisible(visible: boolean): void {
     for (const s of this.starTwinkle) s.setVisible(visible);
+    for (const c of this.starCross) c.setVisible(visible);
   }
 
   /** 更新星空闪烁动画（每帧调用） */
@@ -4878,6 +5026,13 @@ export class MapScene extends Phaser.Scene {
       const speed = star.getData('speed') as number;
       const alpha = 0.4 + 0.6 * Math.sin(t * speed + phase);
       star.setAlpha(alpha);
+    }
+    // v2 大星十字光芒：慢速旋转（缓慢扫动，增加星空层次）
+    for (const c of this.starCross) {
+      const phase = c.getData('phase') as number;
+      const speed = c.getData('speed') as number;
+      c.setRotation(0.15 * Math.sin(t * speed * 0.4 + phase));
+      c.setAlpha(0.5 + 0.5 * Math.sin(t * speed + phase));
     }
   }
 
@@ -4963,13 +5118,13 @@ export class MapScene extends Phaser.Scene {
     this.time.delayedCall(2200, () => this.spawnShootingStar());
     this.time.delayedCall(6200, () => this.spawnShootingStar());
     this.time.delayedCall(10200, () => this.spawnShootingStar());
-    // v0.10.4 镜头三段（克制版，纯 pan 零 zoom——farm 640×400 右下角拉远会露背景灰边）：
-    // 段1 近景（2s）：pan 至观星点——"人在岛上"（玩家/夏雅尺度）
-    this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 2000, () => {
+    // v2 镜头三段（克制版，纯 pan 零 zoom——farm 640×400 右下角拉远会露背景灰边）：
+    // 段1 近景（2s）：pan 至观星点偏左上 20px ——"抬头看天"（终点上抬，末段模拟抬头）
+    this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y - 20, 2000, () => {
       // 段2 中景（3s）：pan 看向农田/老屋方向——"我刚刚做的事情留在这个世界里"
       this.panCameraTo(400, 220, 3000, () => {
-        // 段3 远景（3s）：pan 回观星点 + 星空展开——小镇灯光淡入 + 亮度脉冲 + 流星
-        this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 3000, () => {
+        // 段3 远景（3s）：pan 回观星点上抬位 + 星空展开——小镇灯光淡入 + 亮度脉冲 + 流星
+        this.panCameraTo(this.STARGAZE_POS.x, this.STARGAZE_POS.y - 20, 3000, () => {
           // 小镇灯光淡入（远景地平线亮起——"青禾镇还亮着"）
           if (this.stargazeTownLights) {
             this.stargazeTownLights.setVisible(true).setAlpha(0);
@@ -4977,6 +5132,15 @@ export class MapScene extends Phaser.Scene {
           }
           // 星空亮度脉冲一次（"爷爷记忆里的星空"）
           this.tweens.add({ targets: this.starField, alpha: 0.72, duration: 700, yoyo: true, ease: 'Sine.out' });
+          // v2 对话阶段：一次极慢横移 30px / 8s（打破静止，不切机位——镜头开始"活着"）
+          // 从当前滚动位置慢右移；分支独白 zoom 开始前会 stop（避免与 zoom 冲突）
+          const cam = this.cameras.main;
+          this.stargazeDriftTween = this.tweens.add({
+            targets: cam,
+            scrollX: cam.scrollX + 30,
+            duration: 8000,
+            ease: 'Linear',
+          });
           // 镜头到位后显示记忆片段 + 开始对话
           showMemoryMoment('这片星空，和爷爷记忆里的一样。');
           this.storyDialogue?.play(
@@ -5028,14 +5192,49 @@ export class MapScene extends Phaser.Scene {
     this.playStargazeAfter(DEMO_ENDING_BRANCHES['try_stay']);
   }
 
-  /** 观星夜：分支独白 → 次日清晨 → 结算面板 + 存档 */
+/** 观星夜：分支独白 → 次日清晨 → 结算面板 + 存档 */
   private playStargazeAfter(branch: DialogueLine[]): void {
     if (!this.storyDialogue) return;
+    // v2 分支独白：镜头拉近（2.0→2.15，1.5s）聚焦角色（以观星点为中心，配合上抬位）
+    this.zoomCameraAt(this.STARGAZE_POS.x, this.STARGAZE_POS.y - 20, 2.15, 1500);
     this.storyDialogue.play(branch, () => {
       this.storyDialogue!.play(DEMO_ENDING_FINALE, () => {
+        // v2 分支独白结束后镜头缓缓拉回 2.0（晨曦全景），zoom 复位避免状态残留
+        const cam = this.cameras.main;
+        const p2 = { z: cam.zoom };
+        this.tweens.add({
+          targets: p2,
+          z: 2.0,
+          duration: 1200,
+          ease: 'Sine.inOut',
+          onUpdate: () => {
+            cam.zoom = p2.z;
+            cam.scrollX = this.STARGAZE_POS.x - cam.width / (2 * cam.zoom);
+            cam.scrollY = this.STARGAZE_POS.y - 20 - cam.height / (2 * cam.zoom);
+          },
+        });
+        // v2 第一缕阳光：晨曦中段（1.6s）地平线斜向一道淡金线扫过 1.5s（"新一天的第一束光"）
+        this.time.delayedCall(1600, () => {
+          const cam0 = this.cameras.main;
+          const sun = this.add.graphics();
+          sun.setScrollFactor(0).setDepth(99);
+          // 斜向光带（从画面左下往右上方向，淡金色）
+          const x0 = -60, y0 = cam0.height * 0.72;
+          const x1 = cam0.width * 0.95, y1 = cam0.height * 0.28;
+          sun.lineStyle(3, 0xffe9b8, 0.5);
+          sun.lineBetween(x0, y0, x1, y1);
+          sun.lineStyle(7, 0xffe9b8, 0.22);
+          sun.lineBetween(x0, y0, x1, y1);
+          sun.setAlpha(0);
+          this.tweens.add({
+            targets: sun, alpha: 1,
+            duration: 500, ease: 'Sine.in',
+            yoyo: true, hold: 500,
+            onComplete: () => sun.destroy(),
+          });
+        });
         // 晨曦过渡（v0.10.4：2s → 3.5s，制作人拍板节奏——0s 夜空 → 1.5s 变亮 → 3.5s 角色站晨光里）
         // 不是"新一天开始"的高潮，而是"昨晚发生的事情是真的"；ease Sine.easeOut 前快后缓
-        const cam = this.cameras.main;
         this.tweens.add({
           targets: cam,
           duration: 3500,
@@ -5061,14 +5260,24 @@ export class MapScene extends Phaser.Scene {
               this.cameras.main.useBounds = true;
               // 恢复相机跟随（BUG-050 修复）：cam.pan / panCameraTo 内部会自动
               // stopFollow() 解除跟随绑定，观星夜两次 pan 后跟随失效，导致结束后
-              // 玩家移动时相机不再跟随（走到下方角色出框）。此处按初始参数重新绑定。
+              // 玩家移动时相机不再跟随（走到下方角色出框说法不成立）。此处按初始参数重新绑定。
               if (!this.centerSmallMap) {
                 this.cameras.main.startFollow(this.player, true, 0.1, 0.1, 0, 0);
               }
-              if (!this.endingPanel) this.endingPanel = new EndingPanel();
-              save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
-              this.inStargazeCutscene = false; // v0.10.4 演出结束，恢复自动演出
-              this.endingPanel.open();
+              // v2 结束方式：1s 黑场呼吸（记录时刻的庄重——"昨晚是真的"）后再打开结算
+              const veil = this.add.rectangle(0, 0, cam.width, cam.height, 0x000000, 0)
+                .setOrigin(0).setScrollFactor(0).setDepth(100);
+              this.tweens.add({
+                targets: veil, alpha: 0.85,
+                duration: 450, yoyo: true, hold: 100, ease: 'Sine.out',
+                onComplete: () => {
+                  veil.destroy();
+                  if (!this.endingPanel) this.endingPanel = new EndingPanel();
+                  save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+                  this.inStargazeCutscene = false; // v0.10.4 演出结束，恢复自动演出
+                  this.endingPanel.open();
+                },
+              });
             });
           },
         });
@@ -5446,6 +5655,11 @@ export class MapScene extends Phaser.Scene {
     if (this.mapKey === 'farm' && isTutorialDone()) {
       this.setupDawnXiya();
       this.setupEveningXiya();
+    }
+    // D-011 《春深有信·一》：跨天后重新判断剧情专线（清旧 + 按新时段重建；完成态不再生成）
+    if (this.mapKey === 'farm' && isTutorialDone()) {
+      this.clearLetterXiya();
+      this.setupLetterXiya();
     }
     // v0.5.3 E5：跨天后刷新爷爷笔记（按新天数轮换，重建精灵保持坐标）
     if (this.mapKey === 'farm') {
@@ -6502,6 +6716,177 @@ export class MapScene extends Phaser.Scene {
       });
     });
     return true;
+  }
+
+  // ============ D-011 夏雅《春深有信·一》剧情专线（2026-08-08 制作人拍板） ============
+  // 剧情专线 Demo Cut：只做第一章核心体验 5 步（首次见面 → 整理花苗 → 旧花种记录 → 态度变化 → 春祭/烟花埋伏笔）。
+  // 不做好感系统 / 章节系统 / 通用传说任务框架（P2 Beta 角色篇章系统）。
+  // 载体：独立剧情夏雅（花田边，参照 E9 创建模式），不碰 E9 日常闲聊；4 段逐步交互（stage 驱动）。
+  // 触发条件：farm + 教程完成 + 12:00<=hour<20:00 + xiyaLetterDone!==true。
+  // 存档：xiyaLetterAsked/Done/Stage（均 optional，旧档兼容）。
+
+  /** 花田（旧花园）区域中心像素坐标：col 30, row 5（可走格，无碰撞） */
+  private readonly LETTER_POS = { x: 30 * TILE_SIZE + TILE_SIZE / 2, y: 5 * TILE_SIZE + TILE_SIZE / 2 };
+
+  /** 剧情时段窗口（下午/傍晚；与设计「夕阳落在田埂上」的傍晚氛围一致） */
+  private letterTimeOk(): boolean {
+    const t = getTime();
+    return t.hour >= 12 && t.hour < 20;
+  }
+
+  /** 清理剧情专线全部场景级对象（夏雅精灵 + label + 交互点标记） */
+  private clearLetterXiya(): void {
+    if (this.letterXiya) { this.letterXiya.destroy(); this.letterXiya = null; }
+    if (this.letterXiyaLabel) { this.letterXiyaLabel.destroy(); this.letterXiyaLabel = null; }
+    if (this.letterFlowerMark) { this.letterFlowerMark.destroy(); this.letterFlowerMark = null; }
+    if (this.letterRecordMark) { this.letterRecordMark.destroy(); this.letterRecordMark = null; }
+  }
+
+  /** 剧情专线存档（x/y/scene/facing + dailyQuest 与既有支线一致） */
+  private saveLetterFlags(): void {
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+  }
+
+  /** 生成花田边剧情夏雅（A 段开场 / D 段收尾共用） */
+  private spawnLetterXiya(): void {
+    if (this.letterXiya) return;
+    const dx = this.LETTER_POS.x - 32;
+    const dy = this.LETTER_POS.y;
+    this.letterXiya = this.add.sprite(dx, dy, 'npc_xiya');
+    this.letterXiya.setScale(0.5).setDepth(5);
+    this.letterXiya.setFlipX(true);
+    this.letterXiyaLabel = this.add.text(dx, dy - 14, '夏雅', {
+      fontSize: '13px', color: '#f0a050',
+      stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      padding: { x: 3, y: 2 },
+    }).setShadow(0, 1, '#000000', 2).setOrigin(0.5).setDepth(6);
+  }
+
+  /** 生成「花苗」交互点（B 段；花田中心） */
+  private spawnLetterFlowerMark(): void {
+    if (this.letterFlowerMark) return;
+    this.letterFlowerMark = this.add.text(this.LETTER_POS.x, this.LETTER_POS.y - 14, '花苗', {
+      fontFamily: 'Arial', fontSize: '10px', color: '#c8d8a8',
+    }).setOrigin(0.5).setDepth(4);
+  }
+
+  /** 生成「旧花种记录」交互点（C 段；花田中心右上） */
+  private spawnLetterRecordMark(): void {
+    if (this.letterRecordMark) return;
+    this.letterRecordMark = this.add.text(this.LETTER_POS.x - 16, this.LETTER_POS.y - 30, '旧册子', {
+      fontFamily: 'Arial', fontSize: '10px', color: '#e8d8a8',
+    }).setOrigin(0.5).setDepth(4);
+  }
+
+  /**
+   * 剧情专线生成入口（create / 跨天时调用）：
+   * 按 stage 恢复现场：0=初始夏雅 / 1=花苗标记 / 2=记录标记 / 3=收尾夏雅。
+   * 花园见证夏雅在场时（gardenXiya 未触发）让位，避免同时出现两个夏雅。
+   */
+  private setupLetterXiya(): void {
+    if (this.mapKey !== 'farm') return;
+    if (this.xiyaLetterDone) return;
+    if (!isTutorialDone()) return;
+    if (!this.letterTimeOk()) return;
+    // 需要夏雅精灵的阶段（A/D）：花园见证在场时让位，等见证完成后自然恢复
+    const needXiya = this.xiyaLetterStage === 0 || this.xiyaLetterStage >= 3;
+    if (needXiya && this.gardenXiya) return;
+    if (!this.xiyaLetterAsked) {
+      this.spawnLetterXiya();
+    } else if (this.xiyaLetterStage === 1) {
+      this.spawnLetterFlowerMark();
+    } else if (this.xiyaLetterStage === 2) {
+      this.spawnLetterRecordMark();
+    } else {
+      this.spawnLetterXiya();
+    }
+  }
+
+  /**
+   * 剧情专线交互入口（按 E 时调用）：
+   * 4 段逐步交互：A 开场（夏雅）→ B 花苗 → C 旧花种记录（记忆 moment）→ D 收尾埋伏笔（完成）。
+   */
+  private tryXiyaLetterInteract(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (this.xiyaLetterDone) return false;
+    if (!isTutorialDone()) return false;
+    if (!this.letterTimeOk()) return false;
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const R = 32 * 32;
+
+    // A 段：初始夏雅（开场对白 + 演出「夕阳落在田埂上」）
+    if (!this.xiyaLetterAsked && this.letterXiya) {
+      const dx = this.player.x - this.letterXiya.x;
+      const dy = this.player.y - this.letterXiya.y;
+      if (dx * dx + dy * dy > R) return false;
+      this.xiyaLetterAsked = true;
+      this.xiyaLetterStage = 1;
+      this.saveLetterFlags();
+      this.storyDialogue.play(XIYA_LETTER_OPEN_DIALOGUE, () => {
+        this.clearLetterXiya();
+        this.spawnLetterFlowerMark();
+        this.updateHUD();
+        this.saveLetterFlags();
+      });
+      return true;
+    }
+
+    // B 段：「花苗」交互点（整理花苗）
+    if (this.letterFlowerMark) {
+      const dx = this.player.x - this.letterFlowerMark.x;
+      const dy = this.player.y - this.letterFlowerMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      this.xiyaLetterStage = 2;
+      this.saveLetterFlags();
+      this.storyDialogue.play(XIYA_LETTER_FLOWER_DIALOGUE, () => {
+        this.letterFlowerMark?.destroy();
+        this.letterFlowerMark = null;
+        this.spawnLetterRecordMark();
+        this.saveLetterFlags();
+      });
+      return true;
+    }
+
+    // C 段：「旧花种记录」交互点（翻旧册子 + 记忆 moment）
+    if (this.letterRecordMark) {
+      const dx = this.player.x - this.letterRecordMark.x;
+      const dy = this.player.y - this.letterRecordMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      this.xiyaLetterStage = 3;
+      this.saveLetterFlags();
+      this.storyDialogue.play(XIYA_LETTER_RECORD_DIALOGUE, () => {
+        this.letterRecordMark?.destroy();
+        this.letterRecordMark = null;
+        showMemoryMoment('获得「旧花种记录」');
+        // 花园见证夏雅在场时让位（避免双夏雅）；见证触发后重进场景恢复收尾夏雅
+        if (!this.gardenXiya) this.spawnLetterXiya();
+        this.saveLetterFlags();
+      });
+      return true;
+    }
+
+    // D 段：收尾夏雅（态度变化 + 春祭/烟花伏笔）
+    if (this.xiyaLetterAsked && this.xiyaLetterStage >= 3 && this.letterXiya) {
+      const dx = this.player.x - this.letterXiya.x;
+      const dy = this.player.y - this.letterXiya.y;
+      if (dx * dx + dy * dy > R) return false;
+      this.xiyaLetterDone = true;
+      this.xiyaLetterStage = 4;
+      this.saveLetterFlags();
+      this.storyDialogue.play(XIYA_LETTER_FINAL_DIALOGUE, () => {
+        this.clearLetterXiya();
+        this.updateHUD();
+        this.saveLetterFlags();
+      });
+      return true;
+    }
+
+    return false;
   }
 
   /**

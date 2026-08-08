@@ -21,6 +21,10 @@ const SCREENSHOT_DIR = join(__dirname, 'test-screenshots');
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const GAME_URL = 'http://localhost:5173/';
 
+// --mobile：以手机横屏 844×390 + 触屏 UA 复用同一探针收集截图（验收标准：手机截图）
+const IS_MOBILE = process.argv.includes('--mobile');
+const SHOT_PREFIX = IS_MOBILE ? 'm-' : '';
+
 mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
 const results = [];
@@ -34,9 +38,9 @@ function result(step, passed, detail = '') {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function screenshot(page, name) {
-  const path = join(SCREENSHOT_DIR, `${name}.png`);
+  const path = join(SCREENSHOT_DIR, `${SHOT_PREFIX}${name}.png`);
   await page.screenshot({ path, fullPage: false });
-  console.log(`  📸 ${name}.png`);
+  console.log(`  📸 ${SHOT_PREFIX}${name}.png`);
 }
 
 async function sceneInfo(page) {
@@ -158,11 +162,16 @@ async function run() {
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
     headless: false,
-    defaultViewport: { width: 1024, height: 768 },
+    defaultViewport: IS_MOBILE
+      ? { width: 844, height: 390, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }
+      : { width: 1024, height: 768 },
     args: ['--no-sandbox'],
   });
 
   const page = await browser.newPage();
+  if (IS_MOBILE) {
+    await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36');
+  }
   page.on('console', msg => {
     if (msg.type() === 'error') console.log(`  [err] ${msg.text().substring(0, 160)}`);
   });
