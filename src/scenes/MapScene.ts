@@ -371,6 +371,12 @@ export class MapScene extends Phaser.Scene {
     /** 交互基准点（道路区域中心像素坐标） */
     pos: { x: number; y: number };
   } | null = null;
+  // P0-5 农场回暖（2026-08-08 制作人拍板）：星之碎片交付后农场环境回暖反馈。
+  // 视觉 = 全屏暖橙 ADD overlay（提亮整体 + 暗部回暖）+ 暖金光尘粒子（光照感）；
+  // 状态持久化 = FarmRestore.isRestored('farmWarm')（随 worldRestore 入档）。
+  // 首次展示 5 秒渐变过渡（from 荒凉 → to 暖色）；此后（重进/读档）直接应用。
+  private farmWarmOverlay: Phaser.GameObjects.Rectangle | null = null;
+  private farmWarmParticles: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
   // M1-3 夏雅见证：花园恢复完成后，夏雅在花园旁出现，靠近触发 GARDEN_RESTORED_XIYA_DIALOGUE
   private gardenXiya: Phaser.GameObjects.Sprite | null = null;
   private gardenXiyaLabel: Phaser.GameObjects.Text | null = null;
@@ -1021,6 +1027,11 @@ export class MapScene extends Phaser.Scene {
       this.setupGrandpaNote();
     }
 
+    // P0-5 农场回暖：星之碎片交付后（farmWarm 已标记），农场展示暖色环境反馈
+    if (this.mapKey === 'farm' && isRestored('farmWarm')) {
+      this.setupFarmWarm();
+    }
+
     // 触屏控件（摇杆+交互按钮，DOM 单例；移动端额外显示背包按钮）
     this.touchControls = new TouchControls(this, this.inputManager, () => this.tryOpenBackpack(), () => this.tryOpenQuest());
     // 农场场景操作按钮语义为「使用工具」，其余场景保持「交互」（仅影响按钮文字，逻辑不变）
@@ -1249,6 +1260,25 @@ export class MapScene extends Phaser.Scene {
     if (this.endingPanel?.isOpen()) {
       this.player.setVelocity(0, 0);
       this.inputManager.clearAction();
+      return;
+    }
+
+    // v0.10.4 观星夜演出期间：冻结玩家移动/交互，避免演出中可移动触发
+    // 场景切换/其他交互把 pan 链打断（段3 onComplete=对话播放 会随场景 tween 销毁
+    // 而永不执行 → 真机表现为"特效出现了、剧情没触发、人物还能动"）。
+    // 只放行观星对白推进（观星对话由段3 onComplete 在 8s 后打开，此期间玩家应不可动）。
+    if (this.inStargazeCutscene) {
+      this.player.setVelocity(0, 0);
+      this.inputManager.clearAction();
+      // 演出期间保留星空闪烁/观星点视觉（观星点此时已 markObservatoryComplete 自动隐藏）
+      this.updateStarField();
+      this.updateStargaze();
+      if (this.storyDialogue?.isOpen()) {
+        this.inputManager.update();
+        if (this.inputManager.consumeAction()) {
+          this.storyDialogue.advance();
+        }
+      }
       return;
     }
 
@@ -5701,6 +5731,61 @@ export class MapScene extends Phaser.Scene {
     // 交互基准用椭圆实际坐标（label 相对偏移 -8px，用它判定会偏上）
     this.grandpaNote = mark;
     this.grandpaNotePos = { x: nx, y: ny };
+  }
+
+  /**
+   * P0-5 农场回暖（2026-08-08 制作人拍板）：星之碎片交付后，农场环境回暖反馈。
+   * 触发：QuestSystem.deliverQuest() 标记 FarmRestore 'farmWarm'（随 worldRestore 入档），
+   *       本方法在 create 时检测到该标记后调用。
+   * 视觉（复用既有能力，零新资源）：
+   *   - 全屏暖橙 ADD overlay：整体提亮 + 暗部回暖（草地变暖、小花亮起），alpha 目标 0.10
+   *   - 暖金光尘粒子：稀疏慢漂（复用森林萤火虫模式，tint 换暖金），光照感
+   * 首屏（本次会话首次进农场）播 5 秒渐变过渡；此后直接应用（读档/重进保持暖色）。
+   */
+  private setupFarmWarm(): void {
+    if (this.mapKey !== 'farm' || !this.groundLayer) return;
+    // 全屏暖橙 ADD overlay（覆盖地图整体，depth 4.5：盖过地面/装饰(≤4)，NPC(5)/玩家(10) 不被盖）
+    const w = this.groundLayer.width;
+    const h = this.groundLayer.height;
+    const overlay = this.add.rectangle(0, 0, w, h, 0xffc98a, 0)
+      .setOrigin(0).setDepth(4.5)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.farmWarmOverlay = overlay;
+
+    // 暖金光尘粒子：稀疏慢漂（分布农场中部几处，视觉"光照粒子增加"）
+    const spots: Array<[number, number]> = [
+      [8 * TILE_SIZE + 8, 8 * TILE_SIZE + 8],
+      [20 * TILE_SIZE + 8, 12 * TILE_SIZE + 8],
+      [30 * TILE_SIZE + 8, 8 * TILE_SIZE + 8],
+    ];
+    spots.forEach(([x, y]) => {
+      const p = this.add.particles(x, y, '__WHITE', {
+        lifespan: 3000,
+        speedX: { min: -20, max: 20 },
+        speedY: { min: -10, max: 10 },
+        quantity: 1,
+        frequency: 1200,
+        alpha: { start: 0.5, end: 0 },
+        scale: { start: 0.18, end: 0.05 },
+        tint: 0xffd98a,
+        blendMode: 'ADD',
+      });
+      p.setDepth(4.6);
+      this.farmWarmParticles.push(p);
+    });
+
+    // 首次进入（本会话）→ 5 秒渐变过渡；重进/读档 → 直接应用
+    if (!this.farmWarmIntroShown) {
+      this.farmWarmIntroShown = true;
+      this.tweens.add({
+        targets: overlay,
+        alpha: { from: 0, to: 0.1 },
+        duration: 5000,
+        ease: 'Sine.easeOut',
+      });
+    } else {
+      overlay.setAlpha(0.1);
+    }
   }
 
   /** 与爷爷笔记交互（靠近按 E → 播放当天一条笔记） */
