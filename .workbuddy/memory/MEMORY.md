@@ -61,6 +61,7 @@
 - 多 AI 会话并发（WorkBuddy/TRAE/Codex）：**同仓库 git 写操作注意协调**；发现对象损坏立即停手报告，不自行 gc（见 docs/incidents/事故记录-git对象库损坏与并发操作-2026-08-06.md）
 - 工作区他人改动（支线试点/语音线等）不擅自提交，提交前确认归属
 - 宣发图输出 `public/assets/images/promo/`；相簿图 `public/assets/photos/album/`（webp ≤1280）
+- **脚本级真实操作试玩**（陌生玩家视角，2026-08-09 首用）：`tmp/_player-run.mjs` 用 Puppeteer 真实键盘 WASD+E 打通主流程找体验问题。经验要点：瞬时按键须 HOLD（`press()` 漏 `JustDown()`）；对白 HOLD E；监听 click 的弹窗须 `mouse.click`；坐标闭环走位比固定时长稳；玩家踩出口区会被"吸进"下一场景（player 瞬间 null）；`day=-1+title+station_intro`=页面 reload。详见 `memory/2026-08-09.md`。
 
 ## 制作人拍板（2026-08-06 晚）
 
