@@ -37,7 +37,7 @@ import { formatTime, getTime, nextDay as timeNextDay, setTime, setTimeFull, tick
 import { getCoins, spendCoins, addCoins } from '../data/Economy';
 import { addXp, getLevel, getXp, getXpToNext, setOnLevelUp } from '../data/FarmProgress';
 import { getStamina, consumeStamina, resetStamina, MAX_STAMINA } from '../data/Stamina';
-import { ORE_DEPOSITS, OreDeposit, isOreMined, markMined, resetOres } from '../data/MineState';
+import { ORE_DEPOSITS, OreDeposit, isOreMined, resetOres, hitOre, getOreHits, getOreHitCost, ORE_MAX_HITS } from '../data/MineState';
 import { NPC } from '../entities/NPC';
 import { getNPCsForScene, refreshSchedule, updateNPCs, getDailyNpcLine, getMysteryAfterObservatory } from '../systems/NPCSystem';
 import { collectShard, getElderDialogue, getQuestObjective, getQuestState, isElderBusyDay } from '../systems/QuestSystem';
@@ -64,6 +64,7 @@ import * as AmbienceSystem from '../systems/AmbienceSystem';
 import { triggerTag } from '../systems/GuiXingRecordSystem';
 import { triggerOnce, hasTriggered } from '../systems/EventManager';
 import { unlockPhoto, isPhotoUnlocked, PHOTO_DATABASE } from '../data/PhotoAlbum';
+import { MusicBoxPanel } from '../ui/MusicBoxPanel';
 import { TouchControls, setActionButtonLabel, setWaitHandler } from '../systems/TouchControls';
 import { showMemoryMoment } from '../ui/MemoryMoment';
 import { playMemoryFlashback } from '../ui/MemoryFlashback';
@@ -122,6 +123,9 @@ export interface MapSceneFlags {
   firstHoe?: boolean;
   firstPlant?: boolean;
   firstWater?: boolean;
+  /** v1.1 采集体验升级：第一次砍树/挖矿的短提示（一次性入档，读档不重复） */
+  firstChopHint?: boolean;
+  firstMineHint?: boolean;
   /** SHOP-01 商店复兴：商店老板复兴台词已播档位（-1=未播；0/1/2 对应复兴度，档位推进才播，读档不重复） */
   shopRevivalTier?: number;
   woodcutTipShown: boolean;
@@ -133,7 +137,7 @@ export interface MapSceneFlags {
   /** 支线试点：夏雅「院子有人照顾」（花园恢复后，旧藤架事件） */
   sideXiyaGardenAsked?: boolean;
   sideXiyaGardenDone?: boolean;
-  /** 支线试点：村长「看星星的地方」（观星夜完成后，空地事件） */
+  /** 支线试点：镇长「看星星的地方」（观星夜完成后，空地事件） */
   sideElderTeaAsked?: boolean;
   sideElderStarDone?: boolean;
   /** E1/E9 每日偶遇：当天是否已触发（持久化，刷新不重复；存档审查 2026-08-06） */
@@ -252,7 +256,7 @@ export class MapScene extends Phaser.Scene {
   private shardStar: Phaser.GameObjects.Graphics | null = null;
   private shardParticles: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
   private shardTweens: Phaser.Tweens.Tween[] = [];
-  // 村长家/小镇视觉升级：室内暖炉辉光/浮尘/门口柔光、小镇炊烟/窗灯/落叶
+  // 镇长家/小镇视觉升级：室内暖炉辉光/浮尘/门口柔光、小镇炊烟/窗灯/落叶
   private elderHouseGlow: Phaser.GameObjects.Ellipse | null = null;
   private elderHouseDoorGlow: Phaser.GameObjects.Ellipse | null = null;
   private elderHouseDust: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
@@ -274,8 +278,12 @@ export class MapScene extends Phaser.Scene {
   private sleeping = false;
   // 矿洞矿脉精灵列表（mine 场景，id → sprite）
   private oreSprites: { deposit: OreDeposit; sprite: Phaser.GameObjects.Image }[] = [];
+  // v1.1 采集体验升级：矿脉裂纹图形（deposit.id → graphics，击打第 2 击出现）
+  private oreCracks = new Map<string, Phaser.GameObjects.Graphics>();
   // 农场树木精灵列表（farm 场景，key = "col,row"）
   private treeSprites = new Map<string, Phaser.GameObjects.Image>();
+  // v1.1 采集体验升级：树干裂纹图形（key = "col,row"，击打第 2 击出现）
+  private treeCracks = new Map<string, Phaser.GameObjects.Graphics>();
   // 首次引导标志
   private woodcutTipShown = false;
   private mineTipShown = false;
@@ -299,6 +307,11 @@ export class MapScene extends Phaser.Scene {
   // FEATURE-038 居民需求板（小镇广场右侧信息板交互物 + DOM 面板）
   private residentBoardMark: Phaser.GameObjects.Container | null = null;
   private residentBoardPanel: ResidentBoardPanel | null = null;
+  // P1 家的音乐盒（老屋音乐盒交互物 + DOM 曲目面板，OST 收藏系统）
+  private musicBoxMark: Phaser.GameObjects.Container | null = null;
+  private musicBoxPanel: MusicBoxPanel | null = null;
+  /** 音乐盒首次打开的仪式感（会话级，不入档）：第一次先浮字台词再弹面板 */
+  private musicBoxIntroduced = false;
   /** 需求板引导（首次靠近提示，会话级，不入档） */
   private residentBoardHintShown = false;
   // 教程：大门墙壁（物理矩形，钥匙使用后销毁）
@@ -328,7 +341,7 @@ export class MapScene extends Phaser.Scene {
   private adventurerWelcomeLabel: Phaser.GameObjects.Text | null = null;
   private adventurerWelcomeDone = false;
   
-  // 村长家提示物品
+  // 镇长家提示物品
   private elderHouseHint: { sprite: Phaser.GameObjects.Container; text: Phaser.GameObjects.Text } | null = null;
   // v0.5.3 剧情密度 E9：傍晚关心的夏雅（教程完成后，傍晚 18-20 时在农场出现）
   private eveningXiya: Phaser.GameObjects.Sprite | null = null;
@@ -402,6 +415,9 @@ export class MapScene extends Phaser.Scene {
   private firstHoe = false;
   private firstPlant = false;
   private firstWater = false;
+  // v1.1 采集体验升级：第一次砍树/挖矿的短提示（一次性，mapFlags 入档，读档不重复）
+  private firstChopHint = false;
+  private firstMineHint = false;
   // SHOP-01 商店复兴：老板复兴台词已播档位（-1=未播；档位推进才播一次，随 mapFlags 入档）
   private shopRevivalTier = -1;
   // M1-3 花园清理引导：玩家靠近花园区域时首次提示（一次性，内存 flag）
@@ -515,6 +531,8 @@ export class MapScene extends Phaser.Scene {
       firstHoe: inst.firstHoe,
       firstPlant: inst.firstPlant,
       firstWater: inst.firstWater,
+      firstChopHint: inst.firstChopHint,
+      firstMineHint: inst.firstMineHint,
       shopRevivalTier: inst.shopRevivalTier,
       woodcutTipShown: inst.woodcutTipShown,
       mineTipShown: inst.mineTipShown,
@@ -557,6 +575,8 @@ export class MapScene extends Phaser.Scene {
       this.firstHoe = saved.firstHoe ?? false;
       this.firstPlant = saved.firstPlant ?? false;
       this.firstWater = saved.firstWater ?? false;
+      this.firstChopHint = saved.firstChopHint ?? false;
+      this.firstMineHint = saved.firstMineHint ?? false;
       this.shopRevivalTier = saved.shopRevivalTier ?? -1;
       this.woodcutTipShown = saved.woodcutTipShown;
       this.mineTipShown = saved.mineTipShown;
@@ -620,7 +640,7 @@ export class MapScene extends Phaser.Scene {
     this.clearRobots();
     // 后山老树交互提示清理
     this.hideOldTreeHint();
-    // 村长家提示物品清理
+    // 镇长家提示物品清理
     this.clearElderHouseHint();
   }
 
@@ -932,7 +952,7 @@ export class MapScene extends Phaser.Scene {
     // 创建当前场景的 NPC（根据 TimeSystem 时间判定 location）
     this.setupNPCs();
 
-    // 村长不在镇上时，显示提示物品（指引玩家去村长家）
+    // 镇长不在镇上时，显示提示物品（指引玩家去镇长家）
     if (this.mapKey === 'town') {
       this.setupElderHouseHint();
     }
@@ -942,7 +962,7 @@ export class MapScene extends Phaser.Scene {
       this.setupFarmAmbience();
     }
 
-    // 村长家室内氛围（暖炉辉光/浮尘/门口柔光，零资源纯代码）
+    // 镇长家室内氛围（暖炉辉光/浮尘/门口柔光，零资源纯代码）
     if (this.mapKey === 'elder_house') {
       this.setupElderHouseAmbience();
     }
@@ -959,6 +979,11 @@ export class MapScene extends Phaser.Scene {
     // gate 庄园大门美术升级（生活杂物/小动物/夜间门灯，零资源纯代码；教程逻辑零触碰）
     if (this.mapKey === 'gate') {
       this.setupGateDecorations();
+    }
+
+    // P1 家的音乐盒：老屋（house）音乐盒交互物 → 曲目收藏面板
+    if (this.mapKey === 'house') {
+      this.setupMusicBox();
     }
 
     // M1-3 爷爷旧花园恢复点（玩家清理荒废角落 → 环境变化 + 存档持久化）
@@ -1192,12 +1217,9 @@ export class MapScene extends Phaser.Scene {
     // 环境音：进入地图按 mapKey + 当前小时启动氛围音（白天鸟叫/夜晚虫鸣等）
     AmbienceSystem.start(this.mapKey, getTime().hour);
     // BGM 声音补全 v1.0（2026-08-09）：青禾镇白天播专属日常 BGM（夜晚保持观星音乐统一夜景氛围）
+    // v0.11（P0.5 音乐优先级）：进图统一走 playSceneBgm——剧情 > 音乐盒"我的歌" > 地图默认
     const mHour = getTime().hour;
-    if (this.mapKey === 'town' && mHour >= 5 && mHour < 19) {
-      MusicSystem.play('town');
-    } else {
-      MusicSystem.play(mHour >= 19 || mHour < 5 ? 'stargaze_night' : 'farm_day');
-    }
+    MusicSystem.playSceneBgm(this.mapKey, mHour);
   }
 
   /**
@@ -1634,16 +1656,16 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 村长不在镇上时，显示提示物品（指引玩家去村长家）
-   * 当村长在家（06:00-08:00 或 18:00+）时，在镇上村长位置显示一个交互物品
-   * 玩家靠近按 E 可看到提示："村长不在，去村长家看看？"
+   * 镇长不在镇上时，显示提示物品（指引玩家去镇长家）
+   * 当镇长在家（06:00-08:00 或 18:00+）时，在镇上镇长位置显示一个交互物品
+   * 玩家靠近按 E 可看到提示："镇长不在，去镇长家看看？"
    */
   private setupElderHouseHint(): void {
-    // 检查村长是否在镇上
+    // 检查镇长是否在镇上
     const elderInTown = this.npcList.some(n => n.id === 'elder');
-    if (elderInTown) return; // 村长在镇上，不显示提示
+    if (elderInTown) return; // 镇长在镇上，不显示提示
 
-    // 村长不在镇上，显示提示物品
+    // 镇长不在镇上，显示提示物品
     const elderSpot = { x: 13 * TILE_SIZE + TILE_SIZE / 2, y: 10 * TILE_SIZE + TILE_SIZE / 2 };
     
     // 创建交互物品（像素木牌 + 小房子图标，替换 v0.10 前 emoji 🏠；Alpha 审查 P0 #2）
@@ -1669,7 +1691,7 @@ export class MapScene extends Phaser.Scene {
     hintContainer.add(house);
     
     // 添加提示文字（显示在木牌下方）
-    const hintText = this.add.text(elderSpot.x, elderSpot.y + 16, '村长家 →', {
+    const hintText = this.add.text(elderSpot.x, elderSpot.y + 16, '镇长家 →', {
       fontSize: '10px',
       color: '#c8a878',
       stroke: '#000000',
@@ -1690,7 +1712,7 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 与村长家提示物品交互（靠近按 E）
+   * 与镇长家提示物品交互（靠近按 E）
    */
   private tryElderHouseHintInteract(): boolean {
     if (!this.elderHouseHint || !this.elderHouseHint.sprite.visible) return false;
@@ -1699,11 +1721,11 @@ export class MapScene extends Phaser.Scene {
     const dy = this.player.y - this.elderHouseHint.sprite.y;
     if (dx * dx + dy * dy > 28 * 28) return false;
     
-    // 显示提示并切换到村长家场景
-    this.showDialogueText('村长不在镇上，去村长家看看？');
-    // 声音补全 v1.0（2026-08-09）：进村长家播门开启音
+    // 显示提示并切换到镇长家场景
+    this.showDialogueText('镇长不在镇上，去镇长家看看？');
+    // 声音补全 v1.0（2026-08-09）：进镇长家播门开启音
     play('door_open');
-    // 延迟后切换到村长家场景
+    // 延迟后切换到镇长家场景
     this.time.delayedCall(1000, () => {
       this.scene.start('elder_house', { spawn: { x: 5 * TILE_SIZE, y: 8 * TILE_SIZE } });
     });
@@ -1755,6 +1777,87 @@ export class MapScene extends Phaser.Scene {
     board.add(label);
 
     this.residentBoardMark = board;
+  }
+
+  /**
+   * P1 家的音乐盒：老屋（house）音乐盒交互物。
+   * 位置 (17,5)：Walls 层空地、距床铺/门口 >3 格、右侧靠墙易发现，无碰撞/出口/剧情冲突。
+   * 视觉：木盒 + 金色转盘 + 🎵 音符 + 呼吸光晕 + 「音乐盒」标签（参照需求板模式，零资产）。
+   */
+  private setupMusicBox(): void {
+    if (this.mapKey !== 'house') return;
+    const T = TILE_SIZE;
+    const bx = 17 * T + T / 2;
+    const by = 5 * T + T / 2;
+    const box = this.add.container(bx, by).setDepth(4);
+
+    // 呼吸光晕（吸引注意）
+    const glow = this.add.ellipse(0, -2, 26, 22, 0xffd98a, 0.18);
+    box.add(glow);
+    this.tweens.add({
+      targets: glow,
+      alpha: { from: 0.12, to: 0.32 },
+      duration: 1200,
+      yoyo: true,
+      repeat: -1,
+    });
+
+    // 木盒 + 盒盖 + 金色转盘
+    const g = this.add.graphics();
+    g.fillStyle(0x8a6a45, 1);
+    g.fillRoundedRect(-8, -5, 16, 11, 2);
+    g.fillStyle(0xa8835a, 1);
+    g.fillRect(-7, -7, 14, 2);
+    g.fillStyle(0xe8c070, 1);
+    g.fillCircle(3, 0, 2);
+    box.add(g);
+
+    // 顶部音符
+    const note = this.add.text(0, -14, '🎵', { fontSize: '12px' }).setOrigin(0.5);
+    box.add(note);
+
+    // 「音乐盒」标签
+    const label = this.add.text(0, 15, '音乐盒', {
+      fontSize: '10px',
+      color: '#e8d8a8',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setOrigin(0.5);
+    box.add(label);
+
+    this.musicBoxMark = box;
+  }
+
+  /**
+   * 与老屋音乐盒交互（靠近按 E 打开曲目面板）
+   */
+  private tryMusicBoxInteract(): boolean {
+    if (!this.musicBoxMark || !this.musicBoxMark.visible) return false;
+    const dx = this.player.x - this.musicBoxMark.x;
+    const dy = this.player.y - this.musicBoxMark.y;
+    if (dx * dx + dy * dy > 48 * 48) return false;
+
+    if (!this.musicBoxPanel) {
+      this.musicBoxPanel = new MusicBoxPanel(() => this.resumeHouseBgm());
+    }
+    this.inputManager.clearAction();
+    // v0.11（P0.5）：第一次打开音乐盒加仪式感——先一句浮字台词（"这个音乐盒……还能播放以前的曲子。"），
+    // 短暂停顿再弹面板，之后每次打开直接弹列表。
+    if (!this.musicBoxIntroduced) {
+      this.musicBoxIntroduced = true;
+      this.showDialogueText('这个音乐盒……还能播放以前的曲子。');
+      this.time.delayedCall(900, () => this.musicBoxPanel?.open());
+    } else {
+      this.musicBoxPanel.open();
+    }
+    return true;
+  }
+
+  /** 「停止播放」回调：清除音乐盒"我的歌"，恢复老屋（house）日常 BGM（白天 farm_day / 夜晚 stargaze_night） */
+  private resumeHouseBgm(): void {
+    MusicSystem.setMusicBoxTrack(null);
+    const h = getTime().hour;
+    MusicSystem.playSceneBgm('house', h);
   }
 
   /**
@@ -2010,7 +2113,8 @@ export class MapScene extends Phaser.Scene {
     triggerOnce('first_morning_response', () => {
       // ① 睡醒演出：窗外阳光旁白（鸟叫/风由 farm 白天 ambience 自动播放）
       // 林澈个人曲（2026-08-09 制作人归档《The Waiting Shore》）：主角清晨独处的内心时刻
-      MusicSystem.play('linche_theme');
+      // v0.11（P0.5）：剧情覆盖走 playStory，结束恢复统一 playSceneBgm（剧情>我的歌>地图默认）
+      MusicSystem.playStory('linche_theme');
       showMemoryMoment('清晨。阳光从老屋的窗户透进来，外面传来鸟叫和风吹树叶的声音。');
       // ② 夏雅自动出现在老屋门口（老屋东侧空地，看着农田；避开 oldHouseRestore 锚点 col11,row20 与 house 出口）
       const T = TILE_SIZE;
@@ -2026,8 +2130,10 @@ export class MapScene extends Phaser.Scene {
       this.time.delayedCall(2600, () => {
         if (this.inStargazeCutscene) return; // P1 守卫：观星夜演出中不播清晨对白（验收遗留，2026-08-08）
         // 林澈个人曲仅属于主角独处时刻——夏雅对白开始（世界的声音回来）即恢复农场场景 BGM
+        // v0.11（P0.5）：先清除剧情覆盖再恢复，若玩家选了"我的歌"则回到我的歌
         const h = getTime().hour;
-        MusicSystem.play(h >= 19 || h < 5 ? 'stargaze_night' : 'farm_day');
+        MusicSystem.endStory();
+        MusicSystem.playSceneBgm('farm', h);
         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
         this.storyDialogue.play(FIRST_MORNING_RESPONSE_DIALOGUE, () => {
           // ④ 对白结束：注入复兴引导任务（收获/种植/清理）→ 刷新面板/HUD → 存档（含 triggerOnce 状态）
@@ -2696,10 +2802,10 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 村长家室内氛围（视觉升级，零资源纯代码）
+   * 镇长家室内氛围（视觉升级，零资源纯代码）
    * 暖炉辉光 + 浮尘微光 + 门口柔光，呼应"家"的温暖感。
    * 仅 elder_house 场景调用；纯视觉装饰，不触碰碰撞/存档/出口/玩法逻辑。
-   * 辉光中心 (6T, 5T) 位于家具核心区（rows 4-5, cols 4-7），村长站位 (88,88) 在前方不受影响。
+   * 辉光中心 (6T, 5T) 位于家具核心区（rows 4-5, cols 4-7），镇长站位 (88,88) 在前方不受影响。
    */
   private setupElderHouseAmbience(): void {
     const T = TILE_SIZE;
@@ -3373,6 +3479,78 @@ export class MapScene extends Phaser.Scene {
       onComplete: () => {
         sprite.setVisible(false);
         tree.stumpGone = true;
+      },
+    });
+  }
+
+  /**
+   * v1.1 采集体验升级：一次性粒子爆发（木屑/树叶/石屑/闪光）。
+   * 用 __WHITE 像素纹理 + tint 着色（零资源，与既有粒子模式一致）；爆发后自动销毁。
+   */
+  private burstParticles(
+    x: number,
+    y: number,
+    opts: { count: number; tint: number; speed: number; gravityY: number; lifespan?: number; scale?: number },
+  ): void {
+    const p = this.add.particles(x, y, '__WHITE', {
+      lifespan: opts.lifespan ?? 520,
+      speedX: { min: -opts.speed, max: opts.speed },
+      speedY: { min: -opts.speed * 0.5, max: opts.speed * 0.6 },
+      gravityY: opts.gravityY,
+      scale: { start: opts.scale ?? 0.5, end: 0.05 },
+      alpha: { start: 1, end: 0 },
+      tint: opts.tint,
+      emitting: false,
+    } as Phaser.Types.GameObjects.Particles.ParticleEmitterConfig);
+    p.setDepth(6);
+    p.explode(opts.count, x, y);
+    this.time.delayedCall((opts.lifespan ?? 520) + 60, () => p.destroy());
+  }
+
+  /**
+   * v1.1 采集体验升级：树干/岩石裂纹图形（1px 深色折线，纯 Graphics 零资源）。
+   * 返回 Graphics 供调用方持有并在后续击打/击破时销毁。
+   */
+  private drawCrack(x: number, y: number, color: number): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics();
+    g.lineStyle(1, color, 0.9);
+    g.beginPath();
+    g.moveTo(x - 5, y - 2);
+    g.lineTo(x - 2, y - 6);
+    g.lineTo(x + 1, y - 4);
+    g.lineTo(x + 4, y - 9);
+    g.lineTo(x + 6, y - 8);
+    g.strokePath();
+    g.setDepth(6);
+    return g;
+  }
+
+  /**
+   * v1.1 采集体验升级：树倒下动画（短促倾斜 → 倒地），完成后变树桩并调度淡出。
+   * 倒向远离玩家（玩家在左 → 树向右倒），避免压向玩家；倒树期间玩家可通行。
+   */
+  private playTreeFall(sprite: Phaser.GameObjects.Image, col: number, row: number, cx: number, cy: number): void {
+    const dir = this.player.x <= cx ? 1 : -1; // 1=右倒（角度正），-1=左倒
+    // 大量木屑（树干处）+ 树叶（树冠处，飘落感）
+    this.burstParticles(cx, cy - 2, { count: 14, tint: 0x8a5a2b, speed: 90, gravityY: 260 });
+    this.burstParticles(cx, cy - 14, { count: 10, tint: 0x6da544, speed: 70, gravityY: 40 });
+    // 轻微震屏（短促，采集成就感）
+    this.cameras.main.shake(220, 0.005);
+    // 先杀旧晃动 tween，避免与倒下动画冲突
+    this.tweens.killTweensOf(sprite);
+    this.tweens.add({
+      targets: sprite,
+      angle: 88 * dir,
+      y: cy + 2,
+      duration: 420,
+      ease: 'Quad.easeIn',
+      onComplete: () => {
+        sprite.setTexture('stump');
+        sprite.setAngle(0);
+        sprite.setPosition(cx, cy);
+        // 树桩短暂保留后淡出消失（切场景后 setupTrees 会为树桩重新调度淡出）
+        const tree = getTree(col, row);
+        if (tree) this.scheduleStumpFade(sprite, tree);
       },
     });
   }
@@ -4689,10 +4867,15 @@ export class MapScene extends Phaser.Scene {
       }
     }
 
+    // P1 家的音乐盒（老屋，靠近按 E 打开曲目列表）
+    if (this.mapKey === 'house' && this.musicBoxMark) {
+      if (this.tryMusicBoxInteract()) return;
+    }
+
     // 1.5 Demo 结尾：观星点（主线完成 + 夜晚 + 靠近观星点按 E）
     if (this.tryStargaze()) return;
 
-    // 支线试点：村长「看星星的地方」（委托后，夜晚到空地触发）
+    // 支线试点：镇长「看星星的地方」（委托后，夜晚到空地触发）
     if (this.trySideElderStar()) return;
 
     // 0.3 教程：夏雅交互（大门地图优先于普通 NPC）
@@ -4718,7 +4901,7 @@ export class MapScene extends Phaser.Scene {
       if (this.tryDawnXiyaInteract()) return;
     }
 
-    // 村长家提示物品（村长不在镇上时显示）
+    // 镇长家提示物品（镇长不在镇上时显示）
     if (this.mapKey === 'town' && this.elderHouseHint) {
       if (this.tryElderHouseHintInteract()) return;
     }
@@ -4807,10 +4990,10 @@ export class MapScene extends Phaser.Scene {
       // 通知每日任务：与 NPC 对话 + 刷新面板
       onDQTAlkNpc(nearest.id);
       this.updateDailyQuestPanel();
-      // 村长对话：根据任务状态播放完整剧情剧本（StoryDialogue 全屏）
+      // 镇长对话：根据任务状态播放完整剧情剧本（StoryDialogue 全屏）
       if (nearest.id === 'elder') {
         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        // f7：第一天村长「暂时有事」对话 → 结束后发放启动资源大礼包（一次性，随 triggeredEvents 入档）
+        // f7：第一天镇长「暂时有事」对话 → 结束后发放启动资源大礼包（一次性，随 triggeredEvents 入档）
         const elderBusy = isElderBusyDay();
         this.storyDialogue.play(getElderDialogue(), () => {
           this.updateQuestHUD();
@@ -4818,12 +5001,12 @@ export class MapScene extends Phaser.Scene {
           if (elderBusy) {
             triggerOnce('elder_starter_gift', () => this.grantElderStarterGift());
           }
-          // 支线试点：观星夜完成后，村长追加「看星星的地方」委托（一次性，随 mapFlags 入档）
+          // 支线试点：观星夜完成后，镇长追加「看星星的地方」委托（一次性，随 mapFlags 入档）
           if (!this.sideElderTeaAsked && !this.sideElderStarDone && isObservatoryComplete()) {
             this.sideElderTeaAsked = true;
             this.storyDialogue!.play(ELDER_TEA_QUEST_DIALOGUE, () => this.updateHUD());
           }
-          // P0-5 农场回暖 v2：交付在 farm 场景内完成时的兜底（村长实际白天在 town，
+          // P0-5 农场回暖 v2：交付在 farm 场景内完成时的兜底（镇长实际白天在 town，
           // 该路径通常走不到；首次回 farm 的光晕由 create 时 farm_warm_intro 首播负责）
           if (this.mapKey === 'farm' && isRestored('farmWarm') && !this.farmWarmOverlay) {
             this.setupFarmWarm();
@@ -4905,7 +5088,7 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * f5（2026-08-07 制作人拍板）：村长第一天赠送启动资源大礼包
+   * f5（2026-08-07 制作人拍板）：镇长第一天赠送启动资源大礼包
    * 种子 / 工具 / 金币 / 木材 / 石头 / 特殊道具（钻石），仅发放一次
    * 调用方须用 triggerOnce('elder_starter_gift', ...) 防重复，结束后由外层回调 save 入档
    */
@@ -4920,7 +5103,7 @@ export class MapScene extends Phaser.Scene {
     addItem('wood', 10);
     addItem('stone', 5);
     addItem('diamond', 1);
-    this.showDialogueText('收到村长的启动物资：种子、工具、金币、木材、石头、钻石！');
+    this.showDialogueText('收到镇长的启动物资：种子、工具、金币、木材、石头、钻石！');
     this.updateHUD();
     this.updateQuestHUD();
   }
@@ -5312,7 +5495,8 @@ export class MapScene extends Phaser.Scene {
     this.inStargazeCutscene = true; // v0.10.4 演出互斥：镜头期间抑制其他自动演出
     markObservatoryComplete();
     triggerTag('stargaze_night');
-    MusicSystem.play('stargaze_final');
+    // v0.11（P0.5）：观星终章为剧情覆盖，晨曦结束（回到白天）时由 endStory() 清除
+    MusicSystem.playStory('stargaze_final');
     play('stargaze'); // 观星夜演出音效（试玩-14）
     play('wind');     // v0.10.4 微风：树叶沙沙 + 远处虫鸣（低音量一次性，约 20% 强度）
     // 显示星空（v0.10.4 A 档：静态星野底 + 银河叠淡蓝 + 远景小镇灯光 + 星点闪烁）
@@ -5466,6 +5650,9 @@ export class MapScene extends Phaser.Scene {
           onComplete: () => {
             // 隐藏星空，恢复白天
             this.setStarFieldVisible(false);
+            // v0.11（P0.5）：观星夜演出结束（回到白天），清除剧情覆盖；
+            // 之后结算/回主菜单/继续游玩都按"剧情 > 我的歌 > 地图默认"重新决策
+            MusicSystem.endStory();
             // 重置相机背景为透明（防黑屏：setBackgroundColor 持久化会导致后续场景黑屏）
             cam.setBackgroundColor();
             // 镜头拉回玩家位置（zoom 补偿见 panCameraTo，#29）
@@ -5545,7 +5732,7 @@ export class MapScene extends Phaser.Scene {
     addItem('star_shard', 1);
     onDQCollect('star_shard');
     this.updateDailyQuestPanel();
-    this.showDialogueText('采集到「星之碎片」！返回村长交付任务。');
+    this.showDialogueText('采集到「星之碎片」！返回镇长交付任务。');
     this.updateQuestHUD();
     // 里程碑保存（v0.5.2 P0）：碎片采集后立即入档
     save({
@@ -5890,7 +6077,7 @@ export class MapScene extends Phaser.Scene {
     if (this.dawnXiyaLabel) { this.dawnXiyaLabel.destroy(); this.dawnXiyaLabel = null; }
   }
 
-  /** 清除村长家提示物品（场景切换时调用） */
+  /** 清除镇长家提示物品（场景切换时调用） */
   private clearElderHouseHint(): void {
     if (this.elderHouseHint) {
       this.elderHouseHint.sprite.destroy();
@@ -6438,7 +6625,7 @@ export class MapScene extends Phaser.Scene {
       dailyQuest: getDailyQuestSaveData(),
     } as any);
     this.updateHUD();
-    // FEATURE-037 统一对白批次 environment_restore_v010：老屋完成 → 村长（单次触发）
+    // FEATURE-037 统一对白批次 environment_restore_v010：老屋完成 → 镇长（单次触发）
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     this.storyDialogue.play(OLD_HOUSE_RESTORED_DIALOGUE, () => {
       setTimeout(() => showMemoryMoment('风吹过修补好的屋瓦——这座岛，开始像家了。'), 1600);
@@ -7020,8 +7207,8 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 村长「看星星的地方」：村长委托后，夜晚到农田边空地（观星点旁）。
-   * 流程：村长委托（sideElderTeaAsked）→ 夜晚靠近观星点按 E → 记忆卡 + 回响（一次性入档）。
+   * 镇长「看星星的地方」：镇长委托后，夜晚到农田边空地（观星点旁）。
+   * 流程：镇长委托（sideElderTeaAsked）→ 夜晚靠近观星点按 E → 记忆卡 + 回响（一次性入档）。
    * 白天靠近仅提示；复用 STARGAZE_POS 作为空地锚点。
    */
   private trySideElderStar(): boolean {
@@ -7032,7 +7219,7 @@ export class MapScene extends Phaser.Scene {
     if (dx * dx + dy * dy > 48 * 48) return false;
 
     if (getTime().hour < 20) {
-      this.showDialogueText('空地还亮着——村长说，晚上来坐坐。');
+      this.showDialogueText('空地还亮着——镇长说，晚上来坐坐。');
       return true;
     }
 
@@ -7044,7 +7231,7 @@ export class MapScene extends Phaser.Scene {
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     this.storyDialogue.play(ELDER_STAR_SITE_DIALOGUE, () => {
       playMemoryFlashback(ELDER_STAR_FLASHBACK, () => {
-        showMemoryMoment('第二天，村长听说了，只是点点头。「你爷爷要是知道你还记得那块空地，会高兴的。」');
+        showMemoryMoment('第二天，镇长听说了，只是点点头。「你爷爷要是知道你还记得那块空地，会高兴的。」');
         this.updateHUD();
         save({
           x: this.player.x, y: this.player.y,
@@ -7215,7 +7402,8 @@ export class MapScene extends Phaser.Scene {
       const dy = this.player.y - this.letterXiya.y;
       if (dx * dx + dy * dy > R) return false;
       // 声音补全 v1.0（2026-08-09）：《春深有信》专属音乐随剧情开场起播，D 段收尾恢复地图 BGM
-      MusicSystem.play('spring_letter');
+      // v0.11（P0.5）：剧情覆盖走 playStory
+      MusicSystem.playStory('spring_letter');
       this.xiyaLetterAsked = true;
       this.xiyaLetterStage = 1;
       this.saveLetterFlags();
@@ -7234,7 +7422,7 @@ export class MapScene extends Phaser.Scene {
       const dy = this.player.y - this.letterFlowerMark.y;
       if (dx * dx + dy * dy > R) return false;
       // 声音补全 v1.0：剧情中途回归场景时补播专属音乐（A 段已起播/场景切换已 stop）
-      if (MusicSystem.current() !== 'spring_letter') MusicSystem.play('spring_letter');
+      if (MusicSystem.current() !== 'spring_letter') MusicSystem.playStory('spring_letter');
       this.xiyaLetterStage = 2;
       this.saveLetterFlags();
       this.storyDialogue.play(XIYA_LETTER_FLOWER_DIALOGUE, () => {
@@ -7252,7 +7440,7 @@ export class MapScene extends Phaser.Scene {
       const dy = this.player.y - this.letterRecordMark.y;
       if (dx * dx + dy * dy > R) return false;
       // 声音补全 v1.0：剧情中途回归场景时补播专属音乐
-      if (MusicSystem.current() !== 'spring_letter') MusicSystem.play('spring_letter');
+      if (MusicSystem.current() !== 'spring_letter') MusicSystem.playStory('spring_letter');
       this.xiyaLetterStage = 3;
       this.saveLetterFlags();
       this.storyDialogue.play(XIYA_LETTER_RECORD_DIALOGUE, () => {
@@ -7279,8 +7467,10 @@ export class MapScene extends Phaser.Scene {
         this.updateHUD();
         this.saveLetterFlags();
         // 声音补全 v1.0（2026-08-09）：剧情收尾恢复农场地图 BGM（白天 farm_day / 夜晚 stargaze_night）
+        // v0.11（P0.5）：先清除剧情覆盖再恢复，若玩家选了"我的歌"则回到我的歌
         const t = getTime().hour;
-        MusicSystem.play(t >= 19 || t < 5 ? 'stargaze_night' : 'farm_day');
+        MusicSystem.endStory();
+        MusicSystem.playSceneBgm('farm', t);
       });
       return true;
     }
@@ -7948,8 +8138,9 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 挖矿：靠近矿脉按 E 开采
-   * 消耗体力 → 获得矿石 → 矿脉消失（当日不再刷新）
+   * 挖矿：靠近矿脉按 E 开采（v1.1 采集体验升级：每处矿脉 3 击击破）
+   * 体力总消耗不变、分摊三击（铜矿 10 → 4/4/2）；第 1/2 击石屑飞溅+岩石震动，
+   * 第 2 击起裂纹，最后一击矿石破碎 + 矿物掉落 + 闪光效果。
    */
   private tryMine(): void {
     // 找最近的矿脉（24px 范围内）
@@ -7967,36 +8158,87 @@ export class MapScene extends Phaser.Scene {
     }
     if (!target) return;
 
-    // 体力检查
-    if (!consumeStamina(target.deposit.staminaCost)) {
+    const deposit = target.deposit;
+    const hitsBefore = getOreHits(deposit.id);
+    const hit = hitsBefore + 1;
+
+    // 体力检查（按第 hit 击的分摊消耗）
+    const cost = getOreHitCost(deposit, hit);
+    if (!consumeStamina(cost)) {
       this.showDialogueText('体力不足，无法开采！');
       return;
     }
 
-    // 产出矿石
-    const dropsText: string[] = [];
-    for (const drop of target.deposit.drops) {
-      addItem(drop.item, drop.count);
-      dropsText.push(`${drop.count}个${drop.item === 'stone' ? '石头' : drop.item === 'copper' ? '铜矿' : '铁矿'}`);
-    }
-    addXp(5, 'harvest');
-    play('harvest');
+    const broken = hitOre(deposit.id);
+    const sx = target.sprite.x;
+    const sy = target.sprite.y;
 
-    // 矿脉消失 + 标记已开采 + 从待开采列表移除（防止同一矿脉被重复开采/重复销毁）
-    target.sprite.destroy();
-    const minedId = target.deposit.id;
-    markMined(minedId);
-    // 归星录·相簿：完成「矿洞探险」→ 解锁《旧矿灯》（幂等）
-    if (!isPhotoUnlocked('old_mine')) {
-      unlockPhoto('old_mine');
-      this.notifyPhotoUnlocked('old_mine');
+    if (broken) {
+      // ③ 最后一击：矿石破碎 + 矿物掉落 + 闪光效果
+      for (const drop of deposit.drops) {
+        addItem(drop.item, drop.count);
+      }
+      addXp(5, 'harvest');
+      play('rock_break');
+      // 石屑 + 白色闪光粒子（矿物亮起的瞬间）
+      this.burstParticles(sx, sy, { count: 12, tint: 0x9e9e9e, speed: 100, gravityY: 240 });
+      this.burstParticles(sx, sy, { count: 8, tint: 0xffffff, speed: 70, gravityY: 20 });
+      this.cameras.main.shake(160, 0.004);
+      // 清理裂纹图形
+      const crack = this.oreCracks.get(deposit.id);
+      if (crack) {
+        crack.destroy();
+        this.oreCracks.delete(deposit.id);
+      }
+      // 矿脉消失 + 已开采 + 从待开采列表移除（防止重复开采/重复销毁）
+      this.tweens.killTweensOf(target.sprite);
+      target.sprite.destroy();
+      const minedId = deposit.id;
+      this.oreSprites = this.oreSprites.filter((e) => e.deposit.id !== minedId);
+      // 归星录·相簿：完成「矿洞探险」→ 解锁《旧矿灯》（幂等）
+      if (!isPhotoUnlocked('old_mine')) {
+        unlockPhoto('old_mine');
+        this.notifyPhotoUnlocked('old_mine');
+      }
+      const dropsText: string[] = [];
+      for (const drop of deposit.drops) {
+        dropsText.push(`${drop.count}个${drop.item === 'stone' ? '石头' : drop.item === 'copper' ? '铜矿' : '铁矿'}`);
+      }
+      this.showFloatText(sx, sy - 8, dropsText.join('、'), '#ffe082');
+      this.showDialogueText(`开采成功！获得 ${dropsText.join('、')}  体力 -${cost}`);
+      // v1.1 第一次挖矿短提示（一次性，mapFlags 入档；读档不重复）
+      if (!this.firstMineHint) {
+        this.firstMineHint = true;
+        showMemoryMoment('归星岛的地下，似乎还藏着过去的痕迹。');
+      }
+      // 挖矿引导任务进度（每处矿脉开采成功计 1 次）
+      onDQMine();
+      this.updateDailyQuestPanel();
+    } else {
+      // 未击破：岩石震动 + 石屑飞溅（第 2 击起裂纹增加、幅度加大）
+      play('rock_hit');
+      this.tweens.killTweensOf(target.sprite);
+      // 先杀旧 tween 再取基准坐标（防止连击中断残留偏移）
+      const bx = target.sprite.x;
+      const by = target.sprite.y;
+      this.tweens.add({
+        targets: target.sprite,
+        x: bx + (hitsBefore >= 1 ? 4 : 3),
+        y: by - (hitsBefore >= 1 ? 3 : 2),
+        duration: 55,
+        yoyo: true,
+        repeat: hitsBefore >= 1 ? 2 : 1,
+        onComplete: () => target.sprite.setPosition(bx, by),
+      });
+      this.burstParticles(sx, sy, { count: hitsBefore >= 1 ? 9 : 5, tint: 0x9e9e9e, speed: 70, gravityY: 230 });
+      // 第 2 击：裂纹增加（石块变化）
+      if (hitsBefore >= 1) {
+        const old = this.oreCracks.get(deposit.id);
+        if (old) old.destroy();
+        this.oreCracks.set(deposit.id, this.drawCrack(sx, sy, 0x141414));
+      }
+      this.showDialogueText(`挖矿中… (${hit}/${ORE_MAX_HITS})  体力 -${cost}`);
     }
-    this.oreSprites = this.oreSprites.filter((e) => e.deposit.id !== minedId);
-
-    this.showDialogueText(`开采成功！获得 ${dropsText.join('、')}  体力 -${target.deposit.staminaCost}`);
-    // 挖矿引导任务进度
-    onDQMine();
-    this.updateDailyQuestPanel();
     this.updateHUD();
   }
 
@@ -8050,31 +8292,68 @@ export class MapScene extends Phaser.Scene {
       return true;
     }
 
-    // 砍伐：扣血，满 3 次砍倒
+    // 砍伐：扣血，满 3 次砍倒（v1.1 采集体验升级：三阶段反馈）
     const chopped = chopTree(targetPos.col, targetPos.row);
     const key = `${targetPos.col},${targetPos.row}`;
     const sprite = this.treeSprites.get(key);
+    const cx = targetPos.col * TILE_SIZE + TILE_SIZE / 2;
+    const cy = targetPos.row * TILE_SIZE + TILE_SIZE / 2;
 
     if (chopped) {
-      // 树倒了：掉落 2 个木材 + 变树桩（树桩无碰撞、只保留几秒后淡出消失——制作人需求 2026-08-07）
+      // ③ 最后一击：树倒了。掉落 2 个木材 + 变树桩（树桩无碰撞、只保留几秒后淡出消失——制作人需求 2026-08-07）
       addItem('wood', 2);
       addXp(5, 'harvest');
+      // 断裂 + 倒树音（tree_fall 含嘎吱/坠地）；延迟 0.36s 补"获得资源"提示音（设计稿：成功 = 资源提示音）
       play('tree_fall');
+      this.time.delayedCall(360, () => play('harvest'));
       if (sprite) {
-        sprite.setTexture('stump');
-        // 树桩不挡路：禁用碰撞
+        // 树桩不挡路：禁用碰撞（立即，倒树动画期间玩家可通行）
         (sprite.body as Phaser.Physics.Arcade.StaticBody).enable = false;
-        // 树桩短暂保留（3.2s）后淡出消失
-        const tree = getTree(targetPos.col, targetPos.row);
-        if (tree) this.scheduleStumpFade(sprite, tree);
+        // 清理此前击打留下的裂纹图形
+        const oldCrack = this.treeCracks.get(key);
+        if (oldCrack) {
+          oldCrack.destroy();
+          this.treeCracks.delete(key);
+        }
+        // 倒下动画 + 大量木屑/树叶 + 轻微震屏，完成后变树桩
+        this.playTreeFall(sprite, targetPos.col, targetPos.row, cx, cy);
       }
+      this.showFloatText(cx, cy - 12, '木材 +2', '#ffe082');
       this.showDialogueText('砍倒了树！获得木材 ×2');
+      // v1.1 第一次砍树短提示（一次性，mapFlags 入档；读档不重复）
+      if (!this.firstChopHint) {
+        this.firstChopHint = true;
+        showMemoryMoment('这里曾经很久没有人打理了。');
+      }
       // 砍树引导任务进度
       onDQWoodcut();
       this.updateDailyQuestPanel();
     } else {
-      // 还没倒：扣血 + 砍击音效
+      // 还没倒：三阶段反馈（第 1 击轻微晃动/少量木屑，第 2 击裂纹 + 更大幅度晃动/更多木屑）
       play('chop');
+      const remaining = getTree(targetPos.col, targetPos.row)?.health ?? TREE_MAX_HEALTH;
+      if (sprite) {
+        const heavy = remaining <= 1;
+        this.tweens.killTweensOf(sprite);
+        this.tweens.add({
+          targets: sprite,
+          x: cx + (heavy ? 5 : 3),
+          y: cy - (heavy ? 3 : 2),
+          duration: 60,
+          yoyo: true,
+          repeat: heavy ? 2 : 1,
+          onComplete: () => sprite.setPosition(cx, cy),
+        });
+      }
+      // 木屑 + 树叶粒子（第 2 击更多）
+      this.burstParticles(cx, cy - 4, { count: remaining <= 1 ? 10 : 6, tint: 0x8a5a2b, speed: 60, gravityY: 220 });
+      this.burstParticles(cx, cy - 10, { count: remaining <= 1 ? 6 : 3, tint: 0x6da544, speed: 40, gravityY: 30 });
+      // 第 2 击：树干出现裂纹
+      if (remaining <= 1) {
+        const old = this.treeCracks.get(key);
+        if (old) old.destroy();
+        this.treeCracks.set(key, this.drawCrack(cx, cy - 2, 0x3a2a14));
+      }
       const tree = getTree(targetPos.col, targetPos.row)!;
       this.showDialogueText(`砍树中… (剩余 ${tree.health}/${TREE_MAX_HEALTH})`);
     }

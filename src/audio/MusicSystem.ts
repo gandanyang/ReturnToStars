@@ -26,6 +26,33 @@ const TRACKS: Record<string, string> = {
   linche_theme: 'assets/audio/music/linche_theme.ogg',
 };
 
+/**
+ * 音乐盒曲目目录（家的音乐盒 · P1 OST 收藏系统）
+ *
+ * - 仅收录已接入 TRACKS 的曲目（森林/矿洞暂缺专属曲，待声音补全后追加）
+ * - 面板按此数组顺序渲染；点击即 MusicSystem.play(key)
+ * - 展示"收藏唱片"感：中文名 + 英文名 + 一句话描述
+ */
+export interface MusicTrackMeta {
+  key: string;
+  /** 歌单中文名 */
+  title: string;
+  /** 英文名（唱片副标题） */
+  en: string;
+  /** 一句话描述 */
+  desc: string;
+}
+
+export const MUSIC_CATALOG: MusicTrackMeta[] = [
+  { key: 'title', title: '归来与新生之岛', en: 'When The Island Wakes', desc: '归星岛主题曲' },
+  { key: 'farm_day', title: '农场日常', en: 'Farm Days', desc: '归星岛的日子' },
+  { key: 'town', title: '青禾镇的清晨', en: 'Morning in Qinghe Town', desc: '小镇日常' },
+  { key: 'spring_letter', title: '春深有信', en: 'Letters in Spring', desc: '夏雅主题曲' },
+  { key: 'linche_theme', title: '林澈主题曲', en: 'The Waiting Shore', desc: '等待的彼岸' },
+  { key: 'stargaze_night', title: '观星夜', en: 'Stargazing Night', desc: '星夜氛围' },
+  { key: 'stargaze_final', title: '观星夜·终章', en: 'Starlight Finale', desc: '群星之约' },
+];
+
 /** 根据浏览器支持选择最佳格式 */
 function getTrackUrl(key: string): string | null {
   const track = TRACKS[key];
@@ -70,6 +97,18 @@ let currentKey: string | null = null; // 当前播放曲目（查询用：剧情
 let currentVolume = 0.35;
 let pendingKey: string | null = null;
 let retryBound = false;
+
+// ── 音乐优先级（剧情 > 音乐盒"我的歌" > 地图默认）──
+// 玩家在音乐盒选择的曲目（本次游玩有效，不写存档；音乐盒停止播放时清空）
+let currentMusicBoxTrack: string | null = null;
+// 剧情覆盖 BGM（观星终章 / 春深有信 / 林澈独处等），剧情结束由 endStory() 清除
+let storyBgm: string | null = null;
+
+// 播放状态变更监听（音乐盒面板实时刷新「正在播放」徽标用）
+const listeners: Array<() => void> = [];
+function notifyListeners(): void {
+  for (const fn of listeners) fn();
+}
 
 function tryStart(): void {
   if (!pendingKey) return;
@@ -161,6 +200,7 @@ export const MusicSystem = {
       currentSource = source;
       currentGain = gain;
       currentKey = key;
+      notifyListeners();
 
       // 如果 AudioContext 被挂起，记录 pending 等用户交互补播
       if (ctx.state === 'suspended') {
@@ -175,6 +215,7 @@ export const MusicSystem = {
 
   stop(): void {
     stopCurrent();
+    notifyListeners();
   },
 
   /** 当前播放曲目 key（无播放返回 null；供剧情补播判断） */
@@ -186,6 +227,52 @@ export const MusicSystem = {
     currentVolume = v;
     if (currentGain) {
       currentGain.gain.value = v;
+    }
+  },
+
+  /** 订阅播放状态变更（切换/停止后触发，供 UI 实时刷新） */
+  onPlaybackChange(fn: () => void): void {
+    listeners.push(fn);
+  },
+
+  /** 玩家在音乐盒选择"我的歌"（null=停止播放，之后走地图默认） */
+  setMusicBoxTrack(key: string | null): void {
+    currentMusicBoxTrack = key;
+  },
+
+  /** 当前音乐盒"我的歌"（无选择返回 null） */
+  getMusicBoxTrack(): string | null {
+    return currentMusicBoxTrack;
+  },
+
+  /** 剧情音乐覆盖（优先级最高；剧情结束调 endStory() 清除） */
+  playStory(key: string): void {
+    storyBgm = key;
+    void MusicSystem.play(key);
+  },
+
+  /** 剧情结束：清除剧情覆盖（恢复"我的歌"/地图默认由 playSceneBgm 决定） */
+  endStory(): void {
+    storyBgm = null;
+  },
+
+  /**
+   * 场景 BGM 统一入口：按优先级决定播放内容。
+   * 剧情 > 音乐盒"我的歌" > 地图默认（青禾镇白天=小镇曲，其余白天=农场曲，夜晚=观星夜曲）
+   */
+  playSceneBgm(mapKey: string, hour: number): void {
+    if (storyBgm) {
+      void MusicSystem.play(storyBgm);
+      return;
+    }
+    if (currentMusicBoxTrack) {
+      void MusicSystem.play(currentMusicBoxTrack);
+      return;
+    }
+    if (mapKey === 'town' && hour >= 5 && hour < 19) {
+      void MusicSystem.play('town');
+    } else {
+      void MusicSystem.play(hour >= 19 || hour < 5 ? 'stargaze_night' : 'farm_day');
     }
   },
 };
