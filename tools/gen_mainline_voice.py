@@ -319,6 +319,10 @@ T = [
     ("adventurer", "adv_04", "后山深处……有些东西，最好别惊醒。"),
     ("adventurer", "adv_05", "嘿！你这小子，胆子不小啊！"),
     ("adventurer", "adv_06", "说得对。有空来后山，我带你转转。"),
+    # 反馈 #28 阿风热情欢迎「你回来了！」（ADVENTURER_WELCOME_BACK_DIALOGUE，一次性）
+    ("adventurer", "adv_07", "嘿！你回来了！"),
+    ("adventurer", "adv_08", "路过，顺便看看。听说你把这儿拾掇得挺像样，我来长长见识。"),
+    ("adventurer", "adv_09", "乱不怕，有人气就行。你忙你的，我先走啦——回头找你玩。"),
 
     # ---- 商店老板（shopkeeper）：SHOPKEEPER_DIALOGUES ----
     ("shopkeeper", "shop_01", "欢迎光临星辰杂货店！"),

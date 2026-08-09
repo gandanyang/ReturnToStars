@@ -57,7 +57,7 @@ function collectRefs() {
     }
   }
   // 地图 JSON 与 tileset 是运行时按 mapKey 动态加载（assets/tiles/<key>_tileset.png、assets/maps/<key>.json）
-  const MAP_KEYS = ['farm', 'forest', 'gate', 'house', 'mine', 'town', 'elder_house'];
+  const MAP_KEYS = ['farm', 'forest', 'gate', 'house', 'mine', 'town', 'elder_house', 'lighthouse'];
   for (const k of MAP_KEYS) {
     refs.add(`assets/maps/${k}.json`);
     refs.add(`assets/tiles/${k}_tileset.png`);
