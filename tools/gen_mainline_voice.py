@@ -91,6 +91,11 @@ ROLES = {
         ref_text="到底怎么样才能找出你的所有声线",
         cfg=2.4, steps=16, atempo=1.0, sex="male",
     ),
+    "carpenter": dict(  # 木匠老周：中年沉稳手艺人（2026-08-10 制作人定案 demo2；MiniMax 音色设计生成 laozhou_carpenter_v1）
+        ref=r"E:\BINGdown\VoxCPM\examples\林岳1.wav",
+        ref_text="到底怎么样才能找出你的所有声线",
+        cfg=2.4, steps=16, atempo=1.0, sex="male", minimax_voice="laozhou_carpenter_v1",
+    ),
     "shopkeeper": dict(  # 商店老板：中年男，沉稳
         ref=r"art_source\audio_generated\商店老板_20260804_001.mp3",
         ref_text="最近天气变化大，我跟你说啊，一定要注意身体。年轻时不当回事，现在才知道健康最重要。早上起来喝杯温水，晚上少熬夜，平时多运动，这都是我这些年总结出来的经验。",
@@ -324,6 +329,15 @@ T = [
     ("adventurer", "adv_08", "路过，顺便看看。听说你把这儿拾掇得挺像样，我来长长见识。"),
     ("adventurer", "adv_09", "乱不怕，有人气就行。你忙你的，我先走啦——回头找你玩。"),
 
+    # ---- 木匠老周（carpenter）：CARPENTER_RETURN_DIALOGUE 首遇 5 句 + 老屋对话 2 句（制作人 2026-08-10 首批 7 条，MiniMax 音色 laozhou_carpenter_v1）----
+    ("carpenter", "carpenter_01", "……青禾镇的。我叫老周。"),
+    ("carpenter", "carpenter_02", "听说岛上又有人修房子了。"),
+    ("carpenter", "carpenter_03", "你爷爷的房子，是他一点一点修起来的。"),
+    ("carpenter", "carpenter_04", "门轴、窗栓、田边的栅栏……有不顺手的地方，喊我。"),
+    ("carpenter", "carpenter_05", "有人开始修，就有人愿意留下。"),
+    ("carpenter", "carpenter_06", "……这屋子的木料，是你张罗来的？"),
+    ("carpenter", "carpenter_07", "……这岛上，修东西的人，快绝了。"),
+
     # ---- 商店老板（shopkeeper）：SHOPKEEPER_DIALOGUES ----
     ("shopkeeper", "shop_01", "欢迎光临星辰杂货店！"),
     ("shopkeeper", "shop_02", "收获的作物、挖到的矿石都可以卖给我换金币。种子和工具也有卖。"),
@@ -410,6 +424,8 @@ def story_speaker(role: str, tid: str) -> str:
         return "花匠小梅"
     if role == "adventurer":
         return "阿风"
+    if role == "carpenter":
+        return "木匠老周"
     if role == "shopkeeper":
         return "商店老板"
     return ""

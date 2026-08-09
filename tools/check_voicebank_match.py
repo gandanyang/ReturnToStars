@@ -79,8 +79,10 @@ def main() -> int:
 
     def find(spk: str, text: str):
         norm = normalize(text)
+        # 角色改名桥接（同 VoiceBank.ts：镇长 → 村长，语音数据仍用旧 key）
+        sp = "村长" if spk == "镇长" else spk
         for e_spk, e_file in by_norm.get(norm, []):
-            if e_spk == "" or e_spk == spk:
+            if e_spk == "" or e_spk == sp:
                 return e_file
         return None
 

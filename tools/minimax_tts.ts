@@ -38,10 +38,12 @@ interface Args {
   search: string | null;
   groupId: string | null;
   baseUrl: string | null;
+  design: string | null;
+  previewText: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { text: '', character: '', voiceId: null, model: DEFAULT_MODEL, output: null, dryRun: false, listVoices: false, search: null, groupId: null, baseUrl: null };
+  const a: Args = { text: '', character: '', voiceId: null, model: DEFAULT_MODEL, output: null, dryRun: false, listVoices: false, search: null, groupId: null, baseUrl: null, design: null, previewText: null };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case '--text': a.text = argv[++i] ?? ''; break;
@@ -52,6 +54,8 @@ function parseArgs(argv: string[]): Args {
       case '--group-id': a.groupId = argv[++i] ?? null; break;
       case '--base-url': a.baseUrl = argv[++i] ?? null; break;
       case '--search': a.search = argv[++i] ?? null; break;
+      case '--design': a.design = argv[++i] ?? null; break;
+      case '--preview-text': a.previewText = argv[++i] ?? null; break;
       case '--dry-run': a.dryRun = true; break;
       case '--list-voices': a.listVoices = true; break;
       case '--help': case '-h':
@@ -59,6 +63,7 @@ function parseArgs(argv: string[]): Args {
 用法:
   npm run minimax -- --list-voices [--search 关键词]   # 列出音色
   npm run minimax -- --character 夏雅 --text "<文本>" [--voice-id <ID>] [--model speech-2.8-hd]
+  npm run minimax -- --design "<音色描述>" [--preview-text "<试听文本>"] [--voice-id 自定义ID]
   npm run minimax -- --dry-run --text "测试"
 配置: MINIMAX_API_KEY / MINIMAX_GROUP_ID（环境变量/tools/.env/加密保险箱）/ MINIMAX_VOICE_MAP`);
         process.exit(0);
@@ -144,6 +149,39 @@ async function main(): Promise<void> {
     for (const v of filtered.slice(0, 60)) {
       const desc = Array.isArray(v.description) ? v.description[0] || '' : v.description || '';
       console.log(`  ${v.voice_id}  ${v.voice_name || '(unnamed)'}${desc ? `  ${String(desc).slice(0, 60)}` : ''}`);
+    }
+    return;
+  }
+
+  if (a.design) {
+    // 音色设计（Voice Design）：文本描述 → 自定义音色 + 试听音频
+    // 参考：POST /v1/voice_design（见 minimax 开放平台文档）
+    const body = {
+      prompt: a.design,
+      preview_text: a.previewText || '这是一段用于试听的声音。',
+      ...(a.voiceId ? { voice_id: a.voiceId } : {}),
+      aigc_watermark: false,
+    };
+    if (a.dryRun) {
+      console.log(`[dry-run] ${baseUrl}/voice_design prompt=${a.design.slice(0, 40)}… preview=${(body.preview_text as string).slice(0, 24)}…`);
+      return;
+    }
+    console.log('设计音色中… 描述:', a.design);
+    const json = await api(baseUrl, groupId, cfg.apiKey, '/voice_design', body);
+    const voiceId = json.voice_id;
+    const trialHex = json.trial_audio;
+    if (!voiceId) throw new Error(`响应无 voice_id: ${JSON.stringify(json).slice(0, 300)}`);
+    console.log(`✅ 音色已生成: ${voiceId}`);
+    if (trialHex) {
+      const buf = Buffer.from(trialHex, 'hex');
+      const out = a.output
+        ? resolve(a.output)
+        : resolve(OUT_DIR, `voice-design_${new Date().toISOString().slice(0, 10)}_${Date.now() % 100000}.mp3`);
+      await mkdir(dirname(out), { recursive: true });
+      await writeFile(out, buf);
+      console.log(`✅ 试听音频已保存: ${out} (${buf.length} bytes)`);
+    } else {
+      console.log('⚠️ 响应无试听音频（仅生成 voice_id）');
     }
     return;
   }

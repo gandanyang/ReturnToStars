@@ -106,3 +106,22 @@ python tools/check_voicebank_match.py   # 需 PYTHONIOENCODING=utf-8（GBK 控�
 - `speech-2.8-turbo`：性价比档，日常批量使用；
 - `speech-2.8-hd`：品质档，关键情绪句可单独升；
 - 换声线：改 `--voice-id` 后跑 `python tools/gen_xiya_minimax.py --force`，再执行第四节标准化与验证。
+
+---
+
+## 七、老周声线（2026-08-10 制作人定案）
+
+| 项目 | 值 |
+| --- | --- |
+| 音色 | `laozhou_carpenter_v1`（MiniMax 声音创作 voice_design 生成，非克隆/非系统音色） |
+| 模型 | `speech-2.8-turbo` |
+| 试听确认 | `public/assets/audio/generated/laozhou_demo2.mp3`（制作人选 demo2） |
+| 区分度 | 老周=沉默专业可靠 / 镇长=温和叙事 / 老张=粗犷劳动 |
+| 批量工具 | `python tools/gen_role_minimax.py --role carpenter --voice-id laozhou_carpenter_v1`（通用任意角色批量脚本） |
+
+**首批 7 条剧情台词**：CARPENTER_RETURN_DIALOGUE 5 条（StorySystem.ts:364-370）+ 老屋木料段 2 条（NPCSystem.ts:264-266），见 `gen_mainline_voice.py` T 清单 `carpenter_01..07`。闲聊 8 条暂缓。
+
+### 待优化记录（制作人 2026-08-10）
+
+- **carpenter_07「……这岛上，修东西的人，快绝了。」台词措辞本身语气过重**，制作人认为"有点太过了"，但当前效果可接受，暂保持现状；后续优化时优先调整这句台词措辞（配音已按现文本生成）。
+- 补充教训：**T 清单 text 必须剥掉语气/动作标注**（如「（低头继续刨板，声音很轻）」），否则会连同标注入声——carpenter_07 首版即踩坑，已重配修正。
