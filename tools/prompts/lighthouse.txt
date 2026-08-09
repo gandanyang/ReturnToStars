@@ -1,0 +1,28 @@
+A 4x4 grid game tileset sheet, 16 large clearly-separated squares arranged as 4 columns by 4 rows. STRICT GRID RULES:
+- The sheet MUST be a clean 4 columns by 4 rows grid of 16 equal square regions
+- Each square region is a DIFFERENT tile type, clearly separated by a thick black border line
+- Do NOT blend two tile types in one square
+- Inside each square, draw many 16x16 pixel art game tiles of that one tile type
+- 16x16 pixel art, top-down view, flat pixel clusters, no gradients, no lighting, no shadows
+- limited palette (8-16 colors per tile), consistent color style, tiles must tile seamlessly
+- inspired by Stardew Valley / old-school 16-bit JRPG farming games, seaside lighthouse island theme
+
+Grid layout (row 1 top ... row 4 bottom):
+row1 col1: grass (green base with darker speckles)
+row1 col2: sandy-beach (light sand base with darker sand speckles)
+row1 col3: rock (gray base with darker gray speckles)
+row1 col4: sea-water (deep blue base with lighter blue wave speckles)
+row2 col1: reef (dark blue-gray rocks at waterline, subtle foam edges)
+row2 col2: wood-floor (horizontal wooden planks with plank seams)
+row2 col3: stone-path (light beige flagstones with pebble speckles)
+row2 col4: flowers (grass base with scattered warm flower clusters)
+row3 col1: lighthouse-base (dark brown brick base)
+row3 col2: lighthouse-tower (dark blue-gray stone tower, weathered)
+row3 col3: lighthouse-lamp-room (warm yellow glass with bright yellow glow accents)
+row3 col4: fence (brown wooden fence posts with railings)
+row4 col1: old-crate (brown wooden crates with rope detail)
+row4 col2: gravel (gray-brown loose pebbles)
+row4 col3: wet-seaweed (dark green-gray seaweed on wet sand)
+row4 col4: bush (dark green shrub clusters)
+
+Color palette: muted sea blues, weathered stone grays, warm browns, sandy beige, soft yellow lamp accents. No neon colors.

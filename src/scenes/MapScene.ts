@@ -324,6 +324,10 @@ export class MapScene extends Phaser.Scene {
   public gateLife = { decor: 0, wildlife: 0, lamp: 0 };
   /** P2 农场复兴视觉化：荒废/复兴装饰组 + 小动物计数（验收探针读取，纯统计无逻辑） */
   public farmLife = { ruin: 0, revive: 0, wildlife: 0 };
+  // 灯塔视觉升级（2026-08-09）：关键 Graphics 挂字段供验收探针断言（纯挂载无逻辑）
+  public lhRoomGlow: Phaser.GameObjects.Graphics | null = null;   // 灯室光晕（白天弱/夜晚强）
+  public lhBeam: Phaser.GameObjects.Graphics | null = null;       // 夜晚光束（白天为 null）
+  public lhStars: Phaser.GameObjects.Graphics | null = null;      // 夜晚星点（白天为 null）
   // 教程：夏雅精灵
   private xiyaSprite: Phaser.GameObjects.Sprite | null = null;
   // v0.5.3 剧情密度 E1：清晨偶遇的夏雅（教程完成后，清晨 06-08 时在农场出现）
@@ -355,6 +359,9 @@ export class MapScene extends Phaser.Scene {
   private grandpaNote: Phaser.GameObjects.Text | null = null;
   // 爷爷笔记交互基准坐标（椭圆实际位置，label 有 -8px 偏移）
   private grandpaNotePos: { x: number; y: number } = { x: 0, y: 0 };
+  // 灯塔轻量版（2026-08-10 制作人解冻）：探索交互点（航海日志/铭牌/望远镜）
+  private lighthouseSpots: Array<{ x: number; y: number; label: string; key: string; text: string }> = [];
+  private lighthouseMarks: Phaser.GameObjects.Text[] = [];
   // M1-3 爷爷旧花园恢复点（farm 农田右上方 cols 28-32 rows 4-7）：三阶段清理交互状态
   private gardenRestore: {
     /** 0=未清理 1=已清倒木 2=已清破花架 3=已恢复 */
@@ -645,6 +652,8 @@ export class MapScene extends Phaser.Scene {
     this.hideOldTreeHint();
     // 镇长家提示物品清理
     this.clearElderHouseHint();
+    // 灯塔探索交互点清理（场景切换时销毁，防止残留）
+    this.clearLighthouseMarks();
   }
 
   preload(): void {
@@ -759,6 +768,10 @@ export class MapScene extends Phaser.Scene {
       this.wallsLayer.setCollision([9, 10, 12, 13]);
     } else if (this.mapKey === 'town') {
       this.wallsLayer.setCollisionBetween(9, 14);
+    } else if (this.mapKey === 'lighthouse') {
+      // 灯塔礁石岛（2026-08-10 轻量版）：岩石(3)/海水(4)/礁石(5)/塔基(9)/塔身(10)/灯室(11)/栅栏(12)/旧物(13) 全碰撞
+      // 碎石(14)/湿沙海藻(15)/灌木(16) 仅装饰不碰撞
+      this.wallsLayer.setCollision([3, 4, 5, 9, 10, 11, 12, 13]);
     } else {
       this.wallsLayer.setCollisionBetween(9, 13);
     }
@@ -963,11 +976,20 @@ export class MapScene extends Phaser.Scene {
     // M1-2 农场动态氛围（方案 B：水塘涟漪 / 花草摆动 / 暖色光斑，零资源纯代码）
     if (this.mapKey === 'farm') {
       this.setupFarmAmbience();
+      // 西侧海湾（2026-08-10 制作人方案：灯塔岛在农场西边，右上角海角远景撤除）
+      this.setupFarmWestCoast();
     }
 
     // 镇长家室内氛围（暖炉辉光/浮尘/门口柔光，零资源纯代码）
     if (this.mapKey === 'elder_house') {
       this.setupElderHouseAmbience();
+    }
+
+    // 灯塔轻量版（2026-08-10 制作人解冻）：探索交互点（航海日志/铭牌/望远镜）
+    if (this.mapKey === 'lighthouse') {
+      this.setupLighthouseExploration();
+      // 视觉打磨（2026-08-10 制作人"功能可用→展示级"）：塔身层次/灯室强化/海岸环境/故事感/光影
+      this.setupLighthouseVisuals();
     }
 
     // 青禾镇氛围（炊烟/窗灯/落叶，零资源纯代码）
@@ -1558,6 +1580,8 @@ export class MapScene extends Phaser.Scene {
 
     const exits = MAP_EXITS[this.mapKey] ?? [];
     for (const ex of exits) {
+      // 锁定出口（未来内容预埋）：不触发切换，玩家到此处只是"过不去"
+      if (ex.locked) continue;
       // 玩家中心点是否落在出口区域内
       if (
         this.player.x >= ex.x &&
@@ -2819,6 +2843,73 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
+   * 农场西侧海湾（2026-08-10 制作人方案：灯塔岛在农场西边，右上角海角远景撤除）
+   * 农场左侧中部（cols 0-2, rows 10-13）石墙打通为海湾缺口：玩家看到西边是海，
+   * 但出口 locked（未来内容预埋）不可进入——灯塔内容统一在 lighthouse 场景呈现。
+   * 纯 Graphics 零资源；不触碰碰撞/存档/出口玩法（出口锁定由 exits.ts locked 控制）。
+   * 未来：城市复兴 → 执灯人归来 → 灯塔重新点灯 → 移除 locked，玩家从海湾走向灯塔岛。
+   */
+  private setupFarmWestCoast(): void {
+    const night = getTime().hour >= 18 || getTime().hour < 6;
+
+    // 1) 海面：西侧海湾（x 0-40, y 144-224），覆盖缺口 + 向左延伸（海从岛西边来）
+    const sea = this.add.graphics();
+    const deep = night ? 0x0a1a2a : 0x2a5a7a;
+    const shore = night ? 0x12283c : 0x3a6a8c;
+    sea.fillStyle(deep, night ? 0.95 : 0.92);
+    sea.fillRect(0, 144, 40, 80);
+    sea.fillStyle(shore, night ? 0.55 : 0.5);
+    sea.fillRect(0, 144, 10, 80);
+    // 波光（白天白点闪烁）
+    if (!night) {
+      sea.fillStyle(0x9ec8e8, 0.55);
+      for (const [bx, by] of [[8, 156], [20, 170], [30, 150], [6, 190], [26, 205], [14, 216]]) sea.fillRect(bx, by, 2, 2);
+    }
+    sea.setDepth(2);
+
+    // 2) 浪花（海陆交界白沫，潮汐呼吸）
+    const surf = this.add.graphics();
+    surf.fillStyle(0xcfeeff, 0.6);
+    for (const [sx, sy, sw] of [[36, 150, 7], [34, 170, 6], [37, 192, 8], [34, 210, 6], [37, 218, 5]]) {
+      surf.fillRect(sx, sy, sw, 3);
+    }
+    surf.setDepth(2.4);
+    this.tweens.add({ targets: surf, alpha: { from: 0.35, to: 0.85 }, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+
+    // 3) 沙滩过渡（缺口边缘草地→沙色，营造"海边"感；不覆盖草地可通行）
+    const sand = this.add.graphics();
+    sand.fillStyle(0xd8c9a0, 0.4);
+    for (const [dx, dy, dw, dh] of [[40, 150, 26, 8], [36, 166, 32, 6], [42, 184, 24, 7], [38, 202, 30, 6], [44, 216, 22, 6]]) {
+      sand.fillRect(dx, dy, dw, dh);
+    }
+    sand.fillStyle(0x9a8a6a, 0.3);
+    for (const [px, py] of [[46, 160], [56, 176], [50, 196], [60, 210]]) sand.fillRect(px, py, 3, 2);
+    sand.setDepth(2);
+
+    // 4) 海面碰撞墙（挡玩家进入海区 x<40；玩家贴海边站立看海）
+    const wall = this.add.rectangle(20, 184, 40, 80, 0x000000, 0);
+    wall.setDepth(4);
+    this.physics.add.existing(wall, true);
+    this.physics.add.collider(this.player, wall);
+
+    // 5) 夜晚氛围：星点（海湾上空）+ 月光银带（海面反光）
+    if (night) {
+      const stars = this.add.graphics();
+      stars.fillStyle(0xffffff, 0.7);
+      let seed = 13;
+      const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      for (let i = 0; i < 14; i++) stars.fillRect(rnd() * 40, 120 + rnd() * 24, 1, 1);
+      stars.setDepth(2.8);
+      this.tweens.add({ targets: stars, alpha: { from: 0.4, to: 1 }, duration: 2800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+      const moon = this.add.graphics();
+      moon.fillStyle(0xa9c4ff, 0.25);
+      moon.fillRect(6, 150, 4, 70);
+      moon.setDepth(2.8);
+      this.tweens.add({ targets: moon, alpha: { from: 0.1, to: 0.35 }, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    }
+  }
+
+  /**
    * 镇长家室内氛围（视觉升级，零资源纯代码）
    * 暖炉辉光 + 浮尘微光 + 门口柔光，呼应"家"的温暖感。
    * 仅 elder_house 场景调用；纯视觉装饰，不触碰碰撞/存档/出口/玩法逻辑。
@@ -3572,10 +3663,12 @@ export class MapScene extends Phaser.Scene {
     });
   }
 
-  /** 出口指示箭头：在每个出口区域边缘显示方向 + 目标名称 */
+  /** 出口指示箭头：在每个出口区域边缘显示方向 + 目标名称（锁定出口不显示） */
   private setupExitIndicators(): void {
     const exits = MAP_EXITS[this.mapKey] ?? [];
     for (const ex of exits) {
+      // 锁定出口（未来内容预埋）：不显示箭头，避免引导玩家去"去不了"的地方
+      if (ex.locked) continue;
       const targetName = MAP_NAMES[ex.target] ?? ex.target;
       const cx = ex.x + ex.w / 2;
       const cy = ex.y + ex.h / 2;
@@ -4892,6 +4985,11 @@ export class MapScene extends Phaser.Scene {
     // 1.5 Demo 结尾：观星点（主线完成 + 夜晚 + 靠近观星点按 E）
     if (this.tryStargaze()) return;
 
+    // 灯塔轻量版（2026-08-10）：探索交互（靠近旧物件按 E 读文本，一次性记录足迹）
+    if (this.mapKey === 'lighthouse') {
+      if (this.tryLighthouseInteract()) return;
+    }
+
     // 支线试点：镇长「看星星的地方」（委托后，夜晚到空地触发）
     if (this.trySideElderStar()) return;
 
@@ -6119,6 +6217,288 @@ export class MapScene extends Phaser.Scene {
     // 交互基准用椭圆实际坐标（label 相对偏移 -8px，用它判定会偏上）
     this.grandpaNote = mark;
     this.grandpaNotePos = { x: nx, y: ny };
+  }
+
+  // ============ 灯塔轻量版（2026-08-10 制作人解冻）============
+
+  /**
+   * 灯塔礁石岛探索交互点：航海日志 / 灯塔铭牌 / 老望远镜。
+   * 定位：岛屿边界扩展方案 v1.0 P2 老航线区域——farm 海角"看得见的灯塔远景"
+   * 变成"可进入的探索区域"（"制造未来"方法论）。轻量版 = 一张 tilemap + 出口 +
+   * 基础探索文本，零新系统/新任务/新存档字段。
+   * 物件在 Walls gid 13（旧物，碰撞），交互锚点取物件南侧可走格（玩家站旁边按 E）。
+   */
+  private setupLighthouseExploration(): void {
+    if (this.mapKey !== 'lighthouse') return;
+    const spots = [
+      // (col,row,label,eventKey,text) —— 物件格 + 南侧可站锚点
+      {
+        c: 10, r: 12, label: '航海日志', key: 'lighthouse_logbook',
+        text: '一本泛黄的航海日志，夹着海风的咸味。最后一页写着——「等星星落下来，就带你去灯塔。」',
+      },
+      {
+        c: 18, r: 10, label: '铭牌', key: 'lighthouse_sign',
+        text: '「归星灯塔 · 守夜人守则」：每夜点灯，为归航的人照亮回家的路。',
+      },
+      {
+        c: 24, r: 12, label: '望远镜', key: 'lighthouse_telescope',
+        text: '一台老式望远镜，镜片蒙着灰。透过它，能望见青禾镇的海岸线与炊烟。',
+      },
+    ];
+    for (const s of spots) {
+      // 标记画在物件格上方（label 提示，仿 grandpaNote 风格）
+      const mx = s.c * TILE_SIZE + TILE_SIZE / 2;
+      const my = s.r * TILE_SIZE + TILE_SIZE / 2;
+      const mark = this.add.text(mx, my - 10, s.label, {
+        fontFamily: 'Arial', fontSize: '10px', color: '#ffdda0',
+        stroke: '#000', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(4);
+      this.lighthouseMarks.push(mark);
+      // 交互锚点 = 物件南侧可站格（碰撞格上玩家站不进去）
+      this.lighthouseSpots.push({
+        x: s.c * TILE_SIZE + TILE_SIZE / 2,
+        y: (s.r + 1) * TILE_SIZE + TILE_SIZE / 2,
+        label: s.label, key: s.key, text: s.text,
+      });
+    }
+  }
+
+  /** 灯塔探索交互（靠近旧物件按 E → 读文本；triggerOnce 记录探索足迹） */
+  private tryLighthouseInteract(): boolean {
+    if (this.mapKey !== 'lighthouse') return false;
+    for (const s of this.lighthouseSpots) {
+      const dx = this.player.x - s.x;
+      const dy = this.player.y - s.y;
+      if (dx * dx + dy * dy > 32 * 32) continue;
+      console.log(`[Lighthouse] 交互: ${s.label} at (${s.x},${s.y})`);
+      // 探索足迹入档（一次性；轻量版无新系统，供未来 P2 剧情/相簿判断）
+      triggerOnce(s.key, () => {});
+      this.showDialogueText(s.text);
+      return true;
+    }
+    return false;
+  }
+
+  /** 清除灯塔探索交互标记（场景切换/跨天时调用） */
+  private clearLighthouseMarks(): void {
+    for (const m of this.lighthouseMarks) m.destroy();
+    this.lighthouseMarks = [];
+    this.lighthouseSpots = [];
+  }
+
+  /**
+   * 灯塔视觉打磨（2026-08-10 制作人"功能可用 → 展示级"阶段）
+   * 纯 Graphics/对象，零资源；scene 关闭自动销毁（不存引用）。
+   * 目标：玩家第一眼觉得"这里以前有人守护过"，而不是"这里有一个建筑"。
+   *  1. 塔身层次：石砖横线/竖缝 + 风化斑 + 锈蚀痕 + 白漆斑驳 + 塔基石阶线
+   *  2. 灯室强化：玻璃反光 + 十字窗棂（暖光溢出已预埋禁用——见下）
+   *  3. 光束扫海面（⚠️ 预埋禁用：灯塔=未来内容预埋，当前灯室恒熄灭）
+   *  4. 海岸环境：浪花潮汐呼吸 / 礁石不规则变化 / 漂流木 / 贝壳 / 海草摆动 / 风吹草
+   *  5. 故事感（不可交互）：守塔人小屋残迹 / 废弃工具（铁锹+木桶）/ 生锈标牌
+   *  6. 夜晚光影：星点闪烁 + 月光银带（夜空环境保留；塔基地面暖光预埋禁用）
+   * ⚠️ 2026-08-10 制作人方向对齐（灯塔=未来内容预埋）：
+   *    灯室恒熄灭、无光束、无地面光斑——"现在它是黑的，有一天它会亮"。
+   *    未来链路：城市复兴 → 执灯人归来 → 灯塔重新点灯 → 开放灯塔（届时恢复点亮逻辑）。
+   * 昼夜判定与 farm 远景一致：create 时按当前时间，scene.restart 重建。
+   */
+  private setupLighthouseVisuals(): void {
+    if (this.mapKey !== 'lighthouse') return;
+    const night = getTime().hour >= 18 || getTime().hour < 6;
+    const T = TILE_SIZE;
+    const tx0 = 13 * T, tx1 = 17 * T; // 塔身 x 208-272
+
+    // ===== 1. 塔身层次（叠加在塔身 tiles 上） =====
+    const tower = this.add.graphics();
+    // 石砖横线（塔身 rows 4-7：y 64-128，每 8px 一道）
+    tower.lineStyle(1, 0x2a3a4a, 0.5);
+    for (let y = 4 * T + 8; y < 8 * T; y += 8) {
+      tower.beginPath();
+      tower.moveTo(tx0, y); tower.lineTo(tx1, y);
+      tower.strokePath();
+    }
+    // 错落竖缝
+    tower.lineStyle(1, 0x2a3a4a, 0.3);
+    let brickRow = 0;
+    for (let y = 4 * T; y < 8 * T; y += 8) {
+      for (let x = tx0 + 4 + (brickRow % 2) * 8; x < tx1; x += 16) {
+        tower.beginPath(); tower.moveTo(x, y); tower.lineTo(x, y + 8); tower.strokePath();
+      }
+      brickRow++;
+    }
+    // 风化斑
+    tower.fillStyle(0x4a5c6e, 0.35);
+    for (const [fx, fy, fw, fh] of [[tx0 + 3, 4 * T + 6, 4, 3], [tx0 + 10, 6 * T + 2, 3, 5], [tx0 + 14, 5 * T + 10, 4, 3], [tx0 + 4, 7 * T + 4, 3, 4]]) {
+      tower.fillRect(fx, fy, fw, fh);
+    }
+    // 锈蚀痕（塔基下部橙褐）
+    tower.fillStyle(0x7a4a2a, 0.4);
+    for (const [rx, ry, rw, rh] of [[tx0 + 2, 8 * T + 2, 3, 6], [tx0 + 13, 8 * T + 6, 3, 5], [tx0 + 10, 9 * T, 4, 4]]) {
+      tower.fillRect(rx, ry, rw, rh);
+    }
+    // 白漆斑驳（灯塔经典亮块，塔身上部）
+    tower.fillStyle(0x5c6c7e, 0.4);
+    for (const [px, py, pw, ph] of [[tx0 + 2, 4 * T + 2, 5, 4], [tx0 + 9, 5 * T + 2, 4, 5], [tx0 + 8, 6 * T + 9, 4, 3]]) {
+      tower.fillRect(px, py, pw, ph);
+    }
+    // 塔基石阶线
+    tower.lineStyle(1, 0x2a2a34, 0.5);
+    tower.beginPath(); tower.moveTo(tx0, 9 * T); tower.lineTo(tx1, 9 * T); tower.strokePath();
+    tower.setDepth(2);
+
+    // ===== 2. 灯室强化（玻璃反光 + 窗棂 + 夜晚暖光溢出） =====
+    const room = this.add.graphics();
+    room.fillStyle(0xffffff, 0.25);
+    room.fillRect(14 * T + 3, 2 * T + 3, 5, 2); // 玻璃反光斜条
+    room.fillRect(15 * T + 5, 3 * T + 2, 3, 2);
+    room.lineStyle(1, 0x2a3a4a, 0.5);
+    room.beginPath(); room.moveTo(15 * T, 2 * T); room.lineTo(15 * T, 4 * T); room.strokePath(); // 窗棂
+    room.beginPath(); room.moveTo(tx0, 3 * T); room.lineTo(tx1, 3 * T); room.strokePath();
+    room.setDepth(2);
+    // 暖光晕单独成 Graphics，alpha 走 GameObject setAlpha（探针可断言 + 语义清晰）：
+    // 注意：fillStyle 的 alpha 是烘焙在填充色里的，读 .alpha 恒为 1——必须 setAlpha 控制
+    // ⚠️ 2026-08-10 制作人方向对齐：灯塔=未来内容预埋，当前灯室恒熄灭。
+    //    预埋：城市复兴 → 执灯人归来 → 灯塔重新点灯 后，改回 `night ? 0.35 : 0.06`。
+    this.lhRoomGlow = this.add.graphics();
+    this.lhRoomGlow.fillStyle(0xffdda0, 1);
+    this.lhRoomGlow.fillEllipse(15 * T, 3 * T, 34, 26);
+    this.lhRoomGlow.setDepth(2);
+    this.lhRoomGlow.setAlpha(0); // 恒熄灭（预埋状态）
+
+    // ===== 3. 光束扫海面（预埋：当前恒不亮；未来灯塔点亮后恢复"夜晚光束"） =====
+    // 2026-08-10 制作人方向对齐：现在灯塔=黑，光束属于"未来灯塔亮起"的视觉，
+    // 现阶段不创建（lhBeam 恒为 null）。恢复时：night 分支创建此图形 + 呼吸 tween。
+
+    // ===== 4. 海岸环境 =====
+    // 浪花（岩石岸线与海交界白线，潮汐呼吸）
+    const coast = this.add.graphics();
+    coast.fillStyle(0xcfeeff, 0.5);
+    // 顶岸 row 2（y 40-44，避开出口通道 cols 12-17 上方无碍）
+    for (const [wx, wy, ww] of [[64, 40, 12], [120, 42, 8], [200, 40, 10], [280, 42, 9], [360, 40, 12], [408, 42, 8]]) {
+      coast.fillRect(wx, wy, ww, 3);
+    }
+    // 左岸 col 2（x 36-42；⚠️ 避开西侧入口通道 y 144-224——2026-08-10 入口移到西侧）
+    for (const [wx, wy, wh] of [[38, 72, 10], [40, 130, 10], [42, 250, 10]]) {
+      coast.fillRect(wx, wy, 3, wh);
+    }
+    // 右岸 col 26（x 426-432）
+    for (const [wx, wy, wh] of [[430, 80, 12], [426, 140, 9], [432, 210, 11]]) {
+      coast.fillRect(wx, wy, 3, wh);
+    }
+    // 底岸 row 16（y 264-268，x 避开出口通道 192-288）
+    for (const [wx, wy, ww] of [[64, 264, 10], [140, 266, 8], [180, 264, 8], [300, 266, 10], [404, 264, 10]]) {
+      coast.fillRect(wx, wy, ww, 3);
+    }
+    coast.setDepth(2);
+    this.tweens.add({ targets: coast, alpha: { from: 0.4, to: 0.85 }, duration: 3200, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+
+    // 礁石变化（岩石带叠加不规则灰块，打破规则方块感）
+    // ⚠️ 2026-08-10 入口移到西侧（x 0-64, y 144-224 通道），原 (56,179) 礁石挡入口已移除，
+    //    (40,146)/(50,228) 挪出通道
+    const rocks = this.add.graphics();
+    rocks.fillStyle(0x3c3c46, 0.6);
+    for (const [rx, ry, rw, rh] of [[2 * T + 2, 6 * T + 2, 6, 4], [26 * T + 3, 5 * T + 5, 6, 4], [27 * T + 6, 13 * T + 2, 5, 5], [7 * T + 2, 2 * T + 4, 6, 4], [20 * T + 4, 16 * T + 2, 6, 4]]) {
+      rocks.fillRect(rx, ry, rw, rh);
+    }
+    rocks.fillStyle(0x4c4c58, 0.5);
+    for (const [rx, ry] of [[2 * T + 8, 6 * T + 10], [3 * T + 2, 15 * T + 8], [27 * T + 2, 8 * T + 4], [26 * T + 10, 15 * T + 3]]) {
+      rocks.fillRect(rx, ry, 4, 3);
+    }
+    rocks.setDepth(2);
+
+    // 漂流木（沙滩棕色长条）
+    const drift = this.add.graphics();
+    drift.fillStyle(0x8a6a4a, 0.9);
+    drift.fillRect(6 * T + 2, 13 * T + 6, 10, 2);
+    drift.fillRect(21 * T + 3, 5 * T + 10, 8, 2);
+    drift.fillStyle(0x6a4a2a, 0.8);
+    drift.fillRect(6 * T + 2, 13 * T + 8, 6, 1);
+    drift.fillRect(21 * T + 3, 5 * T + 12, 5, 1);
+    drift.setDepth(2);
+
+    // 贝壳 / 小石头（沙地白点灰点）
+    const shells = this.add.graphics();
+    shells.fillStyle(0xe8e0d0, 0.8);
+    for (const [sx, sy] of [[5 * T + 4, 12 * T + 4], [7 * T + 8, 14 * T + 2], [22 * T + 2, 6 * T + 6], [24 * T + 6, 13 * T + 5], [9 * T + 3, 4 * T + 6]]) {
+      shells.fillRect(sx, sy, 2, 2);
+    }
+    shells.fillStyle(0x9a9aa2, 0.7);
+    for (const [sx, sy] of [[6 * T + 10, 15 * T + 4], [23 * T + 8, 5 * T + 4], [10 * T + 6, 14 * T + 8]]) {
+      shells.fillRect(sx, sy, 3, 2);
+    }
+    shells.setDepth(2);
+
+    // 海草摆动（深绿细条，angle 来回）
+    for (const [wx, wy] of [[3 * T + 6, 15 * T + 8], [26 * T + 8, 14 * T + 6], [5 * T + 4, 3 * T + 8], [24 * T + 10, 3 * T + 6]]) {
+      const w = this.add.rectangle(wx, wy, 2, 7, 0x1e4a2a, 0.75);
+      w.setDepth(2);
+      this.tweens.add({ targets: w, angle: { from: -12, to: 12 }, duration: 1400 + Math.random() * 600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    }
+    // 风吹草（草地浅绿小条 alpha 摆动）
+    for (const [gx, gy] of [[7 * T + 4, 8 * T + 4], [12 * T + 8, 11 * T + 3], [19 * T + 2, 9 * T + 5], [22 * T + 6, 12 * T + 6], [9 * T + 9, 6 * T + 5]]) {
+      const g = this.add.rectangle(gx, gy, 2, 5, 0x7aa860, 0.7);
+      g.setDepth(2);
+      this.tweens.add({ targets: g, alpha: { from: 0.3, to: 0.8 }, duration: 1800 + Math.random() * 800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    }
+
+    // ===== 5. 故事感（不可交互视觉叙事；避开交互锚点/出口平台） =====
+    // 守塔人小屋残迹（塔基东南 x 320-362, y 196-240：地基 + 两段断墙）
+    const ruin = this.add.graphics();
+    ruin.fillStyle(0x8a8a92, 0.5);
+    ruin.fillRect(20 * T, 13 * T, 40, 32); // 地基
+    ruin.fillStyle(0x6a6a72, 0.6);
+    ruin.fillRect(20 * T + 2, 12 * T + 4, 18, 14); // 断墙 A
+    ruin.fillRect(20 * T + 28, 12 * T + 6, 14, 12); // 断墙 B
+    ruin.fillStyle(0x5c5c66, 0.5);
+    ruin.fillRect(20 * T + 6, 12 * T + 8, 4, 6); // 墙面剥落
+    ruin.setDepth(2);
+
+    // 废弃工具（铁锹 + 木桶，塔基西侧 x 180-221, y 200-224）
+    const tools = this.add.graphics();
+    tools.fillStyle(0x6b5238, 0.9);
+    tools.fillRect(11 * T + 4, 13 * T - 4, 2, 12); // 铁锹木柄
+    tools.fillStyle(0x5a5a64, 0.9);
+    tools.fillRect(11 * T + 1, 13 * T + 6, 8, 3); // 锹头
+    tools.fillStyle(0x7a5a3a, 0.9);
+    tools.fillRect(13 * T + 6, 13 * T - 2, 7, 9); // 木桶
+    tools.fillStyle(0x5a3a22, 0.9);
+    tools.fillRect(13 * T + 6, 13 * T, 7, 1); // 桶箍
+    tools.fillRect(13 * T + 6, 13 * T + 5, 7, 1);
+    tools.setDepth(2);
+
+    // 生锈标牌（塔基西侧 x 195-207, y 152-170，歪斜）
+    const sign = this.add.graphics();
+    sign.fillStyle(0x4a3a2a, 0.9);
+    sign.fillRect(12 * T + 8, 10 * T + 2, 2, 10); // 木杆
+    sign.fillStyle(0x6a5a44, 0.9);
+    sign.fillRect(12 * T + 3, 10 * T - 4, 12, 7); // 铁牌
+    sign.fillStyle(0x8a7a5a, 0.5);
+    sign.fillRect(12 * T + 4, 10 * T - 2, 4, 2); // 锈迹
+    sign.setDepth(2);
+    sign.setAngle(-4);
+
+    // ===== 6. 夜晚光影（星点 + 月光银带；塔基地面暖光预埋禁用——灯未亮无光斑） =====
+    if (night) {
+      // 星点（30 颗散布夜空，alpha 闪烁）——夜空环境，非灯塔灯
+      const stars = this.add.graphics();
+      stars.fillStyle(0xffffff, 0.8);
+      let seed = 42;
+      const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      for (let i = 0; i < 30; i++) {
+        stars.fillRect(rnd() * 480, rnd() * 240, 1, 1);
+      }
+      stars.setDepth(6);
+      stars.setAlpha(0.7);
+      this.lhStars = stars;
+      this.tweens.add({ targets: stars, alpha: { from: 0.4, to: 1 }, duration: 3000, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+      // 月光银带（两侧海面反光）——月光环境，非灯塔灯
+      const moon = this.add.graphics();
+      moon.fillStyle(0xa9c4ff, 0.25);
+      moon.fillRect(16, 48, 6, 96);
+      moon.fillRect(458, 40, 6, 100);
+      moon.setDepth(2);
+      this.tweens.add({ targets: moon, alpha: { from: 0.1, to: 0.4 }, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+      // 塔基地面暖光（预埋：灯未亮，无光斑；未来灯塔点亮后恢复此块）
+    }
   }
 
   /**
@@ -7813,42 +8193,43 @@ export class MapScene extends Phaser.Scene {
 
   /**
    * 创建农场商店摊位（v0.6 商店入口：靠近按 E 打开 ShopPanel）
-   * 位置：农田右下方空地 (col 24, row 18)，与农田（rows 8-16）隔开约 2 格，
-   *   避开玩家出生点 (col 20, row 18.75) / 树木 / 水塘，摊位主体不压在土地上。
+   * 位置：农田东侧空地 (col 31, row 13)，更靠近小镇出口（col 37-39, row 9-11），
+   *   避开农田区（cols 12-28, rows 8-16）/ 玩家出生点 (col 20, row 18.75) / 树木 / 水塘 / 海角区。
+   * 摊位竖放（2026-08-10 制作人拍板：往镇子方向挪 + 竖过来）。
    * 纯视觉（Graphics 柜台 + 文字标签），不放瓦片——
    * 原因：Walls 层 gid 6 是睡觉判定格（会误判睡觉）、gid 3 石墙会挡路挡碰撞。
    */
   private setupFarmShop(): void {
     const T = TILE_SIZE;
-    const x = 24 * T + T / 2; // 392
-    const y = 18 * T + T / 2; // 296
+    const x = 31 * T + T / 2; // 504
+    const y = 13 * T + T / 2; // 216
     const g = this.add.graphics();
     g.setDepth(3);
-    // 遮阳棚（红底 + 白条纹）
+    // 遮阳棚（红底 + 白条纹）——竖放：宽 7 高 44
     g.fillStyle(0xc0392b, 1);
-    g.fillRect(x - 22, y - 16, 44, 7);
+    g.fillRect(x - 3, y - 22, 7, 44);
     g.fillStyle(0xf5f5f5, 1);
-    g.fillRect(x - 16, y - 16, 6, 7);
-    g.fillRect(x - 4, y - 16, 6, 7);
-    g.fillRect(x + 8, y - 16, 6, 7);
-    // 支撑柱（左右）
+    g.fillRect(x - 3, y - 16, 7, 6);
+    g.fillRect(x - 3, y - 4, 7, 6);
+    g.fillRect(x - 3, y + 8, 7, 6);
+    // 支撑柱（上下）
     g.fillStyle(0x6b4a2a, 1);
-    g.fillRect(x - 20, y - 9, 3, 15);
-    g.fillRect(x + 17, y - 9, 3, 15);
-    // 柜台（木色桌面 + 深色台沿）
+    g.fillRect(x - 9, y - 20, 3, 15);
+    g.fillRect(x - 9, y + 5, 3, 15);
+    // 柜台（木色桌面 + 深色台沿）——竖放：宽 9 高 44
     g.fillStyle(0x8a5a33, 1);
-    g.fillRect(x - 22, y - 8, 44, 9);
+    g.fillRect(x - 8, y - 22, 9, 44);
     g.fillStyle(0x6b4423, 1);
-    g.fillRect(x - 22, y - 1, 44, 2);
-    // 柜台货品（萝卜红 / 叶绿 / 玉米黄 三色点）
+    g.fillRect(x - 1, y - 22, 2, 44);
+    // 柜台货品（萝卜红 / 叶绿 / 玉米黄 三色点）——竖排
     g.fillStyle(0xe74c3c, 1);
-    g.fillCircle(x - 12, y - 3, 2.5);
+    g.fillCircle(x - 3, y - 12, 2.5);
     g.fillStyle(0x2ecc71, 1);
-    g.fillCircle(x - 2, y - 3, 2.5);
+    g.fillCircle(x - 3, y - 2, 2.5);
     g.fillStyle(0xf1c40f, 1);
-    g.fillCircle(x + 8, y - 3, 2.5);
-    // 标签（放摊位下方空地，不压农田）——去掉"打开方式"提示（制作人 2026-08-07 拍板：删"按E打开"）
-    const mark = this.add.text(x, y + 16, '商店', {
+    g.fillCircle(x - 3, y + 8, 2.5);
+    // 标签（放摊位右侧空地，不压农田）——去掉"打开方式"提示（制作人 2026-08-07 拍板：删"按E打开"）
+    const mark = this.add.text(x + 16, y, '商店', {
       fontFamily: 'Arial',
       fontSize: '11px',
       color: '#ffe082',

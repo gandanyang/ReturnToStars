@@ -36,10 +36,12 @@ const MAP_AMBIENT: Record<string, { day: AmbientName[]; night: AmbientName[] }> 
   gate:    { day: ['wind'],                    night: ['wind', 'crickets'] },
   station: { day: ['wind'],                    night: ['wind'] },
   house:   { day: ['warmth'],                  night: ['warmth'] },
+  // 灯塔礁石岛（2026-08-10 轻量版）：日夜海浪 + 白天风声 / 夜晚虫鸣
+  lighthouse: { day: ['waves', 'wind'],       night: ['waves', 'crickets'] },
 };
 
 /** 有雨天气的室外地图（矿洞/屋内/车站有顶，不下雨） */
-export const RAIN_MAPS = ['farm', 'forest', 'town', 'gate'];
+export const RAIN_MAPS = ['farm', 'forest', 'town', 'gate', 'lighthouse'];
 
 /** 全局音源数上限（含操作音效的并发预估） */
 const MAX_SOURCES = 8;
@@ -281,6 +283,10 @@ function scheduleEvents(): void {
     if (r < 0.5) { scheduleBird(); next(4000 + Math.random() * 5000); }
     else if (r < 0.85) { barkSound(); next(18000 + Math.random() * 15000); }
     else { meowSound(); next(22000 + Math.random() * 18000); }
+  } else if (activeMap === 'lighthouse') {
+    // 灯塔靠海：海鸥为主，偶尔普通鸟叫（海鸟成群感）
+    if (Math.random() < 0.8) { seagullChirp(); next(6000 + Math.random() * 8000); }
+    else { scheduleBird(); next(4000 + Math.random() * 5000); }
   } else {
     next(8000 + Math.random() * 6000);
   }

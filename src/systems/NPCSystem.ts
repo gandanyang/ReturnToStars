@@ -283,6 +283,8 @@ const NPC_DAILY_LINES: Record<string, DialogueLine[]> = {
     { speaker: '镇长', color: '#c8b898', text: '今天的天气，适合看星星。' },
     { speaker: '镇长', color: '#c8b898', text: '你爷爷走的时候，留下一句话：会有人回来的。' },
     { speaker: '镇长', color: '#c8b898', text: '年轻人，别老闷在庄园里，多出来走走。' },
+    // 岛屿边界扩展方案 v1.0 P0（2026-08-09）：码头暗示（岛曾经连接外界，个人记忆）
+    { speaker: '镇长', color: '#c8b898', text: '以前码头每天都有船来，现在啊，只剩下浪声了。' },
   ],
   shopkeeper: [
     { speaker: '商店老板', color: '#8ac8a0', text: '今天有批新货到了，来看看？' },
@@ -327,6 +329,8 @@ const NPC_DAILY_LINES: Record<string, DialogueLine[]> = {
     // 《追风的人》种子伏笔（制作人 2026-08-08 拍板：Alpha 埋种子，Beta 开传说任务；不解释、不任务、不回忆，无配音）
     { speaker: '阿风', color: '#88b8e8', text: '这里的风，比消息快。' },
     { speaker: '阿风', color: '#88b8e8', text: '以前我总觉得，远方一定有什么答案。现在倒觉得，路上的风景也挺重要。' },
+    // 岛屿边界扩展方案 v1.0 P0（2026-08-09）：灯塔暗示（冒险家"想去"的心理，个人观察）
+    { speaker: '阿风', color: '#88b8e8', text: '西边那座灯塔，门锈住了。我试了几次都没上去，改天你也去试试？' },
   ],
   carpenter: [
     { speaker: '木匠老周', color: '#c89860', text: '这些木料不错，能用很久。' },

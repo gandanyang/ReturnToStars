@@ -81,6 +81,8 @@ const game = new Phaser.Game({
     new MapScene('mine'),
     new MapScene('house'),
     new MapScene('elder_house'),
+    // 灯塔轻量版（2026-08-10 制作人解冻）：farm 海角可进入的探索区域
+    new MapScene('lighthouse'),
   ],
 });
 
