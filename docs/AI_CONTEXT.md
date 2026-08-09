@@ -54,6 +54,7 @@
 | 地图 | Tiled JSON（gid 语义禁止改动） |
 | 语音 | MiniMax T2A v2 云端 API（唯一推荐管线） |
 | 测试 | Puppeteer 探针 + tsc |
+| 生图 | ComfyUI，默认工作流 `workflow/anima_turboV10.json`（anima turbo；禁止自建默认） |
 
 ---
 
@@ -66,6 +67,8 @@
 5. `docs/AI开发前必读.md`（门禁）
 6. `docs/开发约束与架构入口.md`（架构入口 + 新增系统检查清单）
 7. 对应任务文档（`docs/tasks/…`）
+
+> **生图**：ComfyUI 出图默认使用 `workflow/anima_turboV10.json`（anima turbo），禁止选用/新建其它默认工作流。
 
 ---
 

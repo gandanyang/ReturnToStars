@@ -50,6 +50,9 @@ public/audio/voice/
 # 浏览器自动化测试截图（测试产物，不入库）
 test-screenshots/
 
+# 归档区（临时生成图/测试截图等整理产物，不入库；正式入库请移入 assets/docs/art_source 对应目录）
+archive/
+
 # 临时生成目录（AI 生图产物等，正式入库请移入 assets/docs 对应目录）
 tmp/
 

@@ -13,6 +13,7 @@
 - **一次性事件**（剧情 / NPC 事件 / 相簿解锁 / 记忆卡 / 彩蛋 / 支线）一律 `EventManager.triggerOnce`。
 - **新增文件前**先输出"已有系统检查：复用方案 / 新增文件 / 修改文件"，确认再写代码。
 - **行为不变的重构默认不做**；稳定优先。
+- **ComfyUI 生图默认工作流**：`workflow/anima_turboV10.json`（anima turbo），禁止自行选用/新建其它默认工作流。
 
 已有可直接用的：`SaveSystem` / `EventManager` / `StorySystem` / `QuestSystem` / `DailyQuestSystem` / `PhotoAlbum` / `NPCSystem` / `AmbienceSystem`。
 
