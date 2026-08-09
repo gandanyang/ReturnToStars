@@ -332,6 +332,7 @@ export class MapScene extends Phaser.Scene {
   private dawnXiyaDay = 0;
   // day2 清晨「岛屿的第一声回应」：老屋门口看农田的夏雅（自动触发，一次性，triggerOnce 判重）
   private morningXiya: Phaser.GameObjects.Sprite | null = null;
+  private morningXiyaLabel: Phaser.GameObjects.Text | null = null;
   private firstMorningDone = false;
   // FEATURE-041 木匠回归演出：老屋旁出现的木匠（自动触发，一次性，triggerOnce('carpenter_returned') 判重）
   private carpenterReturnSprite: Phaser.GameObjects.Sprite | null = null;
@@ -628,6 +629,8 @@ export class MapScene extends Phaser.Scene {
     // E1/E9 夏雅精灵清理（场景切换时销毁，防止残留）
     this.clearDawnXiya();
     this.clearEveningXiya();
+    // day2 清晨演出夏雅清理（场景切换时销毁，防止残留；BUG-071）
+    this.clearMorningXiya();
     // D-011 《春深有信·一》剧情专线精灵/交互点清理（场景切换时销毁，防止残留）
     this.clearLetterXiya();
     // 相簿解锁 toast 清理（DOM，防跨场景残留）
@@ -2122,7 +2125,7 @@ export class MapScene extends Phaser.Scene {
       const my = 21 * T + T / 2;
       this.morningXiya = this.add.sprite(mx, my, 'npc_xiya');
       this.morningXiya.setScale(0.5).setDepth(5);
-      this.add.text(mx, my - 14, '夏雅', {
+      this.morningXiyaLabel = this.add.text(mx, my - 14, '夏雅', {
         fontSize: '13px', color: '#f0a050',
         stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5).setDepth(6);
@@ -2140,6 +2143,8 @@ export class MapScene extends Phaser.Scene {
           injectRevivalQuests();
           this.createDailyQuestPanel();
           this.updateQuestHUD();
+          // 演出精灵生命周期闭合（BUG-071：对白结束夏雅离开，防止僵尸夏雅与后续时段实例同场）
+          this.clearMorningXiya();
           save({
             x: this.player.x, y: this.player.y,
             scene: this.mapKey, facing: this.player.facing,
@@ -2251,6 +2256,12 @@ export class MapScene extends Phaser.Scene {
     const t = getTime();
     if (t.hour < 18 || t.hour >= 20) return;
     if (this.eveningXiyaDay === t.day) return;
+    // D-011 让位（BUG-071）：《春深有信·一》剧情专线 A/D 段需要夏雅精灵时（12-20 时窗口重叠），
+    // 傍晚闲聊（纯陪伴，低优先级）让位，避免傍晚同时出现两个夏雅；B/C 段（无夏雅精灵）不受影响。
+    if (this.xiyaLetterDone !== true) {
+      const needXiya = this.xiyaLetterStage === 0 || this.xiyaLetterStage >= 3;
+      if (needXiya) return;
+    }
 
     const dx = 14 * TILE_SIZE + TILE_SIZE / 2;
     const dy = 6 * TILE_SIZE + TILE_SIZE / 2;
@@ -2315,6 +2326,12 @@ export class MapScene extends Phaser.Scene {
   private clearEveningXiya(): void {
     if (this.eveningXiya) { this.eveningXiya.destroy(); this.eveningXiya = null; }
     if (this.eveningXiyaLabel) { this.eveningXiyaLabel.destroy(); this.eveningXiyaLabel = null; }
+  }
+
+  /** 清除 day2 清晨演出夏雅精灵（对白结束/场景切换/跨天时调用；BUG-071 演出精灵生命周期闭合） */
+  private clearMorningXiya(): void {
+    if (this.morningXiya) { this.morningXiya.destroy(); this.morningXiya = null; }
+    if (this.morningXiyaLabel) { this.morningXiyaLabel.destroy(); this.morningXiyaLabel = null; }
   }
 
   /**
@@ -6055,6 +6072,8 @@ export class MapScene extends Phaser.Scene {
     this.clearDawnXiya();
     // v0.5.3 E9：跨天后重新判断傍晚夏雅
     this.clearEveningXiya();
+    // day2 清晨演出夏雅：跨天后不应残留（BUG-071）
+    this.clearMorningXiya();
     if (this.mapKey === 'farm' && isTutorialDone()) {
       this.setupDawnXiya();
       this.setupEveningXiya();
@@ -7093,12 +7112,14 @@ export class MapScene extends Phaser.Scene {
    */
   private spawnGardenXiya(): void {
     if (this.mapKey !== 'farm' || this.gardenXiya) return;
-    // BUG-043：先隐藏/销毁其他夏雅实例，避免同时出现两个夏雅
+    // BUG-043 + BUG-071：先隐藏其他夏雅实例（含 D-011 剧情夏雅 letterXiya），避免同时出现两个夏雅
     if (this.dawnXiya) { this.dawnXiya.setVisible(false); }
     if (this.dawnXiyaLabel) { this.dawnXiyaLabel.setVisible(false); }
     if (this.eveningXiya) { this.eveningXiya.setVisible(false); }
     if (this.eveningXiyaLabel) { this.eveningXiyaLabel.setVisible(false); }
     if (this.xiyaSprite) { this.xiyaSprite.setVisible(false); }
+    if (this.letterXiya) { this.letterXiya.setVisible(false); }
+    if (this.letterXiyaLabel) { this.letterXiyaLabel.setVisible(false); }
     const T = TILE_SIZE;
     const dx = 33 * T + T / 2;
     const dy = 6 * T + T / 2;
@@ -7123,12 +7144,14 @@ export class MapScene extends Phaser.Scene {
     this.gardenXiya.destroy();
     this.gardenXiya = null;
     if (this.gardenXiyaLabel) { this.gardenXiyaLabel.destroy(); this.gardenXiyaLabel = null; }
-    // BUG-043：花园见证完成后恢复其他夏雅实例可见性
+    // BUG-043 + BUG-071：花园见证完成后恢复其他夏雅实例可见性（含 D-011 剧情夏雅）
     if (this.dawnXiya) { this.dawnXiya.setVisible(true); }
     if (this.dawnXiyaLabel) { this.dawnXiyaLabel.setVisible(true); }
     if (this.eveningXiya) { this.eveningXiya.setVisible(true); }
     if (this.eveningXiyaLabel) { this.eveningXiyaLabel.setVisible(true); }
     if (this.xiyaSprite) { this.xiyaSprite.setVisible(true); }
+    if (this.letterXiya) { this.letterXiya.setVisible(true); }
+    if (this.letterXiyaLabel) { this.letterXiyaLabel.setVisible(true); }
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     this.storyDialogue.play(GARDEN_RESTORED_XIYA_DIALOGUE, () => {
       // T2 改动 2：花园见证后连播夏雅「为什么小事会改变这里」（制作人 2026-08-06 定稿）
@@ -7143,12 +7166,14 @@ export class MapScene extends Phaser.Scene {
   private clearGardenXiya(): void {
     if (this.gardenXiya) { this.gardenXiya.destroy(); this.gardenXiya = null; }
     if (this.gardenXiyaLabel) { this.gardenXiyaLabel.destroy(); this.gardenXiyaLabel = null; }
-    // BUG-043：清除花园夏雅后恢复其他夏雅实例可见性
+    // BUG-043 + BUG-071：清除花园夏雅后恢复其他夏雅实例可见性（含 D-011 剧情夏雅）
     if (this.dawnXiya) { this.dawnXiya.setVisible(true); }
     if (this.dawnXiyaLabel) { this.dawnXiyaLabel.setVisible(true); }
     if (this.eveningXiya) { this.eveningXiya.setVisible(true); }
     if (this.eveningXiyaLabel) { this.eveningXiyaLabel.setVisible(true); }
     if (this.xiyaSprite) { this.xiyaSprite.setVisible(true); }
+    if (this.letterXiya) { this.letterXiya.setVisible(true); }
+    if (this.letterXiyaLabel) { this.letterXiyaLabel.setVisible(true); }
   }
 
   // ============ 支线试点（2026-08-06 制作人拍板方案 A） ============
@@ -7396,8 +7421,8 @@ export class MapScene extends Phaser.Scene {
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     const R = 32 * 32;
 
-    // A 段：初始夏雅（开场对白 + 演出「夕阳落在田埂上」）
-    if (!this.xiyaLetterAsked && this.letterXiya) {
+    // A 段：初始夏雅（开场对白 + 演出「夕阳落在田埂上」）——visible 检查与 E1/E9/见证一致（BUG-071）
+    if (!this.xiyaLetterAsked && this.letterXiya?.visible) {
       const dx = this.player.x - this.letterXiya.x;
       const dy = this.player.y - this.letterXiya.y;
       if (dx * dx + dy * dy > R) return false;
@@ -7454,8 +7479,8 @@ export class MapScene extends Phaser.Scene {
       return true;
     }
 
-    // D 段：收尾夏雅（态度变化 + 春祭/烟花伏笔）
-    if (this.xiyaLetterAsked && this.xiyaLetterStage >= 3 && this.letterXiya) {
+    // D 段：收尾夏雅（态度变化 + 春祭/烟花伏笔）——visible 检查与 E1/E9/见证一致（BUG-071）
+    if (this.xiyaLetterAsked && this.xiyaLetterStage >= 3 && this.letterXiya?.visible) {
       const dx = this.player.x - this.letterXiya.x;
       const dy = this.player.y - this.letterXiya.y;
       if (dx * dx + dy * dy > R) return false;

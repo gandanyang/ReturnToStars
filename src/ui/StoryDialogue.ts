@@ -24,7 +24,7 @@ import { DialogueHistoryPanel } from './DialogueHistoryPanel';
 const PORTRAIT_MAP: Record<string, string> = {
   林澈: 'assets/portraits/linchen_ai.webp',
   夏雅: 'assets/portraits/xiya_ai_avatar_v3.webp', // 2026-08-09 形象基准 v3（成熟 18 岁少女，见夏雅角色圣经）
-  村长: 'assets/portraits/elder_ai.webp',
+  镇长: 'assets/portraits/elder_ai.webp',
   爷爷的笔记: 'assets/portraits/grandpa_ai.webp',
   爷爷: 'assets/portraits/grandpa_ai.webp',
   信: 'assets/portraits/grandpa_ai.webp',

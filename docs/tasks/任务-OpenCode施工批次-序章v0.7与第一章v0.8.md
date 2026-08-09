@@ -6,7 +6,7 @@
 ### Trae 验证记录（2026-08-04）
 
 - ✅ 序章 v0.7：两页通知（z-index=600 DOM 轮询）+ 车站对白 9 行 —— probe-prologue-walkthrough 走查取证 0 错误
-- ✅ 第一章 v0.8：村长拆信息（ELDER_QUEST 10 行）+ 青禾镇改名（HUD 区域名）+ HUD 目标文案 —— probe-ch1-walkthrough 走查取证 0 错误
+- ✅ 第一章 v0.8：镇长拆信息（ELDER_QUEST 10 行）+ 青禾镇改名（HUD 区域名）+ HUD 目标文案 —— probe-ch1-walkthrough 走查取证 0 错误
 - ✅ 回归合并验证（2026-08-04 测试轮次 01 批 1）：tsc 0 错 + 14 探针全绿（test-tutorial / elder-portrait / ch1-story 24 / density 10 / garden-xiya 10 / farm-restore 25 / ambience 9 / first-hour 15 / mobile 4 探针 / bug030-034 13 / rotate-hint 3）
 - 结论：**验证通过，无回归问题**
 
@@ -47,7 +47,7 @@
 
 ### B1 P0 文本（StorySystem.ts）
 
-- [x] 村长委托拆信息（老人化 + 星之碎片后置）
+- [x] 镇长委托拆信息（老人化 + 星之碎片后置）
 - [x] 挖矿引导夏雅减解释 + 爷爷线
 - [x] E9 傍晚简单关心版（删 KPI/周报）
 - [x] E2 收获生活化版

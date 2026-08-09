@@ -5,6 +5,9 @@ node_modules/
 dist/
 dist-ssr/
 
+# 本地 AI 工作区（工作日志/会话交接，不入库）
+.workbuddy/memory/
+
 # Vite 缓存
 .vite/
 

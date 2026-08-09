@@ -254,8 +254,8 @@ export const XIYA_GARDEN_FLASHBACK: DialogueLine[] = [
 ];
 
 /**
- * 支线试点：村长「看星星的地方」记忆卡（2026-08-06 制作人拍板方案 A）
- * 触发：村长委托后，夜晚到农田边空地
+ * 支线试点：镇长「看星星的地方」记忆卡（2026-08-06 制作人拍板方案 A）
+ * 触发：镇长委托后，夜晚到农田边空地
  * 记忆内容：爷爷坐在空地上看星星，身边放着半壶凉茶
  */
 export const ELDER_STAR_FLASHBACK: DialogueLine[] = [
@@ -329,7 +329,7 @@ export const SHOP_CROP_ENTRY_DIALOGUE: DialogueLine[] = [
   {
     speaker: '商店老板',
     color: '#8ac8a0',
-    text: '说起来，村长那里也好久没有收到新鲜东西了。',
+    text: '说起来，镇长那里也好久没有收到新鲜东西了。',
   },
   {
     speaker: '商店老板',
@@ -362,7 +362,7 @@ export const SHOP_CROP_DONE_DIALOGUE: DialogueLine[] = [
   {
     speaker: '商店老板',
     color: '#8ac8a0',
-    text: '村长收到的话，应该会高兴。',
+    text: '镇长收到的话，应该会高兴。',
   },
   {
     speaker: '商店老板',
@@ -376,15 +376,15 @@ export const SHOP_CROP_FLASHBACK: DialogueLine[] = [
   {
     speaker: '',
     color: MEM_COLORS.scene,
-    text: '（你把一篮作物送到村长家，他看了很久，没有说话。）',
+    text: '（你把一篮作物送到镇长家，他看了很久，没有说话。）',
   },
   {
-    speaker: '村长',
+    speaker: '镇长',
     color: MEM_COLORS.grandpa,
     text: '……好多年了。还是第一次有人把刚收下来的东西送到我这里。',
   },
   {
-    speaker: '村长',
+    speaker: '镇长',
     color: MEM_COLORS.grandpa,
     text: '以前的青禾镇，也是这样。大家互相照应，日子就慢慢过起来了。',
   },

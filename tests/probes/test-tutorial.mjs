@@ -229,7 +229,7 @@ async function run() {
       await pressE(page);
       await sleep(400);
     }
-    await waitAndSkipDialogue(page, 8); // WATER_CROPS_DIALOGUE 8 行（E-08 金币循环意义 + 浇水情感句 v0.10.2）
+    await waitAndSkipDialogue(page, 7); // WATER_CROPS_DIALOGUE 7 行（E-08 金币循环意义 + 浇水情感句 v0.10.2；2026-08-09 压缩删 1 行）
 
     info = await sceneInfo(page);
     result('9. 播种完成 → 浇水教学', info.step === 'water_crops', `步骤=${info.step}`);

@@ -24,6 +24,8 @@ const TRACKS: Record<string, string> = {
   spring_letter: 'assets/audio/music/spring_letter.ogg',
   // 林澈个人曲（2026-08-09 制作人归档《The Waiting Shore》）：主角清晨独处等内心时刻
   linche_theme: 'assets/audio/music/linche_theme.ogg',
+  // 林澈个人曲 2（2026-08-09 制作人归档《The Road I Choose》）：老屋（情绪基地）默认 BGM
+  linche_theme2: 'assets/audio/music/linche_theme2.ogg',
 };
 
 /**
@@ -258,7 +260,8 @@ export const MusicSystem = {
 
   /**
    * 场景 BGM 统一入口：按优先级决定播放内容。
-   * 剧情 > 音乐盒"我的歌" > 地图默认（青禾镇白天=小镇曲，其余白天=农场曲，夜晚=观星夜曲）
+   * 剧情 > 音乐盒"我的歌" > 地图默认（青禾镇白天=小镇曲，老屋=林澈个人曲 2《The Road I Choose》，
+   * 其余白天=农场曲，夜晚=观星夜曲）
    */
   playSceneBgm(mapKey: string, hour: number): void {
     if (storyBgm) {
@@ -271,6 +274,9 @@ export const MusicSystem = {
     }
     if (mapKey === 'town' && hour >= 5 && hour < 19) {
       void MusicSystem.play('town');
+    } else if (mapKey === 'house') {
+      // 林澈个人曲 2（2026-08-09 制作人归档《The Road I Choose》）：老屋=主角私域/情绪基地
+      void MusicSystem.play('linche_theme2');
     } else {
       void MusicSystem.play(hour >= 19 || hour < 5 ? 'stargaze_night' : 'farm_day');
     }

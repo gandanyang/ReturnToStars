@@ -56,7 +56,7 @@ for (const { speaker, path } of entries) {
 }
 
 // 关键角色必须全部有映射（可对话 NPC + 主角团）
-const required = ['林澈', '夏雅', '村长', '爷爷的笔记', '矿工老张', '老张', '花匠小梅', '小梅', '冒险家阿风', '阿风', '商店老板'];
+const required = ['林澈', '夏雅', '镇长', '爷爷的笔记', '矿工老张', '老张', '花匠小梅', '小梅', '冒险家阿风', '阿风', '商店老板'];
 for (const name of required) {
   check(`关键说话人「${name}」有映射`, seen.has(name));
 }

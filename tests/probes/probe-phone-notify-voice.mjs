@@ -36,8 +36,9 @@ async function run() {
   const voiceReqs = [];
   page.on('response', (res) => {
     const url = res.url();
-    if (url.includes('/audio/voice/')) {
-      voiceReqs.push({ file: decodeURIComponent(url.split('/audio/voice/')[1]), status: res.status() });
+    if (url.includes('/audio/voice_normalized/') || url.includes('/audio/voice/')) {
+      const seg = url.split('/audio/voice_normalized/')[1] ?? url.split('/audio/voice/')[1];
+      voiceReqs.push({ file: decodeURIComponent(seg ?? ''), status: res.status() });
     }
   });
   const pageErrors = [];
@@ -50,6 +51,18 @@ async function run() {
     await sleep(2000);
     await page.keyboard.press('Enter');
     await sleep(1500);
+
+    // 点掉音量提示（zIndex 650）→ 进入手机通知阶段
+    for (let i = 0; i < 30; i++) {
+      const clicked = await page.evaluate(() => {
+        const el = [...document.querySelectorAll('div')].find(d => d.style.zIndex === '650' && d.textContent.includes('建议打开声音游玩'));
+        if (el) { el.click(); return true; }
+        return false;
+      });
+      if (clicked) break;
+      await sleep(300);
+    }
+    await sleep(500);
 
     // 等待手机通知弹窗出现（开场动画约 6-8s：列车声 → 淡入 → 手机通知）
     let phoneVisible = false;
@@ -65,7 +78,7 @@ async function run() {
 
     // 弹窗出现时的语音请求（无手势时可能被 autoplay 拒绝，这里只记录）
     await sleep(600);
-    const reqAtShow = voiceReqs.filter((r) => r.file.startsWith('system/hr_station_01.wav'));
+    const reqAtShow = voiceReqs.filter((r) => r.file?.startsWith('system/hr_station_01.wav') || r.file?.startsWith('system/hr_station_01.ogg'));
     console.log(`  弹窗出现时 hr_station_01 请求数：${reqAtShow.length}（0 = 被 autoplay 拒绝，等待点击解锁补播）`);
 
     // 真实点击弹窗翻页（pointerdown 触发 VoiceBank 全局解锁 → 补播被拒语音）
@@ -81,7 +94,7 @@ async function run() {
 
     const reqs = voiceReqs.map((r) => r.file);
     ok('2. 短信播报语音已请求 → system/hr_station_01.wav',
-      reqs.includes('system/hr_station_01.wav'), `${voiceReqs.length} 个语音请求`);
+      reqs.some((f) => f?.includes('system/hr_station_01')), `${voiceReqs.length} 个语音请求`);
 
     // 第 2 页翻页后应播报第 2 页第一句 hr_station_03
     await sleep(400);
@@ -92,7 +105,7 @@ async function run() {
     });
     ok('2b. 翻页后第 2 页可见', page2.page2Visible, JSON.stringify(page2));
     ok('2c. 第 2 页播报语音已请求 → system/hr_station_03.wav',
-      reqs.includes('system/hr_station_03.wav'), `${voiceReqs.length} 个语音请求`);
+      reqs.some((f) => f?.includes('system/hr_station_03')), `${voiceReqs.length} 个语音请求`);
 
     // 第 2 页点击关闭
     if (rect) await page.mouse.click(rect.x, rect.y);

@@ -134,7 +134,7 @@ async function run() {
   });
   await page.screenshot({ path: join(SHOT_DIR, 'gate-visual-opened.png') });
 
-  // 5) town 无可见 emoji（审查 P0 #2：村长家提示物已像素化，引导功能保留）
+  // 5) town 无可见 emoji（审查 P0 #2：镇长家提示物已像素化，引导功能保留）
   await page.goto(GAME_URL, { waitUntil: 'networkidle2' });
   await sleep(1000);
   await page.evaluate(() => {
@@ -158,7 +158,7 @@ async function run() {
   })()`);
   check('E1 town 加载', townD.sceneLoaded);
   check('E2 town 无可见 emoji（审查 P0 #2）', townD.emoji.length === 0, townD.emoji.join(' '));
-  check('E3 村长家引导物仍在（功能保留）', townD.hintVisible === true, `hintVisible=${townD.hintVisible}`);
+  check('E3 镇长家引导物仍在（功能保留）', townD.hintVisible === true, `hintVisible=${townD.hintVisible}`);
   await page.screenshot({ path: join(SHOT_DIR, 'town-elder-hint-pixel.png') });
 
   // 6) 运行时错误

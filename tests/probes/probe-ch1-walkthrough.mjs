@@ -5,7 +5,7 @@
  * 从第一章开始逐节点：不跳过对白，逐行抓取文本 + 截图。
  *
  * 流程：town（小镇开场 5 行）→ 镇长接任务（10 行）→ forest 采集（9 行 + 童年记忆闪回 overlay 推进）
- *      → 交付（10 行，村长爷爷观星引导）→ 观星夜（18 行 + 三选项分支 + 汇聚结尾）
+ *      → 交付（10 行，镇长爷爷观星引导）→ 观星夜（18 行 + 三选项分支 + 汇聚结尾）
  *
  * 前置：dev server 在 localhost:5173
  * 运行：node tests/probes/probe-ch1-walkthrough.mjs
@@ -201,7 +201,7 @@ async function run() {
     await skipDialogue(page, 9); // 车站对白 9 行
     await page.evaluate(() => {
       window.debug.setStoryStep('done');
-      window.debug.nextDay(); // f7：第一天村长「暂时有事」不委托 → Day 2 才能接任务（与 probe-stargaze 同步）
+      window.debug.nextDay(); // f7：第一天镇长「暂时有事」不委托 → Day 2 才能接任务（与 probe-stargaze 同步）
       window.debug.setTime(10, 0);
     });
     console.log('  序章已快进，storyStep=done');

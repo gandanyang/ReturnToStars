@@ -45,7 +45,7 @@ export const MAP_EXITS: Record<string, ExitZone[]> = {
     { x: 14 * T, y: 18 * T,  w: 2 * T, h: 2 * T, target: 'farm',   spawn: { x: 15 * T, y: 6 * T } },
     { x: 28 * T, y: 9 * T,   w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 3 * T,  y: 10 * T } },
   ],
-  // 小镇：左→农场，顶→矿洞，右下→村长家
+  // 小镇：左→农场，顶→矿洞，右下→镇长家
   town: [
     { x: 0,      y: 9 * T,   w: 2 * T, h: 2 * T, target: 'farm',   spawn: { x: 27 * T, y: 10 * T } },
     { x: 14 * T, y: 0,       w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 15 * T, y: 17 * T } },
@@ -60,7 +60,7 @@ export const MAP_EXITS: Record<string, ExitZone[]> = {
   house: [
     { x: 9 * T,  y: 14 * T,  w: 2 * T, h: 1 * T, target: 'farm',   spawn: { x: 7 * T,  y: 10 * T } },
   ],
-  // 村长家：底部门→小镇
+  // 镇长家：底部门→小镇
   elder_house: [
     { x: 5 * T,  y: 9 * T,   w: 2 * T, h: 1 * T, target: 'town',   spawn: { x: 18 * T, y: 11 * T } },
   ],
@@ -73,5 +73,5 @@ export const MAP_NAMES: Record<string, string> = {
   forest: '后山',
   mine: '矿洞',
   house: '家中',
-  elder_house: '村长家',
+  elder_house: '镇长家',
 };

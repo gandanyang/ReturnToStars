@@ -4,7 +4,7 @@
  * 目标：验证 6 个 NPC 在 06/08/12/14/17/18/20 七个时间节点的分布符合预期。
  *
  * 预期分布表：
- *   时段        | 村长   | 商店   | 老张   | 小梅   | 阿风   | 少女
+ *   时段        | 镇长   | 商店   | 老张   | 小梅   | 阿风   | 少女
  *   06:30       | home   | home   | home   | home   | home   | forest
  *   08:30       | town   | town   | mine   | farm   | forest | home
  *   12:30       | town   | town   | mine   | farm   | forest | home
@@ -44,7 +44,7 @@ const EXPECTED = {
 };
 
 const NPC_NAME = {
-  elder: '村长', shopkeeper: '商店老板', miner: '矿工老张',
+  elder: '镇长', shopkeeper: '商店老板', miner: '矿工老张',
   gardener: '花匠小梅', adventurer: '阿风', mystery: '神秘少女',
 };
 

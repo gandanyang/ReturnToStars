@@ -5,7 +5,7 @@
  *   1. 夏雅「院子有人照顾」：花园恢复后花田靠近按 E → 入口对白（asked 入档）
  *   2. 木材不足：重复提示，不扣木材、不完成
  *   3. 木材≥3：扣除 3、完成入档（done）、记忆卡 + 回响出现
- *   4. 村长「看星星的地方」：观星夜完成后与村长对话 → 委托入档（teaAsked）
+ *   4. 镇长「看星星的地方」：观星夜完成后与镇长对话 → 委托入档（teaAsked）
  *   5. 白天靠近空地仅提示；夜晚靠近 → 完成入档（starDone）+ 记忆卡 + 回响
  *   6. 全程无运行时错误
  *
@@ -23,7 +23,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const T = 16;
 const GARDEN_POS = { x: 30 * T + T / 2, y: 5 * T + T / 2 };   // farm 花田中心
-const ELDER_SPOT = { x: 13 * T + 8, y: 10 * T + 8 };          // town 村长站位
+const ELDER_SPOT = { x: 13 * T + 8, y: 10 * T + 8 };          // town 镇长站位
 const STARGAZE_POS = { x: 504, y: 232 };                       // farm 观星点/空地
 
 const makeSave = (scene, x, y, opts = {}) => ({
@@ -39,7 +39,7 @@ const makeSave = (scene, x, y, opts = {}) => ({
 });
 
 async function run() {
-  console.log('=== 支线试点（夏雅花园 / 村长看星星）运行时验证 ===\n');
+  console.log('=== 支线试点（夏雅花园 / 镇长看星星）运行时验证 ===\n');
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
     headless: false,
@@ -174,13 +174,13 @@ async function run() {
   check('A8 记忆卡文本出现', seenGarden, '');
   check('A9 回响文本出现', seenXiyaEcho, '');
 
-  // ---- B：村长「看星星的地方」 ----
-  // B1 观星夜完成后与村长对话 → 委托入档
+  // ---- B：镇长「看星星的地方」 ----
+  // B1 观星夜完成后与镇长对话 → 委托入档
   await gotoScene(makeSave('town', ELDER_SPOT.x, ELDER_SPOT.y, {
     questState: 'completed', storyStep: 'observatory_complete',
   }), 'town');
   ok = await interactUntil(async () => (await flags()).sideElderTeaAsked === true);
-  check('B1 村长委托入档（teaAsked）', ok, JSON.stringify(await flags()));
+  check('B1 镇长委托入档（teaAsked）', ok, JSON.stringify(await flags()));
 
   // B2 白天靠近空地仅提示，不完成
   await gotoScene(makeSave('farm', STARGAZE_POS.x, STARGAZE_POS.y, {

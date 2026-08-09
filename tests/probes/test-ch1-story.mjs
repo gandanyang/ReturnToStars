@@ -201,11 +201,21 @@ async function run() {
       if (!stationText.includes('智能生态部门')) await sleep(200);
     }
     ok('3c. 辞退邮件对白出现', stationText.includes('智能生态部门'), stationText.substring(0, 40));
-    await skipDialogue(page, 8); // 跳过剩余车站对白（9 行 - 已推进 1 行）
+    await skipDialogue(page, 9); // 跳过剩余车站对白（10 行 - 已推进 1 行）→ 停在选项行
+    // STATION_DIALOGUE 以选项行收尾（现在就走吗/再看看这里）：advance 在选项行被拦截，
+    // 必须点击选项才能关闭（否则选项按钮残留 DOM，污染后续按钮查询）。选择"现在就走吗"。
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('现在就走吗'));
+      btn?.click();
+    });
+    await waitAndSkipDialogue(page, 1); // 选项后收尾短句「……走吧。」
 
     // 教程完整路径由 test-tutorial.mjs 覆盖，此处直接置为 done
+    // f7（2026-08-07 制作人拍板）：day 1 镇长「暂时有事」不接主线——本测试聚焦第一章+观星，
+    // 需先跨到 day 2（等价于完成教程后睡觉）才能接受主线委托
     await page.evaluate(() => {
       window.debug.setStoryStep('done');
+      window.debug.nextDay();
       window.debug.setTime(10, 0);
     });
 
@@ -213,7 +223,7 @@ async function run() {
     await gotoScene(page, 'town', { x: 200, y: 300 });
     await waitAndSkipDialogue(page, 5); // 小镇开场 5 行
 
-    await teleport(page, 'town', 216, 184, 'up'); // 村长 (216,168)
+    await teleport(page, 'town', 216, 184, 'up'); // 镇长 (216,168)
     await pressE(page);
     await sleep(700);
     const elderText = await dialogueText(page);
@@ -221,15 +231,20 @@ async function run() {
     await skipDialogue(page, 11); // ELDER_QUEST_DIALOGUE 10 行（多按自动忽略）
 
     // ==================== 第一章：森林采集 ====================
+    // v0.10.2 观景台（forest 20,7）靠近 70px 自动播放 FOREST_LOOKOUT_DIALOGUE，会抢占碎片交互；
+    // 本测试聚焦第一章任务链，先标记观景台已触发，避免其遮挡碎片对白
+    await page.evaluate(() => {
+      window.debug.events?.markTriggered?.('forest_lookout_first_visit');
+    });
     await gotoScene(page, 'forest', { x: 328, y: 200 });
     await teleport(page, 'forest', 328, 184, 'up'); // 碎片 (328,168)
     await pressE(page);
     await sleep(700);
-    await advanceN(page, 5); // 推进 5 行，停在"它在等待一个条件。没有回应，是因为条件还没满足。"
+    await advanceN(page, 9); // 推进 9 行，停在"它在等待一个条件"（FOREST_SHARD_DIALOGUE 第 10 行/共 14 行）
     await sleep(900); // 等待打字机播完
     const forestText = await dialogueText(page);
     ok('5. 森林采集：程序员能力展示对话', forestText.includes('它在等待一个条件'), forestText.substring(0, 40));
-    await skipDialogue(page, 4); // 剩余 3 行 + 关闭 → 自动采集 + 里程碑存档
+    await skipDialogue(page, 4); // 剩余 4 行 + 关闭 → 自动采集 + 里程碑存档
 
     // 采集后播放童年记忆闪回 overlay（9bf2ad8）：推进直到关闭，否则 collectShard 回调不触发
     const flashbackClosed = await advanceFlashback(page);
@@ -281,7 +296,7 @@ async function run() {
     // 调试：检查 pressE 后的 in-memory quest state
     const afterPressE = await page.evaluate(() => window.debug.getQuestState?.() ?? 'no_access');
     console.log('[DEBUG] after pressE questState:', afterPressE);
-    await waitAndSkipDialogue(page, 10); // 交付 10 行（村长爷爷观星引导） → completed + 里程碑存档
+    await waitAndSkipDialogue(page, 19); // 交付对白 19 行（SHARD_DELIVER 12 + ELDER_WHY_FARM 7）→ completed + 里程碑存档
     const afterDeliver = await page.evaluate(() => {
       const raw = localStorage.getItem('return_star_save');
       return raw ? JSON.parse(raw).world.questState : null;
@@ -299,26 +314,29 @@ async function run() {
 
     await teleport(page, 'farm', 504, 240, 'up'); // 观星点 (504,232)
     await pressE(page);
-    // 观星夜对话在 camera.pan(2s) 完成后才播放，先等镜头到位
-    await sleep(3200);
-    const endOpen = await page.evaluate(() => {
-      const s = window.__game.scene.getScene('farm');
-      return s?.storyDialogue?.isOpen?.() ?? false;
-    });
+    // 观星夜对话在镜头三段（2s+3s+3s=8s）播完后才播放，轮询等待而非固定 3.2s
+    let endOpen = false;
+    for (let i = 0; i < 40 && !endOpen; i++) {
+      endOpen = await page.evaluate(() => {
+        const s = window.__game.scene.getScene('farm');
+        return s?.storyDialogue?.isOpen?.() ?? false;
+      });
+      if (!endOpen) await sleep(250);
+    }
     ok('10. 观星夜对话打开', endOpen);
 
-    // 夏雅立绘（§8.5 方案 A；2026-08-05 资产替换 xiya.png → xiya_ai_avatar.png；2026-08-06 升级 v2；2026-08-07 转 webp）
+    // 夏雅立绘（§8.5 方案 A；2026-08-05 资产替换 xiya.png → xiya_ai_avatar.png；2026-08-06 升级 v2；2026-08-07 转 webp；2026-08-09 形象基准 v3）
     await advanceN(page, 1);
     let portraitSrc = '';
-    for (let i = 0; i < 10 && !portraitSrc.includes('xiya_ai_avatar_v2.webp'); i++) {
+    for (let i = 0; i < 10 && !portraitSrc.includes('xiya_ai_avatar_v3.webp'); i++) {
       portraitSrc = await page.evaluate(() => {
         const s = window.__game.scene.getScene('farm');
         const img = s?.storyDialogue?.portraitEl?.querySelector('img');
         return img ? img.getAttribute('src') : '';
       });
-      if (!portraitSrc.includes('xiya_ai_avatar_v2.webp')) await sleep(200);
+      if (!portraitSrc.includes('xiya_ai_avatar_v3.webp')) await sleep(200);
     }
-    ok('11. 夏雅立绘头像显示', portraitSrc.includes('xiya_ai_avatar_v2.webp'), portraitSrc || '<无立绘>');
+    ok('11. 夏雅立绘头像显示', portraitSrc.includes('xiya_ai_avatar_v3.webp'), portraitSrc || '<无立绘>');
 
     await skipDialogue(page, 16); // 推进到选项行（DEMO_ENDING 18 行，选项行前 17 行需 34 次 advance；已推进 1 行，还需 33 次=skipDialogue(16)）
 

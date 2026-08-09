@@ -402,7 +402,7 @@ async function run() {
     check('C1 农田非纯色块', soilPx.unique > 2, `唯一色=${soilPx.unique}`);
 
     // ============ 4. 进屋睡觉 → 次日 → 小镇 ============
-    console.log('\n--- 节点 4: 睡觉→小镇→村长任务---');
+    console.log('\n--- 节点 4: 睡觉→小镇→镇长任务---');
     await setStep(page, 'evening_talk');
     await teleport(page, 'farm', 6 * T + 8, 20 * T, 'up');
     await sleep(1000);
@@ -414,7 +414,7 @@ async function run() {
     await shot(page, '04-next-morning');
 
     // 前往小镇（直接切场景）
-    // 次日 06:00 村长在村长家；设 10:00 让村长在镇上办公（真实玩家也常白天来镇上）
+    // 次日 06:00 镇长在镇长家；设 10:00 让镇长在镇上办公（真实玩家也常白天来镇上）
     await page.evaluate(() => window.debug?.setTime?.(10, 0));
     await gotoScene(page, 'town', { x: 200, y: 300 });
     await sleep(1500);
@@ -427,15 +427,15 @@ async function run() {
     console.log(`  小镇元素: texts=${townEls.texts} sprites=${townEls.sprites} graphics=${townEls.graphics} emoji=${townEls.emoji?.join(',') || '无'}`);
     check('T2 小镇无 emoji 占位', !(townEls.emoji?.length > 0), `emoji=${townEls.emoji?.join(',') || '无'}`);
 
-    // 村长接任务（等 ch1 剧情 intro 播放完）
+    // 镇长接任务（等 ch1 剧情 intro 播放完）
     await walkDialogue(page, 'town-intro-dialogue');
     await teleport(page, 'town', 216, 184, 'up');
     await pressE(page);
     await walkDialogue(page, 'elder-quest');
     await shot(page, '04c-town-after-elder');
     const qAfterElder = await page.evaluate(() => window.debug?.getQuestState?.());
-    console.log(`  村长接任务后 questState=${qAfterElder}`);
-    check('Q1 村长任务已接', qAfterElder === 'accepted', `questState=${qAfterElder}`);
+    console.log(`  镇长接任务后 questState=${qAfterElder}`);
+    check('Q1 镇长任务已接', qAfterElder === 'accepted', `questState=${qAfterElder}`);
 
     // ============ 5. 森林碎片 ============
     console.log('\n--- 节点 5: 森林碎片 ---');
@@ -466,7 +466,7 @@ async function run() {
     await gotoScene(page, 'town', { x: 200, y: 300 });
     info = await sceneInfo(page);
     console.log(`  抵达场景=${info.scene}`);
-    // 清掉可能已自动触发的每日事件对白（30% 概率，避免挡住村长交付）
+    // 清掉可能已自动触发的每日事件对白（30% 概率，避免挡住镇长交付）
     await walkDialogue(page, 'daily-event-maybe');
     await teleport(page, 'town', 216, 184, 'up');
     await pressE(page);

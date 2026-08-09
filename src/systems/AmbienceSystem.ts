@@ -408,3 +408,8 @@ export function pause(): void {
 export function getActiveMap(): string | null {
   return activeMap;
 }
+
+/** 当前循环层数（调试/探针用：验证地图环境音组合已创建） */
+export function getSourceCount(): number {
+  return playing.length;
+}

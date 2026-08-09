@@ -81,7 +81,7 @@ const QUEST_POOL: DailyQuestTemplate[] = [
   { id: 'woodcut_2', title: '伐木初体验', desc: hint('砍倒 2 棵树（庄园里靠近树按 E，用旧斧头）', '砍倒 2 棵树（庄园里靠近树点「交互」，用旧斧头）'), objective: { type: 'woodcut', count: 2 }, reward: 2 },
 
   // --- 对话类 ---
-  { id: 'talk_elder', title: '拜访村长', desc: '与村长对话', objective: { type: 'talk_npc', npcId: 'elder', npcName: '村长' }, reward: 1 },
+  { id: 'talk_elder', title: '拜访镇长', desc: '与镇长对话', objective: { type: 'talk_npc', npcId: 'elder', npcName: '镇长' }, reward: 1 },
   { id: 'talk_shopkeeper', title: '光顾商店', desc: '与商店老板对话', objective: { type: 'talk_npc', npcId: 'shopkeeper', npcName: '商店老板' }, reward: 1 },
   { id: 'talk_miner', title: '矿工闲谈', desc: '与矿工老张对话', objective: { type: 'talk_npc', npcId: 'miner', npcName: '矿工老张' }, reward: 1 },
   { id: 'talk_gardener', title: '花匠私语', desc: '与花匠小梅对话', objective: { type: 'talk_npc', npcId: 'gardener', npcName: '花匠小梅' }, reward: 1 },

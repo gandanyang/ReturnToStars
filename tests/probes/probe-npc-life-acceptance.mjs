@@ -4,7 +4,7 @@
  * 三个时间段验证（每段截图 + 状态断言）：
  *   上午(08:00)：farm — 夏雅在爷爷旧花园浇水 + 花园恢复状态
  *   下午(14:00)：mine — 老张整理木材（生活动作）
- *   晚间(17:00)：town — 村长巡查（村庄时间节奏）
+ *   晚间(17:00)：town — 镇长巡查（村庄时间节奏）
  *
  * 前置：dev server；node probe-npc-life-acceptance.mjs
  */
@@ -122,8 +122,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await page.screenshot({ path: join(SHOT_DIR, 'afternoon-laozhang-sort-wood.png') });
     console.log('  📸 afternoon-laozhang-sort-wood.png');
 
-    // ===== 晚间 17:00 — 村长巡查 =====
-    console.log('\n--- 晚间(17:00) 村长巡查 ---');
+    // ===== 晚间 17:00 — 镇长巡查 =====
+    console.log('\n--- 晚间(17:00) 镇长巡查 ---');
     await time(17);
     await toScene('town');
     const evening = await page.evaluate(() => {
@@ -135,8 +135,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         elderPos: elder && elder.sprite ? { x: Math.round(elder.sprite.x), y: Math.round(elder.sprite.y) } : null,
       };
     });
-    check('晚间 村长在镇上且动作=patrol', evening.elderAction === 'patrol', `实际=${evening.elderAction}`);
-    check('晚间 村长巡查 tween 在播放', evening.elderTween === true, `实际=${evening.elderTween}`);
+    check('晚间 镇长在镇上且动作=patrol', evening.elderAction === 'patrol', `实际=${evening.elderAction}`);
+    check('晚间 镇长巡查 tween 在播放', evening.elderTween === true, `实际=${evening.elderTween}`);
     await page.screenshot({ path: join(SHOT_DIR, 'evening-elder-patrol.png') });
     console.log('  📸 evening-elder-patrol.png');
 

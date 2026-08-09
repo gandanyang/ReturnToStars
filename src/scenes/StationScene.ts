@@ -941,9 +941,9 @@ export class StationScene extends Phaser.Scene {
     });
   }
 
-// ============ 手机通知（P0-3 合并一页，2026-08-08） ============
+// ============ 手机通知（P0 修订批两页化，2026-08-09 制作人放行） ============
 
-  /** 手机通知播报文本（与 HR 男声系统音 play；关闭时播放一次，音色替原第2页段） */
+  /** 手机通知播报文本（红线要求文案不改；第 2 页关闭时保留调用，音色为 HR 男声系统音） */
   private static readonly PHONE_NOTIFY_VOICE_TEXT = '林先生，随着公司业务流程优化，您开发的成果已列入智能系统服务。';
 
   private showPhoneNotification(onClose: () => void): void {
@@ -961,35 +961,94 @@ export class StationScene extends Phaser.Scene {
       opacity: '0', transition: 'opacity 0.8s',
     });
 
-    // P0-3：两页合并为一页——只留「事实 + 结果」，不再提供「职业转换选择」（选项会增加"可回退"暗示，
-    // 冲淡主角已独自选择回岛的决意）；短信播报即首句，点击关闭后进入独白。
-    const title = document.createElement('div');
-    Object.assign(title.style, { color: '#4a9eff', fontSize: '12px', marginBottom: '8px' });
-    title.textContent = '人事通知';
+    // P0 修订批（2026-08-09 制作人放行）：开场通知改回两页——第 1 页裁员通知（先打"被裁"的冲击），
+    // 第 2 页职业转换支持计划（给选择）。点击第 1 页 → 翻页；点击第 2 页 → 关闭。
+    // 不渲染可点击选项、不真分支、不加选择 UI；两页翻页后进入独白（独白承接"选择"，见 STATION_DIALOGUE）。
+    const page1 = document.createElement('div');
+    const title1 = document.createElement('div');
+    Object.assign(title1.style, { color: '#4a9eff', fontSize: '12px', marginBottom: '8px' });
+    title1.textContent = '人事通知';
 
-    const msg1 = document.createElement('div');
-    Object.assign(msg1.style, { color: '#7eb8ff', fontSize: '15px', lineHeight: '1.6' });
-    msg1.textContent = '因业务流程智能化调整，您的岗位职责将进行重新分配。';
+    const msg11 = document.createElement('div');
+    Object.assign(msg11.style, { color: '#7eb8ff', fontSize: '15px', lineHeight: '1.6' });
+    msg11.textContent = '因业务流程智能化调整，您的岗位职责将进行重新分配。';
 
-    const msg2 = document.createElement('div');
-    Object.assign(msg2.style, { color: '#7eb8ff', fontSize: '13px', lineHeight: '1.6', marginTop: '8px' });
-    msg2.textContent = '您参与开发的相关成果，将继续服务于智能化系统升级。';
+    const msg12 = document.createElement('div');
+    Object.assign(msg12.style, { color: '#7eb8ff', fontSize: '13px', lineHeight: '1.6', marginTop: '8px' });
+    msg12.textContent = '感谢您过去五年的贡献，相关工作成果已被纳入智能系统训练库。';
 
-    const hintEl = document.createElement('div');
-    Object.assign(hintEl.style, { color: '#556', fontSize: '11px', marginTop: '14px', textAlign: 'center' });
-    hintEl.textContent = '（点击关闭）';
+    const hint1 = document.createElement('div');
+    Object.assign(hint1.style, { color: '#556', fontSize: '11px', marginTop: '14px', textAlign: 'center' });
+    hint1.textContent = '（点击翻页）';
 
-    this.phoneOverlay.appendChild(title);
-    this.phoneOverlay.appendChild(msg1);
-    this.phoneOverlay.appendChild(msg2);
-    this.phoneOverlay.appendChild(hintEl);
+    page1.appendChild(title1);
+    page1.appendChild(msg11);
+    page1.appendChild(msg12);
+    page1.appendChild(hint1);
+
+    const page2 = document.createElement('div');
+    page2.style.display = 'none';
+    const title2 = document.createElement('div');
+    Object.assign(title2.style, { color: '#4a9eff', fontSize: '12px', marginBottom: '8px' });
+    title2.textContent = '人事通知 · 职业转换支持计划';
+
+    const msg21 = document.createElement('div');
+    Object.assign(msg21.style, { color: '#7eb8ff', fontSize: '15px', lineHeight: '1.6' });
+    msg21.textContent = '随着智能化系统升级，公司将对部分岗位进行调整。';
+
+    const msg22 = document.createElement('div');
+    Object.assign(msg22.style, { color: '#7eb8ff', fontSize: '13px', lineHeight: '1.6', marginTop: '8px' });
+    msg22.textContent = '根据员工意愿，您可以选择：';
+
+    const opt1 = document.createElement('div');
+    Object.assign(opt1.style, { color: '#7eb8ff', fontSize: '13px', lineHeight: '1.7', marginTop: '4px' });
+    opt1.textContent = '1. 转入 AI 协作相关岗位（智能生态部门），继续参与公司业务';
+
+    const opt2 = document.createElement('div');
+    Object.assign(opt2.style, { color: '#7eb8ff', fontSize: '13px', lineHeight: '1.7', marginTop: '2px' });
+    opt2.textContent = '2. 接受职业转换支持计划（含离职补偿），自行安排后续';
+
+    const msg23 = document.createElement('div');
+    Object.assign(msg23.style, { color: '#7eb8ff', fontSize: '13px', lineHeight: '1.6', marginTop: '8px' });
+    msg23.textContent = '请您于 7 个工作日内回复意向。';
+
+    const hint2 = document.createElement('div');
+    Object.assign(hint2.style, { color: '#556', fontSize: '11px', marginTop: '14px', textAlign: 'center' });
+    hint2.textContent = '（点击关闭）';
+
+    page2.appendChild(title2);
+    page2.appendChild(msg21);
+    page2.appendChild(msg22);
+    page2.appendChild(opt1);
+    page2.appendChild(opt2);
+    page2.appendChild(msg23);
+    page2.appendChild(hint2);
+
+    this.phoneOverlay.appendChild(page1);
+    this.phoneOverlay.appendChild(page2);
     document.body.appendChild(this.phoneOverlay);
 
-    requestAnimationFrame(() => { if (this.phoneOverlay) this.phoneOverlay.style.opacity = '1'; });
+    // 短信播报：弹窗淡入播第 1 页首句（hr_station_01）；第 1 页点击翻页播第 2 页首句（hr_station_03）。
+    // autoplay 被拒时由 VoiceBank 全局手势解锁兜底（点击 pointerdown 自动补播），不影响后续对话。
+    requestAnimationFrame(() => {
+      if (this.phoneOverlay) this.phoneOverlay.style.opacity = '1';
+    });
+    VoiceBank.play('', '因业务流程智能化调整，您的岗位职责将进行重新分配。');
 
-    // 短信播报：点击关闭时播放一句系统音（男声电子；VoiceBank 手势解锁兜底），不影响后续对话。
+    // 点击：第 1 页翻页到第 2 页并播第 2 页短信播报；第 2 页关闭时停止朗读（保留红线文案调用，无匹配静音）。
+    // closing 防重：关闭后淡出期间忽略重复点击，避免 onClose（playStationDialogue）被重复触发（P0 稳定性）。
+    let closing = false;
     this.phoneOverlay.addEventListener('click', () => {
       if (!this.phoneOverlay) return;
+      if (page2.style.display === 'none') {
+        page1.style.display = 'none';
+        page2.style.display = 'block';
+        VoiceBank.play('', '随着智能化系统升级，公司将对部分岗位进行调整。');
+        return;
+      }
+      if (closing) return;
+      closing = true;
+      VoiceBank.stop();
       VoiceBank.play('', StationScene.PHONE_NOTIFY_VOICE_TEXT);
       this.phoneOverlay.style.opacity = '0';
       setTimeout(() => {

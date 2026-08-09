@@ -2,14 +2,14 @@
  * P0-5 农场回暖（2026-08-08 制作人拍板）—— 运行时验证探针
  *
  * 验证（Level 2）：
- *   A 交付标记：questState=collected → town 与村长交付 → questState=completed + worldRestore.farmWarm 入档
+ *   A 交付标记：questState=collected → town 与镇长交付 → questState=completed + worldRestore.farmWarm 入档
  *   B 回暖视觉：交付后进 farm → 暖橙 overlay + 光尘粒子生成（首屏过渡中 alpha < 0.1）
  *   C 过渡只播一次：读档（含 farmWarm + farm_warm_intro）重进 → overlay alpha 直接 = 0.1（不重播过渡）
  *   D 未交付（无 farmWarm）→ 无 overlay
  *   E 全程无运行时错误
  *
  * 前置：dev server；node tests/probes/probe-farm-warm.mjs
- * 说明：村长白天（08-18）在 town，交付在 town 完成；随后改存档回 farm 验证视觉。
+ * 说明：镇长白天（08-18）在 town，交付在 town 完成；随后改存档回 farm 验证视觉。
  */
 
 import puppeteer from 'puppeteer-core';
@@ -19,7 +19,7 @@ const GAME_URL = process.env.GAME_URL || 'http://localhost:5173/';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const T = 16;
-// 村长 town 站位（SPOTS.town.elder）：col13,row10
+// 镇长 town 站位（SPOTS.town.elder）：col13,row10
 const ELDER_T = { x: 13 * T + T / 2, y: 10 * T + T / 2 };
 // farm 任意安全点
 const FARM_POS = { x: 20 * T + T / 2, y: 10 * T + T / 2 };
@@ -127,7 +127,7 @@ async function run() {
   };
 
   // ============ A 段：town 交付 → farmWarm 入档 ============
-  console.log('--- A 交付（town 村长，collected → completed）---');
+  console.log('--- A 交付（town 镇长，collected → completed）---');
   await gotoScene(makeSave('town', ELDER_T.x, ELDER_T.y, { questState: 'collected' }), 'town');
   await sleep(800);
   await pressE();

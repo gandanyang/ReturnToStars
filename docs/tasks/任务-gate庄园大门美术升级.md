@@ -106,4 +106,4 @@ gate（庄园大门）是新手教程第二场景（车站 → 大门 → 农场
 - town `setupElderHouseHint()`：🏠 → Container（像素木牌 + 小房子图标），**保留引导功能**（elderHouseHint.sprite 字段类型 Text→Container，tryElderHouseHintInteract / clearElderHouseHint 零改动；呼吸动画作用于 Container）
 - 不改变 `gateLife` 计数（探针 decor=13 断言不变）
 
-**验收**：probe-gate-visual 新增 A7（gate 无可见 emoji）+ E1-E3（town 无可见 emoji + 村长家引导物仍在），16/16 全绿；gate-skip 9/9、bug035 6/6、locked-tools 5/5、resident-board 25/25、farm-life 19/19 回归全绿；tsc 0 错。
+**验收**：probe-gate-visual 新增 A7（gate 无可见 emoji）+ E1-E3（town 无可见 emoji + 镇长家引导物仍在），16/16 全绿；gate-skip 9/9、bug035 6/6、locked-tools 5/5、resident-board 25/25、farm-life 19/19 回归全绿；tsc 0 错。

@@ -77,14 +77,14 @@ tests/probes/        Puppeteer 探针（每个功能一条，回归主力）
 ```
 
 - 主线：序章 v0.7 + 第一章 v0.8（车站→庄园→青禾镇→星之碎片）
-- 角色语音：林澈（主角）/ 夏雅 / 爷爷 / 村长 / 神秘少女 / 矿工老张 / 花匠小梅 / 阿风 / 商店老板 / HR 手机通知
-- 已实现闭环：M1-3 爷爷旧花园（环境改变+夏雅回应）、NPC 生活化、自动机器人、环境音效、NPC 生活事件（夏雅/村长试点）、归星录相簿
+- 角色语音：林澈（主角）/ 夏雅 / 爷爷 / 镇长 / 神秘少女 / 矿工老张 / 花匠小梅 / 阿风 / 商店老板 / HR 手机通知
+- 已实现闭环：M1-3 爷爷旧花园（环境改变+夏雅回应）、NPC 生活化、自动机器人、环境音效、NPC 生活事件（夏雅/镇长试点）、归星录相簿
 
 ## 6. 语音管线现状（2026-08-08 最新）
 
 - **音色定案**（MiniMax T2A v2，model `speech-2.8-turbo`）：
   - 林澈（主角 + HR 电话）= `Chinese (Mandarin)_Gentle_Youth`（温柔青年）——**2026-08-08 全量重录 67 条替代旧 VoxCPM**
-  - 夏雅 = `female-shaonv-jingpin`；村长 = `Chinese (Mandarin)_Humorous_Elder`
+  - 夏雅 = `female-shaonv-jingpin`；镇长 = `Chinese (Mandarin)_Humorous_Elder`
 - 管线：MiniMax mp3 → ffmpeg 16k mono（art 源 `art_source/audio/voice_normalized_src/`）→ loudnorm(-16 LUFS, TP=-1.5, LRA=11) 44.1k stereo（运行时 `public/audio/voice_normalized/`）→ **ogg（libvorbis q5）**
 - voicebank 映射：`src/audio/voicebank.data.ts`（203 条，由 `tools/gen_mainline_voice.py --emit-voicebank` 从 T 清单自动生成，**勿手改**）
 - 校验：`tools/check_voicebank_match.py`（StorySystem+NPCSystem 台词 vs voicebank 对齐）
@@ -97,7 +97,7 @@ tests/probes/        Puppeteer 探针（每个功能一条，回归主力）
 | 林澈全量重录 MiniMax 音色 A（67 条，linche 66 + HR 1）| ✅ 已试听确认、已打包 |
 | 豆包短信播报第一句自动朗读删除（hr_station_01 停用）| ✅ tsc 归零 |
 | 配音选角表更新（林澈/HR → MiniMax 音色 A）| ✅ |
-| 村长全量重录（MiniMax Humorous_Elder 32 条）| ✅ 已试听、待装机 |
+| 镇长全量重录（MiniMax Humorous_Elder 32 条）| ✅ 已试听、待装机 |
 | APK release（29.5MB，已验证含 66+3 条新 ogg）| ✅ `dist_apk/latest-release.apk` |
 
 ## 8. 待办与已知遗留（给诊断 AI 的重点检查项）
@@ -105,7 +105,7 @@ tests/probes/        Puppeteer 探针（每个功能一条，回归主力）
 ### P0 剩余
 - **观星夜演出**（星空/镜头/结尾收束，方案已定稿 MVP）——在途施工线
 - 真机测试（批 2 目测 + 批 3 真机 + 新玩家 15-30 分钟完整流程）——制作人执行
-- 短信配音/村长重录/林澈重录 APK 已打包 → **待装机复验听感**
+- 短信配音/镇长重录/林澈重录 APK 已打包 → **待装机复验听感**
 
 ### 已知遗留（非本会话范围）
 - **StorySystem 另有 4 条新增台词缺 voicebank**（另一 Agent 并行改动，374 行 vs 203 映射；未匹配属其责任范围）——`check_voicebank_match.py` 会报 118 条未匹配（含此部分 + 历史旁白）

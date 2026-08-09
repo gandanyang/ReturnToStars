@@ -1,8 +1,8 @@
 /**
- * f7 + f5 验证探针：村长第一天「暂时有事 + 启动资源大礼包」，主线推迟第二天
+ * f7 + f5 验证探针：镇长第一天「暂时有事 + 启动资源大礼包」，主线推迟第二天
  *
  * 验证目标：
- *   1. day 1 + 未接主线：与村长对话 → 播放「暂时有事」对话（含赠送启动物资台词）
+ *   1. day 1 + 未接主线：与镇长对话 → 播放「暂时有事」对话（含赠送启动物资台词）
  *   2. 对话结束后 questState 保持 not_started（不提前接主线）
  *   3. 大礼包只发一次：种子/工具/金币/木材/石头/钻石入账 + triggeredEvents['elder_starter_gift']=true
  *   4. day 1 再次对话 → 简短提醒（不重复长篇、不重复发礼物）
@@ -109,7 +109,7 @@ async function readSave(page) {
 }
 
 async function run() {
-  console.log('=== f7+f5 村长第一天「有事 + 大礼包」验证探针 ===\n');
+  console.log('=== f7+f5 镇长第一天「有事 + 大礼包」验证探针 ===\n');
 
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
@@ -135,24 +135,24 @@ async function run() {
     info = await sceneInfo(page);
     check('A2. 进入车站（station）', info.scene === 'station', `场景=${info.scene}`);
 
-    // 教程置为完成（等价玩完第一天）+ 时间调到上午 10 点（村长在镇上办公）
+    // 教程置为完成（等价玩完第一天）+ 时间调到上午 10 点（镇长在镇上办公）
     await page.evaluate(() => {
       window.debug.setStoryStep('done');
       window.debug.setTime(10, 0);
     });
 
-    // ---------- day 1：进小镇，第一次见村长 ----------
+    // ---------- day 1：进小镇，第一次见镇长 ----------
     await gotoScene(page, 'town', { x: 200, y: 300 });
     await skipDialogue(page, 5); // 小镇开场旁白 5 行
 
     const q0 = await page.evaluate(() => window.debug.getQuestState());
     check('B1. 对话前 questState = not_started', q0 === 'not_started', q0);
 
-    // 靠近村长按 E（村长在 (216,168)）
+    // 靠近镇长按 E（镇长在 (216,168)）
     await teleport(page, 'town', 216, 184, 'up');
     await pressE(page);
     const busyLine5 = await advanceUntil(page, '抽不开身');
-    check('B2. day1 村长「暂时有事」台词', busyLine5.includes('抽不开身'), (busyLine5 || '').substring(0, 40));
+    check('B2. day1 镇长「暂时有事」台词', busyLine5.includes('抽不开身'), (busyLine5 || '').substring(0, 40));
     const giftLine = await advanceUntil(page, '启动物资');
     check('B3. 台词提及赠送启动物资', giftLine.includes('启动物资'), (giftLine || '').substring(0, 40));
     await skipDialogue(page, 7); // ELDER_BUSY_DIALOGUE 7 行
@@ -188,14 +188,14 @@ async function run() {
     // ---------- day 2：正常接主线 ----------
     await page.evaluate(() => {
       window.debug.nextDay();
-      window.debug.setTime(10, 0); // 村长回镇上办公
+      window.debug.setTime(10, 0); // 镇长回镇上办公
     });
     await sleep(800);
 
     await teleport(page, 'town', 216, 184, 'up');
     await pressE(page);
     const questLine = await advanceUntil(page, '年轻时候就喜欢晚上坐在');
-    check('D1. day2 村长播放主线委托台词', questLine.includes('年轻时候就喜欢晚上坐在'), (questLine || '').substring(0, 40));
+    check('D1. day2 镇长播放主线委托台词', questLine.includes('年轻时候就喜欢晚上坐在'), (questLine || '').substring(0, 40));
     await skipDialogue(page, 11); // ELDER_QUEST_DIALOGUE 10 行（多按自动忽略）
     const q2 = await page.evaluate(() => window.debug.getQuestState());
     check('D2. 对话后 questState = accepted（主线开启）', q2 === 'accepted', q2);

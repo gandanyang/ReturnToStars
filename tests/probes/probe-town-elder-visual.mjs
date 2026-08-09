@@ -1,5 +1,5 @@
 /**
- * 村长家 + 青禾镇视觉升级运行时验证探针
+ * 镇长家 + 青禾镇视觉升级运行时验证探针
  *
  * 三个相位：
  *   1. elder_house（室内）：种子存档 scene='elder_house'，hour=20 → 断言
@@ -56,7 +56,7 @@ async function enterScene(page, scene, hour) {
 }
 
 async function run() {
-  console.log('=== 村长家 + 青禾镇视觉升级运行时验证 ===\n');
+  console.log('=== 镇长家 + 青禾镇视觉升级运行时验证 ===\n');
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
     headless: false,
@@ -78,10 +78,10 @@ async function run() {
   };
 
   try {
-    // ── 相位 1：村长家室内（傍晚，村长在家） ──
-    console.log('【相位 1】elder_house 村长家室内');
+    // ── 相位 1：镇长家室内（傍晚，镇长在家） ──
+    console.log('【相位 1】elder_house 镇长家室内');
     const s1 = await enterScene(page, 'elder_house', 20);
-    check('进入村长家场景', s1 === 'elder_house', `当前=${s1}`);
+    check('进入镇长家场景', s1 === 'elder_house', `当前=${s1}`);
     const v1 = await page.evaluate(() => {
       const inst = window.__game?.scene.getScenes(true)[0];
       return {

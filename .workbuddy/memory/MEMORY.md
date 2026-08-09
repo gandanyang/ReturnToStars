@@ -85,6 +85,12 @@
 - **后续顺序**：P0 farm_v3 验收 → P1 逐个复制管线 farm→town→forest→house→mine→gate → P2 Visual Benchmark Scene（林澈+小屋+农田+河+树+夏雅）。
 - **v1.2+ 候补**：自动 tile 分类（免 --map）、阴影方向归一、总调色板约束、Ground/Object tiles 拆分。
 
+## 制作人拍板（2026-08-09 晚 BUG-071 评审）
+
+- **BUG-071 关闭**：双夏雅修复确认完成（morningXiya 僵尸化 / garden 隐藏清单漏 letterXiya / evening 时段重叠三层根因），验证 tsc + day2-morning 18/18 + garden-xiya 10/10 + dual-xiya 10/10。**提交归属已核实**：MapScene.ts 当前 diff 纯为 BUG-071（41 行），收口脚本 6 commit 均不含 MapScene.ts（挖矿调用点已在 HEAD，手机通知在 StationScene.ts）→ 可独立 `fix: prevent duplicate Xiya instances` 或挂入大批次，不会拆乱工作流。
+- **P2 候补（记下，现在不做）**：NPC 生命周期管理优化——夏雅已是"角色状态机"（dawn/morning/evening/garden/letter/photo 六态），未来可演化 `XiyaStateManager`（currentMode: daily/garden/letter/photo，统一负责创建/销毁/优先级/互斥）；**禁止靠手工维护互斥列表继续堆 hideXiya/clearXiya/spawnXiya**。Alpha 稳定期禁止重构，仅记录方向。
+- **阶段定性（制作人）**：BUG-071 属 Alpha 阶段"质量成熟过程"，非拖延；当前最高价值 = ① 实机 PV ② TapTap 移动端测试 ③ 美术一致性治理。
+
 ## 项目平台事实（2026-08-07 制作人澄清）
 - **横屏优先，暂不碰竖屏**：标题画面有"请旋转设备横屏游玩"提示，iOS 横屏 Home Indicator 安全区已适配；竖屏适配（BUG-007）明确延后到横屏稳定后。所有截图/验证用横屏视口（1024×768 级别）。
 - **🔴 探针/测试视口红线（2026-08-08 教训，制作人点名）**：项目手机端**只支持横屏**。探针与一切测试**禁止用竖屏视口模拟手机**（如 375×812），必须用横屏视口（桌面 1024×768；移动端模拟用 **844×390 landscape + hasTouch**）。竖屏下会触发 `#rotate-hint` 全屏旋转提示层 + `isMobileLayout()` 竖屏分支，导致交互被拦截、探针误报"基线失败"（真实案例：probe-farm-tap 用 375×812 竖屏视口在"标题→车站"即卡死）。写/跑探针前先核对 viewport 为横屏。
@@ -93,3 +99,15 @@
 - **「心语任务」= 角色专属剧情任务的统一命名**（D-012）：春深有信（夏雅）、追风的人（阿风）及未来所有 NPC 角色剧情任务。
 - 废弃旧叫法（文档/代码逐步收敛）：传说任务/角色篇章/剧情专线/角色专属剧情 → 统一「心语任务」体系。
 - 春深有信 Demo Cut 即心语任务首个实例；P2 Beta 的"角色篇章系统"改称"心语任务框架"。
+- **「村长」→「镇长」称谓统一**（2026-08-09 收口审查确认）：青禾镇执政者正式称谓为「镇长」（制作人控制台 T2 关键对白/镇长配音/镇长立绘均为正式项），「村长」是早期遗留叫法，代码/文档/任务卡同步收敛；VoiceBank 已加 `speaker==='镇长'` 桥接防语音查找回归。
+
+## 声音补全计划 v1.0（2026-08-09 已收口 ✅）
+- **全部完成且已接线**（tsc EXIT=0 核验）：P0-1 青禾镇 town.ogg、P0-2 farm_day、P0-3 夏雅 spring_letter（MapScene playStory×3）、P0-4 quest_complete/repair_complete/shard_deliver；P1 种田四件套升级（dirtBurst 土屑音）+ 地图环境音（farm 海浪/镇犬吠猫叫/雨天叠加）；额外：linche_theme/linche_theme2 林澈双曲、title_main《Stars Gather》、ui_confirm/door_open。door_close 仅定义无调用点（标记 P2 polish，不单独开工）。
+- 音乐生成管线 = `tools/gen_music.py`（纯标准库 MIDI 合成，title/farm_day/stargaze_night）+ 并行会话的 AI 音乐产出（town/spring_letter/linche_theme 等 ogg 直入 public/assets/audio/music/）。
+
+## 项目阶段（2026-08-09 制作人定调）
+- **Alpha 后期 → 可展示版本阶段**（非"做功能 Demo"）：核心指标从"有没有系统"转向"玩家第一次打开，会不会相信这是一个完整游戏"。
+- 新优先级：P0 = 收口提交 → 完整回归 → 打包 TapTap 版本 → 剪实机 PV；P1 = 剧情对白压缩/美术风格统一治理/包体优化；P2 = 后续章节。
+- 宣传链顺序翻转：以前"AI 图 → 玩家想象游戏"，现在"游戏实机 → 玩家相信游戏存在 + AI 图 → 提升情绪"。
+- 收口审查报告：`tmp/收口审查报告-2026-08-09.md`（5 个工作流分批清单，含村长→镇长批）；坏引用 `refs/heads/feat/mobile-farm-target` 待提交收口+备份后由写权限方清理。
+- **收口执行脚本**：`tmp/commit-plan-2026-08-09.sh`（制作人拍板 6 commit 序列 + 可选 chore .workbuddy ignore，精确路径防 docs 污染）；`.gitignore` 已加 `.workbuddy/memory/`；build 预检通过（tsc+vite ✅）。git 写操作统一由 opencode/制作人执行（AGENTS.md 红线）。

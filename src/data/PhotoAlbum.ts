@@ -59,7 +59,7 @@ export const PHOTO_DATABASE: Photo[] = [
     title: '青禾镇的星空',
     image: 'assets/photos/album/elder_star.webp',
     description: '很多人觉得这里什么都没有。但有些东西，只有慢下来才看得到。',
-    source: '完成村长「看星星的地方」',
+    source: '完成镇长「看星星的地方」',
   },
   {
     id: 'xiya_old_photo',

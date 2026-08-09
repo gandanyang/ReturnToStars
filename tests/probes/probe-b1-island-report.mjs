@@ -108,7 +108,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await bootFarm(mkSave(20, 1), 20);
     let panel = await openQuestPanel();
     check('1a. 晚间面板打开', panel.open === true);
-    check('1b. 显示"已经回家休息"提示', panel.html.includes('已经回家休息'), panel.html.includes('与村长对话') ? 'talk行存在' : 'talk行?');
+    check('1b. 显示"已经回家休息"提示', panel.html.includes('已经回家休息'), panel.html.includes('与镇长对话') ? 'talk行存在' : 'talk行?');
 
     // ============ 2. 白天 09:00 同一任务 → 无回家提示 ============
     console.log('\n--- 2. 白天已接 talk_* 任务 → 无提示（NPC 在） ---');
@@ -126,7 +126,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     panel = await openQuestPanel();
     const htmlNoQuest = panel.html;
     // QuestPanel 渲染 q.desc（非 title），必须匹配 desc 文案，否则恒假绿
-    const hasTalk = /与村长对话|与商店老板对话|与矿工老张对话|与花匠小梅对话|与阿风对话/.test(htmlNoQuest);
+    const hasTalk = /与镇长对话|与商店老板对话|与矿工老张对话|与花匠小梅对话|与阿风对话/.test(htmlNoQuest);
     check('3a. 晚间首次刷新任务面板打开', panel.open === true);
     check('3b. 晚间不生成新 talk_* 任务', !hasTalk, hasTalk ? '面板含 talk' : '无 talk');
 

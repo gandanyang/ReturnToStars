@@ -35,7 +35,7 @@
 | `mine.json` | 矿洞 | 挖矿 |
 | `house.json` | 家 | — |
 | `gate.json` | 大门 | 序章场景 |
-| `elder_house.json` | 村长家 | v0.6 新增 |
+| `elder_house.json` | 镇长家 | v0.6 新增 |
 
 > 生成/检查：`tools/gen_map_assets.py` / `tools/check_map_health.py`
 
@@ -60,7 +60,7 @@
 | `xiya_ai_avatar.png` / `xiya_ai_avatar_v2.png` | 夏雅 | AI 头像 v1/v2 |
 | `xiya_ai_portrait.png` | 夏雅 | AI 半身像 |
 | `xiaomei_ai.png` | 小梅 | AI 立绘 |
-| 其他（15 文件） | 村长 / 老张 / 阿风 / 商店老板 / 神秘少女等 | NPC 立绘 |
+| 其他（15 文件） | 镇长 / 老张 / 阿风 / 商店老板 / 神秘少女等 | NPC 立绘 |
 
 > 注意：`portraits_work/` 曾为工作区，已不存在；立绘接入映射见 `probe-portraits-map.mjs`（25/25）
 
@@ -78,7 +78,7 @@
 | 作物 | `crops.png`（4 作物 4 阶段） |
 | 农田 | `farm_plot.png`（5 态）、`farm_plot_legacy_20260804.png`（旧版保留） |
 | 树木 | `tree1.png` / `tree2.png` / `stump.png` / `wood.png` |
-| NPC | `npc_girl.png`（夏雅）/ `npc_elder.png`（村长）/ `npc_gardener.png`（小梅）/ `npc_merchant.png`（商店老板）/ `npc_adventurer.png`（阿风） |
+| NPC | `npc_girl.png`（夏雅）/ `npc_elder.png`（镇长）/ `npc_gardener.png`（小梅）/ `npc_merchant.png`（商店老板）/ `npc_adventurer.png`（阿风） |
 | 其他 | `player_frames.png` / `character_choices.png`（根目录） |
 
 - 生成：`tools/gen_sprite_assets.py` / `gen_crops.py` / `gen_farm_plot.py` / `gen_npc_extras.py` / `gen_woodcutting_assets.py`
@@ -108,7 +108,7 @@
 |----------|----------------------|-----------------|------|
 | `xiya` | 42 文件 / 38 MB | 82 文件 | 主线 + 日常（语音升级进行中，未提交） |
 | `linche` | 52 文件 / 22 MB | 57 文件 | 林澈（内心独白最多） |
-| `elder` | 11 / 8.3 MB | 11 | 村长 |
+| `elder` | 11 / 8.3 MB | 11 | 镇长 |
 | `gardener` | 7 / 5.8 MB | 14 | 小梅 |
 | `girl` | 8 / 3.3 MB | 8 | 神秘少女 |
 | `grandpa` | 9 / 6.4 MB | 9 | 爷爷 |

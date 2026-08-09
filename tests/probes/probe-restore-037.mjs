@@ -6,7 +6,7 @@
  *      - 初始（未恢复）：restored=false、破旧装饰 3 组、标记「老屋」存在
  *      - 资源不足按 E → 提示缺木头/石头/金币，不扣除、不恢复、不存档
  *      - 给足资源（wood≥30 stone≥20 gold≥100）按 E → 恢复、装饰替换、扣除正确
- *        （wood 40→10 / stone 30→10 / coins 300→200）、存档 worldRestore.oldHouse=true、触发村长对白
+ *        （wood 40→10 / stone 30→10 / coins 300→200）、存档 worldRestore.oldHouse=true、触发镇长对白
  *      - 刷新重进 → 恢复态持久
  *   2. forestRoad（forest 底部空地通道）：
  *      - 初始（未恢复）：restored=false、乱土 gid 2、标记存在
@@ -241,7 +241,7 @@ async function run() {
       d.savedInv?.wood === 10 && d.savedInv?.stone === 10 && d.savedCoins === 200,
       `实际=${JSON.stringify({ inv: d.savedInv, coins: d.savedCoins })}`);
     check('A2 存档含 worldRestore.oldHouse=true', d.savedRestore?.oldHouse === true, `实际=${JSON.stringify(d.savedRestore)}`);
-    check('A2 触发统一对白批次（村长老屋）', d.dialogueOpen === true, `实际=${d.dialogueOpen}`);
+    check('A2 触发统一对白批次（镇长老屋）', d.dialogueOpen === true, `实际=${d.dialogueOpen}`);
 
     // A3. 刷新重进 → 持久化
     await page.reload({ waitUntil: 'networkidle2' });

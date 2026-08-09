@@ -5,7 +5,7 @@
  *   1. 时间→动作映射：不同时段各 NPC 的 dailyAction 正确切换（纯数据层）
  *      - 上午(09:00)：gardener=garden（小梅农场花园）、shopkeeper=open_shop（开店）
  *      - 下午(14:00)：miner=sort_wood（老张整理木材）
- *      - 晚间(19:00)：elder=patrol（村长巡查）
+ *      - 晚间(19:00)：elder=patrol（镇长巡查）
  *   2. 渲染层：进入对应场景后 NPC sprite 的 idleTween 生效（动作在播放）
  *   3. E1 夏雅清晨在花园旁(33,4) + 浇水 tween
  *   4. 无运行时错误
@@ -148,7 +148,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     check('下午14:00 老张在 mine 且 action=sort_wood', d.miner && d.miner.action === 'sort_wood', `实际=${JSON.stringify(d.miner)}`);
     check('矿洞内 老张 idleTween 生效', d.miner ? true : false, `实际=${d.miner && !!d.miner}`);
 
-    // 晚间 19:00：村长巡查(patrol)——18:00 后村长回家（home 不渲染），改为 17:00 在 town 验证 patrol
+    // 晚间 19:00：镇长巡查(patrol)——18:00 后镇长回家（home 不渲染），改为 17:00 在 town 验证 patrol
     await page.evaluate(() => window.debug.setTime(17, 0));
     await sleep(300);
     await page.evaluate(() => {
@@ -165,7 +165,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       for (const n of npcs) map[n.id] = { action: n.dailyAction, loc: n.currentLocation };
       return map;
     });
-    check('晚间17:00 村长在 town 且 action=patrol', d.elder && d.elder.action === 'patrol', `实际=${JSON.stringify(d.elder)}`);
+    check('晚间17:00 镇长在 town 且 action=patrol', d.elder && d.elder.action === 'patrol', `实际=${JSON.stringify(d.elder)}`);
 
     // ===== 3. E1 夏雅清晨在花园旁(33,4)浇水 =====
     await page.evaluate(() => window.debug.setTime(7, 0));

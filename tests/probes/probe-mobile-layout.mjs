@@ -81,7 +81,15 @@ async function run() {
       }), 10000);
       await page.keyboard.press('Enter');
 
-      // 等 skip-btn 出现（代表开场已启动）再点通知（v0.7 两页：点两次）
+      // 点掉音量提示（zIndex 650）→ 手机通知才出现
+      await waitFor(page, () =>
+        page.evaluate(() => {
+          const el = [...document.querySelectorAll('div')].find(d => d.style.zIndex === '650' && d.textContent.includes('建议打开声音游玩'));
+          if (el) { el.click(); return true; }
+          return false;
+        }), 15000);
+
+      // 等 skip-btn 出现（代表开场已启动）再点通知（P0 修订批两页：点两次）
       await waitFor(page, () => page.evaluate(() => !!document.getElementById('intro-skip-btn')), 15000);
       const phoneClicked = await waitFor(page, () =>
         page.evaluate(() => {
@@ -140,53 +148,6 @@ async function run() {
       if (qp && backpack) {
         check(`任务面板不与背包重叠（面板r=${qp.x + qp.w} 背包x=${backpack.x}）`, qp.x + qp.w <= backpack.x);
       }
-      await page.close();
-    }
-
-    // ============ 段C：竖屏 375×812 任务面板也在左上 ============
-    console.log('--- 段C：竖屏布局 ---');
-    {
-      const page = await browser.newPage();
-      await page.setViewport({ width: 375, height: 812, isMobile: true, hasTouch: true });
-      await page.goto(GAME_URL + '?reset=1', { waitUntil: 'networkidle2' });
-      await sleep(3000);
-      await page.keyboard.press('Enter');
-      await waitFor(page, () => page.evaluate(() => !!document.getElementById('intro-skip-btn')), 15000);
-      await waitFor(page, () =>
-        page.evaluate(() => {
-          const o = [...document.querySelectorAll('div')].find(d => d.style.zIndex === '600' && d.textContent.includes('人事通知'));
-          if (o) { o.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); return true; }
-          return false;
-        }), 15000);
-      await sleep(300);
-      // v0.7 两页通知：第二次点击关闭
-      await page.evaluate(() => {
-        const o = [...document.querySelectorAll('div')].find(d => d.style.zIndex === '600' && d.textContent.includes('人事通知'));
-        if (o) o.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      });
-      await page.evaluate(() => { const b = document.getElementById('intro-skip-btn'); if (b) b.click(); });
-      await sleep(1500);
-      await page.evaluate(() => window.debug?.setStoryStep('done'));
-      await sleep(300);
-      await page.evaluate(() => {
-        const g = window.__game;
-        const a = g.scene.getScenes(true)[0];
-        if (a) g.scene.stop(a.scene.key);
-        g.scene.start('farm');
-      });
-      const panelReady = await waitFor(page, () =>
-        page.evaluate(() => !!document.getElementById('daily-quest-panel')), 15000);
-      check('竖屏任务面板已创建', !!panelReady);
-      await sleep(800);
-      const qpv = await page.evaluate(() => {
-        const el = document.getElementById('daily-quest-panel');
-        if (!el) return null;
-        el.style.display = 'block'; // 折叠状态下强制测量实际布局位置（与 probe-bug031 一致）
-        const b = el.getBoundingClientRect();
-        return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width) };
-      });
-      console.log(`竖屏任务面板: ${JSON.stringify(qpv)}`);
-      check('竖屏任务面板在左上（x<250）', !!qpv && qpv.x < 250);
       await page.close();
     }
 

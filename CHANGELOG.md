@@ -6,15 +6,58 @@
 
 ## [未发布]
 
-### 村长配音重录 · MiniMax 线上接口（2026-08-08）
+### 声音补全计划 v1.0 全量落地（2026-08-09）
 
-> 村长声线定案：MiniMax `Chinese (Mandarin)_Humorous_Elder`（搞笑大爷）· speech-2.8-turbo｜试听通过 → 已打包
+> 目标：玩家从车站 → 农场 → 青禾镇 → 森林 → 夏雅支线，每到一个重要地方都不会陷入声音真空
 
-- **声线切换**：村长由本地 VoxCPM 克隆（Fish `628f2ae4...`）改走 MiniMax 线上 T2A v2，全量重录 32 条（主线初见 4 / 繁忙日 4 / 星之碎片 5 / 老屋 2 / 种田 7 / 茶馆委托 3 / 每日闲聊 7）
+- **BGM 接入 5 首**（ffmpeg 转 ogg vorbis，MusicSystem TRACKS 扩展 + `current()` 查询）：
+  - 主题曲《Stars Gather》→ 标题画面（title_main.ogg，旧 title.ogg 保留未引用）
+  - 青禾镇日常 BGM《青禾镇的清晨》→ 镇子白天（夜晚保持观星音乐统一夜景）
+  - 夏雅《春深有信》专属音乐 → 剧情 A 段起播 / B·C 段补播（中途回归延续）/ D 段收尾恢复
+  - 林澈个人曲《The Waiting Shore》→ day2 清晨醒来演出（主角独处时刻起播，对白开始恢复）
+- **SFX 扩展 10 个**（全部 Web Audio 程序合成，零外部文件）：
+  - 种田四件套升级质感：hoe 土屑 / plant 落种 / water 吸水 / harvest 拔起（新增 `dirtBurst` 低通噪声原语）
+  - 成就感音效：quest_complete（任务领奖）/ repair_complete（花园·老屋·道路三处修复）/ shard_deliver（碎片交付——原完全无声的真空洞补上）
+  - 高频通用：ui_confirm（三面板打开）/ door_open（室内外进出）/ door_close
+- **环境音补全**（AmbienceSystem 程序合成）：农场白天远处海浪（waves 循环层，0.07Hz 浪涌）+ 偶尔海鸥；青禾镇白天补鸟叫 + 偶尔犬吠/猫叫（事件音链重构 `scheduleEvents`，按地图分发）；全部音量 ≤0.05（"听到但注意不到"）
+- **验证**：probe-music-v1 6/6、probe-sfx-v1 5/5、probe-ambience-v1 6/6、probe-linche-theme 3/3
+
+### SHOP-01 青禾镇商店复兴（2026-08-09）
+
+> 目标：让玩家第一次进商店产生「这个地方以前应该很繁华，现在正在慢慢回来」
+
+- **ShopItem 扩展**：`category(farm/restore/decor)` / `description` / `icon` / `unlockCondition`（接口预留，第一版全部开放不实现解锁树）；购买栏渲染描述小字
+- **商品 12 → 17**：岛屿修复类 3（整捆木材 8G / 整齐石料 12G / 旧花苗 30G——防倒卖定价：买价≥卖价）+ 生活装饰类 2（小灯笼 25G / 木牌 15G，购买持有+归星记录，不做放置）
+- **花苗纯叙事**（制作人拍板：玩家行为改变世界，而非花钱购买世界变化）：首次购买 → 老板台词「这种花以前岛上很多地方都有。」+ 归星记录 `found_old_seed`（后续夏雅任务剧情媒介），EventManager.triggerOnce 持久化读档不重复
+- **老板三阶段台词**（复兴度观察者）：Lv0 冷清「好久没人买这么多东西了。」→ Lv1 有人气「最近镇上的人好像又多起来了。」→ Lv2 重新营业「没想到这间店还能重新热闹起来。」——档位推进才播一次（`shopRevivalTier` 入档），复用 `getRevivalLevel()` 派生
+- **验证**：probe-shop01 8/8
+
+### 生活仪式感系统 v1.0（2026-08-09）
+
+> 让玩家感到「我在生活，而不是在操作种田 UI」——普通动作即时手感，第一次行为小型仪式，重要里程碑完整演出
+
+- **普通反馈**：锄地土屑粒子 / 播种落种+土粒覆盖+小芽（消除"瞬移已种植"）/ 浇水土壤湿润变深；批量 plot 区域中心播一次不逐格吵
+- **first moments**（hoe→plant→water→harvest 情绪曲线）：first_hoe 金色高亮+「原来土地是这样的感觉。」/ first_plant 绿高亮+已有文本（不新增台词）/ first_water 复用「有些东西不会马上改变…」/ first_harvest 作物镜头 0.9s（🥕 放大上浮，作物本身成为记忆镜头）→ 接 FIRST_HARVEST_DIALOGUE
+- **统一机制**：不新建系统——扩展 GuiXingTag；⚠️ 修复真 bug：GuiXingRecord `triggerTag` 原本**不持久化**（读档重播），first_hoe/plant/water 改挂 mapFlags 入档（旧档兼容），triggerTag 保留给归星记录统计
+- **验证**：probe-life-moments 7/7（一次性 + 读档不重复 + 重复操作不打扰）；回归 E2 无影响
+
+### farm 树美术升级 + 修复 + 文档（2026-08-09）
+
+- **树有大有小，大树占两格**：`tools/gen_style_unify.py` 新增 `tree_big_frame_64()`（沿用阔叶树风格/统一调色板/1px 描边）→ `tree_big.png` 64×64；setupTrees 按 `(col+row)%3===0` 选大树（约 1/3），锚点底部中心显示 32×32；**碰撞收窄到底部树格 1 格**（body 16×16，树冠是视觉不堵路）
+- **BUG-046 机器人部署修复**：deployRobot 原拒绝 tilled 地块 → 改为拒绝 planted/watered（有作物），允许 empty/tilled（先开垦再放机器人是自然流程）；probe-bug046 3/3
+- **心语任务命名（D-012）**：角色剧情任务统一「心语任务」（春深有信=首个实例；废弃传说任务/角色篇章/剧情专线叫法），决策入 DESIGN_DECISIONS.md
+- **README 重写**：去除「类星露谷 二游 — Web 小游戏 Demo」旧定位，改为「像素风·治愈系·荒岛生活复兴 RPG」，新增核心循环/特色系统/目录结构补全
+- **CloudStudio 部署**：完整版已更新 https://c26017f1775c4dcaba5ffd57023e4d97.gz5.agentos-app.net
+
+### 镇长配音重录 · MiniMax 线上接口（2026-08-08）
+
+> 镇长声线定案：MiniMax `Chinese (Mandarin)_Humorous_Elder`（搞笑大爷）· speech-2.8-turbo｜试听通过 → 已打包
+
+- **声线切换**：镇长由本地 VoxCPM 克隆（Fish `628f2ae4...`）改走 MiniMax 线上 T2A v2，全量重录 32 条（主线初见 4 / 繁忙日 4 / 星之碎片 5 / 老屋 2 / 种田 7 / 茶馆委托 3 / 每日闲聊 7）
 - **工具链**：新增 `tools/gen_elder_minimax.py`（云端 API 批量 + 断点续跑 `.minimax_done`）；`gen_mainline_voice.py` T 清单 elder 段更新（elder_01 文本对齐 + 新增条目）
 - **管线**：MiniMax 生成 → loudnorm 标准化（-16 LUFS / TP -1.5 / LRA 11）→ ogg（44.1kHz stereo）→ 接入 VoiceBank
-- **验证**：`check_voicebank_match` 村长 100% 匹配；voicebank elder 32 条 ↔ ogg 文件 100% 存在；`tsc --noEmit` 通过
-- **文档**：配音选角表 v0.1 村长声线定案（旧 VoxCPM 标记废弃勿恢复）
+- **验证**：`check_voicebank_match` 镇长 100% 匹配；voicebank elder 32 条 ↔ ogg 文件 100% 存在；`tsc --noEmit` 通过
+- **文档**：配音选角表 v0.1 镇长声线定案（旧 VoxCPM 标记废弃勿恢复）
 - **产物**：release APK 28.3MB（`dist_apk/latest-release.apk`），待装机复验真机听感
 
 ### 美术资产管线升级（2026-08-07~08）
@@ -41,7 +84,7 @@
   - 与 `MusicSystem.ts` 保持一致的 Web Audio 架构
 - **音频请求防嗅探**：所有音频 fetch URL 加时间戳参数 `?_t=时间戳`，防止 IDM 识别文件类型
 - **商店长按连续购买**：购买按钮支持长按连续购买（400ms 延迟后 120ms/个），金币不足自动停止
-- **村长称呼修正**：对话改为「小林」，符合 NPC 称呼规范
+- **镇长称呼修正**：对话改为「小林」，符合 NPC 称呼规范
 
 ### 音频资产压缩 + 车站场景升级（2026-08-06）
 
@@ -153,7 +196,7 @@
 - **核心判断**：前 10 分钟沉浸感不足；手机游戏**触碰 > 看见**（操作是最高频接触面）
 - **优先级**：P0 BUG-026 种植体验 → 操作稳定 → P1 地图扩张（M1 farm 升级优先 → C1 海岸先地点后剧情）→ P2 美术 → P2 音效（WebAudio 反馈不做 OST）
 - **三个开放问题已拍板**：① BUG-026 先反馈再精度 ② 音效纯 WebAudio 合成 ③ C1 海岸暂不进入剧情开发（只做地图+氛围点）
-- **任务分配**：BUG-026 + 音效评估 → opencode；地图资产管线 + M1 farm 升级 → trae；村长立绘收尾 → 美术线
+- **任务分配**：BUG-026 + 音效评估 → opencode；地图资产管线 + M1 farm 升级 → trae；镇长立绘收尾 → 美术线
 - **红线**：新剧情角色 / 新大型系统 / 战斗 / 抽卡
 
 ### 安卓真机反馈修复（v0.5.4-B，`7971122`）
@@ -203,16 +246,16 @@
 - 立绘 `xiya.png` 512×768 RGBA 已接入 `PORTRAIT_MAP`
 - farm 教程无夏雅 sprite 记为实现设计差异（非缺陷），后续如需要教程陪伴演出作为剧情/演出任务单独规划
 
-### v0.6 视觉升级 — 3.4 村长立绘
+### v0.6 视觉升级 — 3.4 镇长立绘
 
 > 任务卡：《任务-美术v0.6视觉升级.md》§3.4（美术线收尾项）
 
 **产出**：
 - `public/assets/portraits/elder.png`：512×768 RGBA 米黄长者风立绘（制作人选 `elder_s202608021.png`，经 `gen_portrait_final.py` 统一裁剪缩放管线）
-- `gen_portrait_comfy.py` / `gen_portrait_final.py` 扩展村长 prompt + 任务（可重复生成）
+- `gen_portrait_comfy.py` / `gen_portrait_final.py` 扩展镇长 prompt + 任务（可重复生成）
 
 **接线**：
-- `PORTRAIT_MAP` 新增 `村长: 'assets/portraits/elder.png'`（`StoryDialogue.ts`）；运行时村长对话显示立绘，图片加载失败自动回退首字占位（既有兜底逻辑，无空白头像框风险）
+- `PORTRAIT_MAP` 新增 `镇长: 'assets/portraits/elder.png'`（`StoryDialogue.ts`）；运行时镇长对话显示立绘，图片加载失败自动回退首字占位（既有兜底逻辑，无空白头像框风险）
 
 **验证**：tsc ✅；build ✅；`probe-elder-portrait` 5/5 全绿（纹理系统 / HTTP 200 / 运行时立绘 img src / 512×768 / 无加载失败）；`probe-mobile-tutorial` 全流程回归通过
 
@@ -278,7 +321,7 @@
 - 修复：`StoryDialogue.ts` 新增公开 `reset()`（静默关闭不触发回调），`MapScene.cleanupSceneDom`（SHUTDOWN）调用
 
 **NPC 名字标签美化**（6 个普通 NPC + 三处夏雅统一，`a6d61ae` + `ad285fc`）：
-- 6 个 NPC 各配主题色名字（老村长米黄 / 商店老板金 / 神秘少女紫 / 老张橙 / 小梅绿 / 老风蓝），与对话角色色一致
+- 6 个 NPC 各配主题色名字（老镇长米黄 / 商店老板金 / 神秘少女紫 / 老张橙 / 小梅绿 / 老风蓝），与对话角色色一致
 - 头顶名牌样式统一：13px 主题色 + 3px 黑描边 + 阴影 + 半透明黑底托（`rgba(0,0,0,0.45)` + padding），深/浅背景都可读
 - NPC 实体新增 `nameColor` 字段（构造第 3 参），标签上移 -10 → -14 像素
 - 普通 NPC / 教程夏雅 / 清晨夏雅三处样式对齐
@@ -392,7 +435,7 @@
   - 加载时 `version !== SAVE_VERSION` → 走 `migrate()` 迁移；当前策略清空旧存档，防止旧格式污染新结构
   - 存档 key：`return_star_save`
 - **第一章小镇剧情**（`StorySystem.ts` 新增）：
-  - `TOWN_INTRO_DIALOGUE`（首次进小镇开场）、`ELDER_QUEST_DIALOGUE`（村长委托星之碎片）、`SHARD_DELIVER_DIALOGUE`（交付碎片收尾）
+  - `TOWN_INTRO_DIALOGUE`（首次进小镇开场）、`ELDER_QUEST_DIALOGUE`（镇长委托星之碎片）、`SHARD_DELIVER_DIALOGUE`（交付碎片收尾）
   - 存档新增 `story.ch1TownIntroDone` 标记，防止第一章过场重复触发
 - **NPC 对话升级**：6 个 NPC 全部改为完整剧本（`dialogue: string` → `dialogues: DialogueLine[]`，`NPCSystem.ts`），由 `StoryDialogue` 全屏打字机播放
 - **砍树系统**：`old_axe` 旧斧头 + 木材 `wood`（售价 8G）；每棵树 3 击砍倒，每击消耗 5 体力
@@ -478,7 +521,7 @@
   - `player.png` 输出尺寸 64×64 → 128×128（4列×4行，每帧 32×32）
   - `npc_elder.png` / `npc_merchant.png` / `npc_girl.png` 全部改为 32×32 单帧
   - 修复 `px()` 函数多余右括号语法错误
-  - 重新设计 32×32 像素角色：玩家亮红外套+深蓝裤、村长白胡须+金珠拐杖、商人红帽+黄围裙+钱袋、神秘少女紫长发+斗篷+发饰
+  - 重新设计 32×32 像素角色：玩家亮红外套+深蓝裤、镇长白胡须+金珠拐杖、商人红帽+黄围裙+钱袋、神秘少女紫长发+斗篷+发饰
   - 所有角色增加 1px 深色外轮廓描边，提高草地背景辨识度
 - **MapScene.ts**：玩家 spritesheet `frameWidth/frameHeight` 16 → 32；NPC sprite `setScale(0.5)`；NPC 标签 y 偏移 -14 → -10
 - **Player.ts**：构造函数新增 `setScale(0.5)`；碰撞盒 `setSize(24, 24).setOffset(4, 6)`（缩放后=12×12，脚部对齐）
@@ -502,7 +545,7 @@
 ### 基础功能
 - 4 区域地图（农场/小镇/森林/矿洞）+ 出口切换
 - 玩家 4 方向行走动画
-- 3 个 NPC（村长/商人/神秘少女）+ 固定日程 + 对话
+- 3 个 NPC（镇长/商人/神秘少女）+ 固定日程 + 对话
 - 农田系统：锄地/播种/浇水/收获
 - 任务系统：星之碎片采集
 - 时间系统：日夜循环 + 睡觉跳天

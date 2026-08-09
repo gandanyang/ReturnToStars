@@ -95,7 +95,7 @@ export class NPC {
    */
   update(dtMs: number): void {
     if (!this.sprite) return;
-    // v0.6 阶段 2a 守卫：有活动 idleTween（如村长踱步）时跳过位置插值，避免 tween 冲突
+    // v0.6 阶段 2a 守卫：有活动 idleTween（如镇长踱步）时跳过位置插值，避免 tween 冲突
     if (!this.idleTween) {
       const speed = 0.003; // 插值系数/毫秒，约 333ms 走完一段距离
       const factor = Math.min(1, dtMs * speed);
@@ -259,7 +259,7 @@ export class NPC {
         break;
       }
       case 'elder': {
-        // 村长：踱步 —— 小幅度左右移动（影响位置，故需 update 守卫）
+        // 镇长：踱步 —— 小幅度左右移动（影响位置，故需 update 守卫）
         this.idleTween = scene.tweens.add({
           targets: s,
           x: { from: this.idleBaseX - 7, to: this.idleBaseX + 7 },

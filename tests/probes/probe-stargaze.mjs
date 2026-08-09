@@ -185,7 +185,7 @@ async function run() {
 
     await page.evaluate(() => {
       window.debug.setStoryStep('done');
-      window.debug.nextDay(); // f7：第一天村长「暂时有事」不委托 → 推进到 Day 2 才能接任务
+      window.debug.nextDay(); // f7：第一天镇长「暂时有事」不委托 → 推进到 Day 2 才能接任务
       window.debug.setTime(10, 0);
     });
 
@@ -195,7 +195,7 @@ async function run() {
     await waitAndSkipDialogue(page, 5); // TOWN_INTRO_DIALOGUE 5 行
     await diag(page, 'town-after-intro');
 
-    await teleport(page, 'town', 216, 184, 'up'); // 村长 (216,168)
+    await teleport(page, 'town', 216, 184, 'up'); // 镇长 (216,168)
     await pressE(page);
     await sleep(700);
     const elderText = await dialogueText(page);
@@ -257,8 +257,8 @@ async function run() {
     });
     result('夏雅立绘头像显示', portraitSrc.includes('xiya_ai_avatar'), portraitSrc || '<无立绘>');
 
-    // 跳过 16 行（静默镜头在内），停到选项行（DEMO_ENDING_DIALOGUE 现为 17 文本行 + 选项 index=17，较原 15 行增补 3 行）
-    await skipDialogue(page, 16);
+    // 跳过 15 行（静默镜头在内），停到选项行（DEMO_ENDING_DIALOGUE 现为 15 文本行 + 选项 index=15；2026-08-09 压缩删 1 行）
+    await skipDialogue(page, 15);
     const options = await page.evaluate(() =>
       [...document.querySelectorAll('button')].map(b => b.textContent?.trim()).filter(t => /^\d\./.test(t ?? ''))
     );

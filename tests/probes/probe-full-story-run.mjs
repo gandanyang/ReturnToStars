@@ -6,7 +6,7 @@
  *  - 仅时间用 debug 钩子：观星夜 setTime(21,0)（真实玩家需等到夜晚，探针跳时）
  *
  * 主线最短路径：标题 → 车站(开场对话+选项) → 走出车站 → 大门(夏雅→钥匙开门)
- *   → 农场(锄×3→播×3→浇×3→睡觉跨天) → Day2 清晨 → 小镇(村长接任务)
+ *   → 农场(锄×3→播×3→浇×3→睡觉跨天) → Day2 清晨 → 小镇(镇长接任务)
  *   → 后山(观景台→碎片+闪回) → 交付 → 观星夜(三段镜头→三选项→分支→FINALE→结算面板)
  *
  * 视口红线：844×390 landscape + hasTouch + Android UA（项目只支持横屏，禁止竖屏视口）
@@ -386,22 +386,22 @@ async function run() {
     result('Day2 清晨记忆演出与夏雅对话播放', morningOpened && morningLines.length >= 5, `打开=${morningOpened} 行数=${morningLines.length}`);
     await shot(page, '06-day2-morning');
 
-    // ============ 12. 去小镇 → 村长接任务 ============
-    await page.evaluate(() => window.debug.setTime(10, 0)); // 村长上班时间（06:00 村长不在镇上会触发 elderHouseHint 误入村长家）
+    // ============ 12. 去小镇 → 镇长接任务 ============
+    await page.evaluate(() => window.debug.setTime(10, 0)); // 镇长上班时间（06:00 镇长不在镇上会触发 elderHouseHint 误入镇长家）
     await teleport(page, 'farm', 616, 168, 'up'); // farm 右出口 → town
     await sleep(3500);
     info = await sceneInfo(page);
     result('进入小镇', info.scene === 'town', `scene=${info.scene}`);
     const townLines = await walkDialogue(page);
     result('小镇首次入场对话', townLines.length >= 5, `行数=${townLines.length}`);
-    await teleport(page, 'town', 216, 184, 'up'); // 村长 (216,168)
+    await teleport(page, 'town', 216, 184, 'up'); // 镇长 (216,168)
     await pressInteract(page);
     if (!(await waitDialogueOpen(page, 2500))) {
       await page.keyboard.press('KeyE'); // 触屏交互键未命中时按键盘 E（等价玩家交互）
       await sleep(700);
     }
     const elderLines = await walkDialogue(page);
-    result('村长委托对话', elderLines.length >= 10, `行数=${elderLines.length}`);
+    result('镇长委托对话', elderLines.length >= 10, `行数=${elderLines.length}`);
     const qAfterAccept = await questState(page);
     result('接任务后 questState=accepted', qAfterAccept === 'accepted', `state=${qAfterAccept}`);
     await shot(page, '07-quest-accepted');
@@ -436,7 +436,7 @@ async function run() {
     const qAfterCollect = await questState(page);
     result('采集后 questState=collected', qAfterCollect === 'collected', `state=${qAfterCollect}`);
 
-    // ============ 14. 交付：回小镇找村长 ============
+    // ============ 14. 交付：回小镇找镇长 ============
     // forest 底出口 → farm；farm 右出口 → town
     // 随机日常事件对白（30% 概率）会在 farm 场景延迟触发并阻断出口检测，
     // 循环「排空对白 → 检查场景 → 重新靠右出口」直到成功切入 town

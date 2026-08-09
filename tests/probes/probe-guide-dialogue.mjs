@@ -143,7 +143,7 @@ async function run() {
       await teleport(page, 'farm', x, y, 'up');
       await pressInteract(page);
     }
-    await skipDialogue(page, 8); // WATER_CROPS_DIALOGUE 8 行（E-08 + 浇水情感句 v0.10.2）
+    await skipDialogue(page, 7); // WATER_CROPS_DIALOGUE 7 行（E-08 + 浇水情感句 v0.10.2；2026-08-09 压缩删 1 行）
     for (const [x, y] of tillSpots) {
       await teleport(page, 'farm', x, y, 'up');
       await pressInteract(page);

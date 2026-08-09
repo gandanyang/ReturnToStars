@@ -4,7 +4,7 @@
  * 种子存档直达两场景，等待渲染稳定后：
  *   1. 验证 tiles 纹理已加载 house v1（256px = 16 tile）
  *   2. 主角家截图（20×15 木地板屋）
- *   3. 村长家截图（12×10 庭院屋）
+ *   3. 镇长家截图（12×10 庭院屋）
  *
  * 注意：每个场景使用独立 page 会话（新开页面 → 写入种子存档 → reload），
  *       避免游戏运行中的 auto-save 覆盖下一次写入的 localStorage。
@@ -98,8 +98,8 @@ async function run() {
   try {
     // 主角家（house 20×15，木地板屋；出生在中心 160,120 使画面居中）
     await shotScene(browser, 'house', [160, 120], 'house-v1-主角家');
-    // 村长家（elder_house 12×10，庭院屋；出生在中心 96,80 使画面居中）
-    await shotScene(browser, 'elder_house', [96, 80], 'house-v1-村长家');
+    // 镇长家（elder_house 12×10，庭院屋；出生在中心 96,80 使画面居中）
+    await shotScene(browser, 'elder_house', [96, 80], 'house-v1-镇长家');
   } finally {
     await browser.close();
   }

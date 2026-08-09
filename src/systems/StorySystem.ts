@@ -65,8 +65,10 @@ function hint(pc: string, mob: string): string {
 export const STATION_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（手机屏幕还亮着。HR 的话停在最后一句：）' },
   { speaker: '', color: COLORS.system, text: '「林先生，根据评估，你完全可以加入智能生态部门。」' },
+  { speaker: '', color: COLORS.system, text: '（留在城市？还是……去看看爷爷留下的地方？）' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '五年了。' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '……换个环境，也许也不错。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '我不是讨厌AI，只是突然发现，我好像很久没有认真看过一次天空了。' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '爷爷说，如果不知道往哪走，就回来看看。' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '至少这次，是我自己选的离开。' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '……爷爷把这里留给了我。' },
@@ -183,7 +185,6 @@ export const SOW_SEEDS_DIALOGUE: DialogueLine[] = [
 /** 播种完成 → 浇水（v0.7 生活化引导；E-08 金币循环意义：卖钱→修庄园） */
 export const WATER_CROPS_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '种下去，就得天天来看它。你爷爷说，庄稼最怕被忘记。' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '种下去了，接下来就等它长大。' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '有些东西不会马上改变，但每天照顾一点，就会慢慢回来。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '庄园还有不少地方需要修，等收成以后，可以拿去镇上的店换些钱。' },
   { speaker: '林澈', color: COLORS.linche, text: '卖掉？' },
@@ -214,34 +215,34 @@ export const TOWN_INTRO_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: hint('（靠近镇长、商人或居民，按 [E] 键与他们对话。镇长看起来有话想说。）', '（靠近镇长、商人或居民，点「交互」与他们对话。镇长看起来有话想说。）') },
 ];
 
-/** 村长委托星之碎片任务（第一章主线开启，v0.8 拆信息+老人化） */
+/** 镇长委托星之碎片任务（第一章主线开启，v0.8 拆信息+老人化） */
 export const ELDER_QUEST_DIALOGUE: DialogueLine[] = [
-  { speaker: '村长', color: COLORS.elder, text: '你就是小林吧？林爷爷家的孙子。' },
+  { speaker: '镇长', color: COLORS.elder, text: '你就是小林吧？林爷爷家的孙子。' },
   { speaker: '林澈', color: COLORS.linche, text: '您好，您是……' },
-  { speaker: '村长', color: COLORS.elder, text: '我是青禾镇的镇长。你爷爷啊，年轻时候就喜欢晚上坐在那块石头上看天。' },
+  { speaker: '镇长', color: COLORS.elder, text: '我是青禾镇的镇长。你爷爷啊，年轻时候就喜欢晚上坐在那块石头上看天。' },
   { speaker: '林澈', color: COLORS.linche, text: '……他真的喜欢看星星？' },
-  { speaker: '村长', color: COLORS.elder, text: '喜欢。他以前也经常往后山跑。' },
+  { speaker: '镇长', color: COLORS.elder, text: '喜欢。他以前也经常往后山跑。' },
   { speaker: '林澈', color: COLORS.linche, text: '去做什么？' },
-  { speaker: '村长', color: COLORS.elder, text: '（笑了笑）他说那里有些东西，值得看看。' },
-  { speaker: '', color: COLORS.system, text: '（村长看向远处的后山，没有再说下去。）' },
+  { speaker: '镇长', color: COLORS.elder, text: '（笑了笑）他说那里有些东西，值得看看。' },
+  { speaker: '', color: COLORS.system, text: '（镇长看向远处的后山，没有再说下去。）' },
   { speaker: '林澈', color: COLORS.linche, text: '……那我去看看吧。' },
   { speaker: '', color: COLORS.system, text: '主线任务已接受：去爷爷以前常去的后山看看。' },
 ];
 
-/** f7（2026-08-07 制作人拍板）：第一天村长「暂时有事」——主线委托推迟到第二天，顺带赠送启动物资 */
+/** f7（2026-08-07 制作人拍板）：第一天镇长「暂时有事」——主线委托推迟到第二天，顺带赠送启动物资 */
 export const ELDER_BUSY_DIALOGUE: DialogueLine[] = [
-  { speaker: '村长', color: COLORS.elder, text: '你就是小林吧？林爷爷家的孙子。' },
+  { speaker: '镇长', color: COLORS.elder, text: '你就是小林吧？林爷爷家的孙子。' },
   { speaker: '林澈', color: COLORS.linche, text: '您好，您是……' },
-  { speaker: '村长', color: COLORS.elder, text: '我是青禾镇的镇长。本想跟你好好聊聊你爷爷的事——' },
-  { speaker: '', color: COLORS.system, text: '（村长叹了口气，指了指身后正在修缮的公告栏。）' },
-  { speaker: '村长', color: COLORS.elder, text: '镇上这几天忙着修缮，我实在抽不开身。明天吧，明天你来镇长家找我，咱们详谈。' },
-  { speaker: '村长', color: COLORS.elder, text: '这些是给你准备的启动物资：种子、工具，还有一点金币、木材和石头。你先在农场安顿下来。' },
-  { speaker: '', color: COLORS.system, text: hint('（获得村长赠送的启动物资。镇长说：明天再来详谈。）', '（获得村长赠送的启动物资。镇长说：明天再来详谈。）') },
+  { speaker: '镇长', color: COLORS.elder, text: '我是青禾镇的镇长。本想跟你好好聊聊你爷爷的事——' },
+  { speaker: '', color: COLORS.system, text: '（镇长叹了口气，指了指身后正在修缮的公告栏。）' },
+  { speaker: '镇长', color: COLORS.elder, text: '镇上这几天忙着修缮，我实在抽不开身。明天吧，明天你来镇长家找我，咱们详谈。' },
+  { speaker: '镇长', color: COLORS.elder, text: '这些是给你准备的启动物资：种子、工具，还有一点金币、木材和石头。你先在农场安顿下来。' },
+  { speaker: '', color: COLORS.system, text: hint('（获得镇长赠送的启动物资。镇长说：明天再来详谈。）', '（获得镇长赠送的启动物资。镇长说：明天再来详谈。）') },
 ];
 
-/** f7：第一天再次对话（礼物已给）——村长简短提醒，不重复长篇 */
+/** f7：第一天再次对话（礼物已给）——镇长简短提醒，不重复长篇 */
 export const ELDER_BUSY_SHORT_DIALOGUE: DialogueLine[] = [
-  { speaker: '村长', color: COLORS.elder, text: '这几天镇上忙着修缮。你先在农场安顿，明天来镇长家找我详谈你爷爷的事。' },
+  { speaker: '镇长', color: COLORS.elder, text: '这几天镇上忙着修缮。你先在农场安顿，明天来镇长家找我详谈你爷爷的事。' },
 ];
 
 /** 交付星之碎片（第一章完成）
@@ -250,15 +251,14 @@ export const ELDER_BUSY_SHORT_DIALOGUE: DialogueLine[] = [
 export const SHARD_DELIVER_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, text: '镇长，星之碎片……我拿到了。' },
   { speaker: '', color: COLORS.system, text: '（林澈摊开手掌，一枚泛着幽蓝光芒的碎片静静躺在掌心。）' },
-  { speaker: '村长', color: COLORS.elder, text: '这光泽……没错，就是星之碎片。你爷爷当年捡到第一片的时候，也是这样的光。' },
-  { speaker: '村长', color: COLORS.elder, text: '林远山以前提过，岛上有些东西，不是留下来的，是等着被发现的。' },
-  { speaker: '村长', color: COLORS.elder, text: '他还说，这座岛上的碎片，只有真正"想留下来"的人才能拿起来。' },
-  { speaker: '村长', color: COLORS.elder, text: '你能把它带回来，说明这一次，是你自己选择了回来。' },
+  { speaker: '镇长', color: COLORS.elder, text: '这光泽……没错，就是星之碎片。你爷爷当年捡到第一片的时候，也是这样的光。' },
+  { speaker: '镇长', color: COLORS.elder, text: '他还说，这座岛上的碎片，只有真正"想留下来"的人才能拿起来。' },
+  { speaker: '镇长', color: COLORS.elder, text: '你能把它带回来，说明这一次，是你自己选择了回来。' },
   { speaker: '林澈', color: COLORS.linche, text: '……我其实没做什么。它就在那儿，我只是走过去拿起来而已。' },
-  { speaker: '村长', color: COLORS.elder, text: '（笑）那就够了。你愿意走过去，它就愿意回应你。' },
-  { speaker: '村长', color: COLORS.elder, text: '不过，比起它是什么，我更在意一件事——' },
-  { speaker: '村长', color: COLORS.elder, text: '这么多年过去，终于又有人走到这里来了。' },
-  { speaker: '村长', color: COLORS.elder, text: '你爷爷以前啊，总喜欢在晚上去农田后面的地方坐一会儿。他说，那里的星星很亮。' },
+  { speaker: '镇长', color: COLORS.elder, text: '（笑）那就够了。你愿意走过去，它就愿意回应你。' },
+  { speaker: '镇长', color: COLORS.elder, text: '不过，比起它是什么，我更在意一件事——' },
+  { speaker: '镇长', color: COLORS.elder, text: '这么多年过去，终于又有人走到这里来了。' },
+  { speaker: '镇长', color: COLORS.elder, text: '你爷爷以前啊，总喜欢在晚上去农田后面的地方坐一会儿。他说，那里的星星很亮。' },
   { speaker: '', color: COLORS.system, text: '夜晚，也许可以去看看爷爷曾经看过的天空。' },
   { speaker: '', color: COLORS.system, text: '主线任务完成：星之碎片（1/…）。' },
 ];
@@ -339,13 +339,13 @@ export const GARDEN_RESTORED_XIYA_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '可是它陪了我很多年。' },
 ];
 
-/** FEATURE-037 统一对白批次 environment_restore_v010：老屋修复完成 → 村长（制作人 2026-08-06 定稿）
+/** FEATURE-037 统一对白批次 environment_restore_v010：老屋修复完成 → 镇长（制作人 2026-08-06 定稿）
  *  范围限定：A/B 类生活对白；花园恢复沿用既有 GARDEN_RESTORED_XIYA_DIALOGUE（制作人拍板，不新增小梅） */
 export const OLD_HOUSE_RESTORED_DIALOGUE: DialogueLine[] = [
-  { speaker: '', color: COLORS.system, text: '（老屋修好的第二天，村长路过，在门口站了一会儿。）' },
-  { speaker: '村长', color: COLORS.elder, text: '你爷爷以前每天都会擦这里。' },
+  { speaker: '', color: COLORS.system, text: '（老屋修好的第二天，镇长路过，在门口站了一会儿。）' },
+  { speaker: '镇长', color: COLORS.elder, text: '你爷爷以前每天都会擦这里。' },
   { speaker: '林澈', color: COLORS.linche, text: '……擦门吗？' },
-  { speaker: '村长', color: COLORS.elder, text: '擦整座屋子。他说，人走了不要紧，屋子不能没人擦。' },
+  { speaker: '镇长', color: COLORS.elder, text: '擦整座屋子。他说，人走了不要紧，屋子不能没人擦。' },
 ];
 
 /** FEATURE-037 统一对白批次 environment_restore_v010：后山道路修复完成 → 老张（制作人 2026-08-06 定稿） */
@@ -384,15 +384,15 @@ export const ADVENTURER_WELCOME_BACK_DIALOGUE: DialogueLine[] = [
 ];
 
 // ============ T2 改动 2：关键对白（制作人 2026-08-06 定稿） ============
-/** 村长「为什么种田」：星之碎片交付完成后追加（T2 改动 2，制作人定稿台词） */
+/** 镇长「为什么种田」：星之碎片交付完成后追加（T2 改动 2，制作人定稿台词） */
 export const ELDER_WHY_FARM_DIALOGUE: DialogueLine[] = [
-  { speaker: '村长', color: COLORS.elder, text: '现在买东西方便了，想吃什么，去店里就能买到。' },
-  { speaker: '村长', color: COLORS.elder, text: '可有时候，人容易忘了一件事。' },
-  { speaker: '村长', color: COLORS.elder, text: '这些东西啊，也不是一开始就在货架上的。' },
-  { speaker: '村长', color: COLORS.elder, text: '一粒种子，要有人种下去，有人照看它，才能变成餐桌上的东西。' },
-  { speaker: '村长', color: COLORS.elder, text: '现在什么都能买到，菜市场有菜，商店有粮。' },
-  { speaker: '村长', color: COLORS.elder, text: '可自己种出来的东西，吃的时候心里踏实。' },
-  { speaker: '村长', color: COLORS.elder, text: '你知道它什么时候种下去，什么时候长出来，也知道这一口是怎么来的。' },
+  { speaker: '镇长', color: COLORS.elder, text: '现在买东西方便了，想吃什么，去店里就能买到。' },
+  { speaker: '镇长', color: COLORS.elder, text: '可有时候，人容易忘了一件事。' },
+  { speaker: '镇长', color: COLORS.elder, text: '这些东西啊，也不是一开始就在货架上的。' },
+  { speaker: '镇长', color: COLORS.elder, text: '一粒种子，要有人种下去，有人照看它，才能变成餐桌上的东西。' },
+  { speaker: '镇长', color: COLORS.elder, text: '现在什么都能买到，菜市场有菜，商店有粮。' },
+  { speaker: '镇长', color: COLORS.elder, text: '可自己种出来的东西，吃的时候心里踏实。' },
+  { speaker: '镇长', color: COLORS.elder, text: '你知道它什么时候种下去，什么时候长出来，也知道这一口是怎么来的。' },
 ];
 
 /** 夏雅「为什么小事会改变这里」：花园恢复见证对白（GARDEN_RESTORED_XIYA_DIALOGUE）后追加
@@ -568,12 +568,12 @@ export const XIYA_GARDEN_TRELLIS_DONE_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '他说，院子有人照顾，就不会冷清。' },
 ];
 
-// 村长「看星星的地方」：观星夜完成后，村长委托 → 夜晚去农田边空地 → 记忆卡收尾
-/** 支线入口：村长委托（挂在观星夜完成后的村长后续对话） */
+// 镇长「看星星的地方」：观星夜完成后，镇长委托 → 夜晚去农田边空地 → 记忆卡收尾
+/** 支线入口：镇长委托（挂在观星夜完成后的镇长后续对话） */
 export const ELDER_TEA_QUEST_DIALOGUE: DialogueLine[] = [
-  { speaker: '村长', color: COLORS.elder, text: '对了——你爷爷以前啊，忙完一天的活，总喜欢去农田边坐一会儿。' },
-  { speaker: '村长', color: COLORS.elder, text: '他说，那里安静，能看见很远的星星。' },
-  { speaker: '村长', color: COLORS.elder, text: '你要是晚上有空，带壶茶去那儿坐坐，就当替他看看。' },
+  { speaker: '镇长', color: COLORS.elder, text: '对了——你爷爷以前啊，忙完一天的活，总喜欢去农田边坐一会儿。' },
+  { speaker: '镇长', color: COLORS.elder, text: '他说，那里安静，能看见很远的星星。' },
+  { speaker: '镇长', color: COLORS.elder, text: '你要是晚上有空，带壶茶去那儿坐坐，就当替他看看。' },
   { speaker: '林澈', color: COLORS.linche, text: '……好。' },
 ];
 
@@ -605,7 +605,6 @@ export const DEMO_ENDING_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（夜幕降临。庄园外，今天的星空格外明亮。）' },
   { speaker: '夏雅', color: COLORS.xiya, text: '你爷爷以前每天都会坐在这里。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '他走以后，岛上的人还是会偶尔来看这里。' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '大家都觉得，总有一天，会有人重新打开这扇门。' },
   { speaker: '林澈', color: COLORS.linche, text: '他也喜欢看星星？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯。他说，总有一天，会有人回来继续看。' },
   { speaker: '', color: COLORS.system, text: '（夏雅看了看林澈，没有继续说下去。）' },

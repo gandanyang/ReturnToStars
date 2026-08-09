@@ -90,15 +90,22 @@ async function run() {
     }, 25000);
     check('音量提示出现并点击', !!soundPromptClosed);
 
-    // 4. 等待手机通知（zIndex 600 含"人事通知"）并单击关闭（P0-3：两页合并为单页，一次点击即关闭）
-    const phoneClicked = await waitFor(async () => {
-      return await page.evaluate(() => {
+    // 4. 等待手机通知（zIndex 600）——两页翻页：点第 1 页翻页，再点第 2 页关闭（P0 修订批两页化）。
+    //    以「车站对话打开」为终态，点击幂等（对话打开后 overlay 已移除，循环自动停止）。
+    let phoneDone = false;
+    for (let i = 0; i < 60 && !phoneDone; i++) {
+      await page.evaluate(() => {
         const overlay = [...document.querySelectorAll('div')].find(d => d.style.zIndex === '600' && d.textContent.includes('人事通知'));
-        if (overlay) { overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); return true; }
-        return false;
+        if (!overlay) return;
+        overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
-    });
-    check('手机通知出现并点击', !!phoneClicked);
+      await sleep(200);
+      phoneDone = await page.evaluate(() => {
+        const s = window.__game.scene.getScenes(true)[0];
+        return s?.storyDialogue?.isOpen?.() ?? false;
+      });
+    }
+    check('手机通知两页点击后对话开始', phoneDone);
     await sleep(400);
 
     // 4. 等待对话打开且有文本
@@ -109,10 +116,16 @@ async function run() {
     check('对话已打开', !!opened);
     if (opened) console.log(`  首句: "${opened.p[opened.p.length - 1]?.slice(0, 40)}"`);
 
-    // 5. 推进全部 7 句（含打字机 → 每句空格 1 次显示全文 + 1 次翻行，故 ×2；7×2=14）
-    for (let i = 0; i < 14; i++) {
+    // 5. 推进对话直到出发选项出现（打字机/旁白行速度不定，不固定空格次数）
+    let optSeen = false;
+    for (let i = 0; i < 60 && !optSeen; i++) {
+      optSeen = await page.evaluate(() => {
+        const btns = [...document.querySelectorAll('button')].filter(b => b.textContent.includes('走'));
+        return btns.length > 0;
+      });
+      if (optSeen) break;
       await page.keyboard.press('Space');
-      await sleep(160);
+      await sleep(120);
     }
 
     // 6. 到达选项行（P0-3 出发前主动选择）——按数字 1 选择「现在就走吗？」

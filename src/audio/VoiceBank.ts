@@ -80,9 +80,12 @@ export class VoiceBank {
   /** 查找 (speaker, text) 对应的音频相对路径；找不到返回 null */
   static find(speaker: string, text: string): string | null {
     const norm = normalize(text);
+    // 角色改名桥接（2026-08-09：村长 → 镇长）：对白 speaker 用「镇长」，
+    // 语音数据（脚本生成 voicebank.data.ts）仍为「村长」——映射回旧 key，重生成脚本也不回退
+    const sp = speaker === '镇长' ? '村长' : speaker;
     const matches = VOICE_ENTRIES.filter(
       (e: VoiceEntry) =>
-        (e.speaker === '' || e.speaker === speaker) && normalize(e.text) === norm,
+        (e.speaker === '' || e.speaker === sp) && normalize(e.text) === norm,
     );
     if (matches.length === 0) return null;
     // 同 (speaker,text) 多个文件（如「嗯。」harvest_02/evening_04）→ 轮换，保证都用上
@@ -181,9 +184,10 @@ export class VoiceBank {
    *  使用 fetch + decodeAudioData 预加载（防 IDM 下载弹窗）。 */
   static preload(speaker: string, text: string): void {
     const norm = normalize(text);
+    const sp = speaker === '镇长' ? '村长' : speaker; // 角色改名桥接（同 find）
     const matches = VOICE_ENTRIES.filter(
       (e: VoiceEntry) =>
-        (e.speaker === '' || e.speaker === speaker) && normalize(e.text) === norm,
+        (e.speaker === '' || e.speaker === sp) && normalize(e.text) === norm,
     );
     
     const ctx = getCtx();

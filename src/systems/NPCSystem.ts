@@ -37,7 +37,7 @@ const T = 16;
 /**
  * 场景内固定目标点（像素），每个 NPC 在场景内错开站位。
  * 原因：若三个 NPC 站同一格，交互检测按数组顺序遍历（elder 排第一），
- *       会导致靠近时永远触发村长任务对话，商店/少女无法交互。
+ *       会导致靠近时永远触发镇长任务对话，商店/少女无法交互。
  * 各点均避开碰撞区（farm 木屋上墙 row12、town 石屋、forest 四角石簇）。
  */
 type Spot = { x: number; y: number };
@@ -108,7 +108,7 @@ const VIRTUAL_HOME_POSITION = { x: 0, y: 0 };
  *   - 神秘少女保留森林出现 + 增加隐藏时段（避免全天固定遇见）
  */
 function buildSchedule(npcId: NpcId): ScheduleEntry[] {
-  // 村长：晨起在家 → 上午下午镇上办公 → 晚归（18:00 后归村巡查）
+  // 镇长：晨起在家 → 上午下午镇上办公 → 晚归（18:00 后归村巡查）
   if (npcId === 'elder') {
     return [
       { time: '06:00', location: 'elder_house', ...SPOTS.elder_house.elder },
@@ -181,9 +181,9 @@ function buildSchedule(npcId: NpcId): ScheduleEntry[] {
 
 // ============ NPC 对话剧本（新版 StoryDialogue 全屏播放） ============
 
-/** 村长：主线对话由 QuestSystem 驱动，此处为兜底台词 */
+/** 镇长：主线对话由 QuestSystem 驱动，此处为兜底台词 */
 const ELDER_DIALOGUES: DialogueLine[] = [
-  { speaker: '村长', color: COLORS.elder, text: '青禾镇是个好地方。多和镇上的人聊聊吧。' },
+  { speaker: '镇长', color: COLORS.elder, text: '青禾镇是个好地方。多和镇上的人聊聊吧。' },
 ];
 
 /** 商店老板：欢迎 + 买卖引导 */
@@ -252,7 +252,6 @@ const ADVENTURER_DIALOGUES: DialogueLine[] = [
   { speaker: '阿风', color: '#88b8e8', text: '嘿！你就是新搬来的林澈吧？我叫阿风，这座岛的每个角落我都跑遍了。' },
   { speaker: '阿风', color: '#88b8e8', text: '告诉你个秘密——后山深处有东西在发光，镇长神神秘秘的不肯说。' },
   { speaker: '阿风', color: '#88b8e8', text: '想去探险的话，记得备足体力。后山可比看上去大得多！' },
-  { speaker: '阿风', color: '#88b8e8', text: '后山深处……有些东西，最好别惊醒。' },
   { speaker: '林澈', color: COLORS.linche, text: '（笑）你越这么说，我越想去看。' },
   { speaker: '阿风', color: '#88b8e8', text: '嘿！你这小子，胆子不小啊！' },
   { speaker: '林澈', color: COLORS.linche, text: '不是胆子大。只是觉得，既然来了这座岛，就该看看它藏着什么。' },
@@ -278,12 +277,12 @@ const CARPENTER_DIALOGUES: DialogueLine[] = [
 
 const NPC_DAILY_LINES: Record<string, DialogueLine[]> = {
   elder: [
-    { speaker: '村长', color: '#c8b898', text: '你爷爷以前每天傍晚都会来我这儿坐坐。' },
-    { speaker: '村长', color: '#c8b898', text: '这座岛啊，安静太久了。有人回来，挺好的。' },
-    { speaker: '村长', color: '#c8b898', text: '星星的事……你慢慢来，别着急。' },
-    { speaker: '村长', color: '#c8b898', text: '今天的天气，适合看星星。' },
-    { speaker: '村长', color: '#c8b898', text: '你爷爷走的时候，留下一句话：会有人回来的。' },
-    { speaker: '村长', color: '#c8b898', text: '年轻人，别老闷在庄园里，多出来走走。' },
+    { speaker: '镇长', color: '#c8b898', text: '你爷爷以前每天傍晚都会来我这儿坐坐。' },
+    { speaker: '镇长', color: '#c8b898', text: '这座岛啊，安静太久了。有人回来，挺好的。' },
+    { speaker: '镇长', color: '#c8b898', text: '星星的事……你慢慢来，别着急。' },
+    { speaker: '镇长', color: '#c8b898', text: '今天的天气，适合看星星。' },
+    { speaker: '镇长', color: '#c8b898', text: '你爷爷走的时候，留下一句话：会有人回来的。' },
+    { speaker: '镇长', color: '#c8b898', text: '年轻人，别老闷在庄园里，多出来走走。' },
   ],
   shopkeeper: [
     { speaker: '商店老板', color: '#8ac8a0', text: '今天有批新货到了，来看看？' },
@@ -363,7 +362,7 @@ export function getDailyNpcLine(npcId: string, day: number): DialogueLine[] | nu
 
 /** 七个 NPC（木匠为 FEATURE-041 条件性角色，回归前不渲染） */
 const npcs: NPC[] = [
-  new NPC('elder', '村长', '#d9c8a0', 'npc_elder', ELDER_DIALOGUES, buildSchedule('elder')),
+  new NPC('elder', '镇长', '#d9c8a0', 'npc_elder', ELDER_DIALOGUES, buildSchedule('elder')),
   new NPC('shopkeeper', '商店老板', '#e0b060', 'npc_merchant', SHOPKEEPER_DIALOGUES, buildSchedule('shopkeeper')),
   new NPC('mystery', '神秘少女', '#c8a0e8', 'npc_girl', MYSTERY_DIALOGUES, buildSchedule('mystery')),
   new NPC('miner', '矿工老张', '#d8a050', 'npc_miner', MINER_DIALOGUES, buildSchedule('miner')),

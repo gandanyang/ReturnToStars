@@ -63,6 +63,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     if (scene !== 'farm') throw new Error('未能进入农场场景');
     await sleep(1200);
 
+    // 跳过进入 farm 时可能播放的初始对白（否则 E 键被对白消耗，三阶段恢复推进失败）
+    for (let i = 0; i < 10; i++) {
+      const open = await page.evaluate(() => !!window.__game?.scene?.getScene('farm')?.storyDialogue?.isOpen());
+      if (!open) break;
+      await page.keyboard.press('E');
+      await sleep(400);
+    }
+
     // 1. 恢复前：无夏雅精灵
     let d = await page.evaluate(() => {
       const s = window.__game.scene.getScene('farm');

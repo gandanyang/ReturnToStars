@@ -78,6 +78,23 @@ class I:
     RING = (104, 72, 36, 255)
     GOLD = (255, 212, 92, 255)
     GOLD_D = (210, 168, 60, 255)
+    # ── 调色板锚点对齐（2026-08-09 美术规范 v3，star_island_palette.json）──
+    # dirt #967042 / soil #482e1a / grass #609848 / flower #6e9450
+    # wood #be9054 / signpost #987048 / plank #967048 / path #d2b07c
+    DIRT = (150, 112, 66, 255)          # ≈ dirt #967042
+    DIRT_D = (90, 60, 34, 255)          # 土堆阴影（介于 dirt/soil）
+    DIRT_L = (178, 140, 88, 255)        # 土堆高光
+    GRASS = (96, 152, 72, 255)          # ≈ grass #609848
+    GRASS_D = (70, 118, 52, 255)        # 叶暗部
+    FLOWER_GRN = (110, 148, 80, 255)    # ≈ flower #6e9450
+    SIGN = (152, 112, 72, 255)          # ≈ signpost #987048
+    SIGN_D = (118, 86, 52, 255)         # 牌面暗
+    SIGN_L = (178, 140, 96, 255)        # 牌面亮
+    PLANK = (150, 112, 72, 255)         # ≈ plank #967048
+    PLANK_D = (116, 84, 50, 255)        # 杆暗
+    LAMP_GLOW = (255, 206, 84, 200)     # 灯笼暖光晕（半透明，仿 star_shard_icon 发光）
+    LAMP_CORE = (255, 240, 180, 255)    # 灯笼内芯亮
+    ROPE = (126, 92, 56, 255)           # 提手挂绳
 
 
 def blank() -> Image.Image:
@@ -489,9 +506,145 @@ def wood_icon():
 
 
 # ============================================================================
+# SHOP-01 商店复兴新增商品图标（2026-08-09 补缺）
+# 旧花苗 / 小灯笼 / 木牌 —— 商店 buy 列表旧花苗起缺图，与既有 16×16 像素风一致
+# ============================================================================
+
+def flower_seedling_icon():
+    """旧花苗（v3 规范重绘）：土堆三色 + 土粒 + 茎关节 + 双侧叶 + 半开花苞三色。
+    左上光源、右下投影、调色板对齐 dirt/grass/flower 锚点。"""
+    img = blank()
+    # 土堆（三色 + 土粒，左上亮右下暗）
+    rect(img, 4, 12, 12, 13, I.DIRT)
+    hline(img, 4, 12, 12, I.DIRT_L)
+    px(img, 6, 13, I.DIRT_D)
+    px(img, 10, 13, I.DIRT_D)
+    px(img, 7, 13, I.DIRT_D)
+    # 土粒点缀（高光侧）
+    px(img, 5, 12, I.DIRT_L)
+    px(img, 11, 12, I.DIRT_L)
+    # 茎（带关节，中段更深）
+    vline(img, 8, 8, 11, I.GRASS)
+    px(img, 8, 10, I.GRASS_D)
+    # 双侧叶（左叶暗、右叶亮——左上光源）
+    px(img, 6, 9, I.FLOWER_GRN)
+    px(img, 5, 8, I.GRASS_D)
+    px(img, 10, 9, I.FLOWER_GRN)
+    px(img, 11, 8, I.GRASS_D)
+    px(img, 6, 8, I.FLOWER_GRN)
+    px(img, 10, 8, I.FLOWER_GRN)
+    # 花苞萼片
+    px(img, 7, 7, I.GRASS_D)
+    px(img, 9, 7, I.GRASS_D)
+    # 花苞（半开三瓣：亮瓣在左上）
+    px(img, 8, 6, I.RADISH)
+    px(img, 7, 5, I.RADISH)
+    px(img, 9, 5, I.RADISH)
+    px(img, 8, 4, I.RADISH)
+    px(img, 7, 4, I.RADISH_L)   # 左上高光瓣
+    px(img, 8, 3, I.RADISH_L)   # 顶端亮
+    px(img, 6, 5, I.RADISH_L)
+    px(img, 8, 6, I.RADISH_L)   # 花心亮
+    px(img, 9, 6, I.RADISH_D)   # 右下暗瓣
+    px(img, 8, 5, I.RADISH_D)
+    add_outline(img, C.OUTLINE)
+    return img
+
+
+def lantern_icon():
+    """小灯笼（v3 规范重绘）：暖光晕 + 阶梯灯体三色 + 内芯亮 + 提手挂绳 + 上下箍 + 小穗。
+    仿 star_shard_icon 半透明发光，避免平滑椭圆原语（手写阶梯圆）。"""
+    img = blank()
+    # 暖光晕（半透明，半径 6 衰减——仿 star_shard 发光层）
+    for dy in range(-6, 7):
+        for dx in range(-6, 7):
+            d2 = dx * dx + dy * dy
+            if d2 <= 36:
+                a = max(0, int(200 * (1 - d2 / 36)))
+                px(img, 8 + dx, 9 + dy, (255, 206, 84, a))
+    # 提手挂绳（细线）
+    px(img, 6, 4, I.ROPE)
+    px(img, 7, 3, I.ROPE)
+    px(img, 8, 3, I.ROPE)
+    px(img, 9, 3, I.ROPE)
+    px(img, 10, 4, I.ROPE)
+    # 灯体（手写阶梯圆，x 半径 4、y 半径 5；非平滑椭圆原语）
+    for dy in range(-5, 6):
+        for dx in range(-4, 5):
+            # 椭圆判别：dx²/16 + dy²/25 <= 1 → 25dx²+16dy² <= 400
+            if 25 * dx * dx + 16 * dy * dy <= 400:
+                px(img, 8 + dx, 9 + dy, I.GOLD)
+    # 内芯亮（左上，暖光来源）
+    px(img, 7, 7, I.LAMP_CORE)
+    px(img, 7, 8, I.LAMP_CORE)
+    px(img, 6, 8, I.LAMP_CORE)
+    px(img, 6, 7, I.LAMP_CORE)
+    # 暗部（右下投影）
+    px(img, 10, 11, I.GOLD_D)
+    px(img, 11, 10, I.GOLD_D)
+    px(img, 11, 11, I.GOLD_D)
+    px(img, 10, 12, I.GOLD_D)
+    px(img, 9, 13, I.GOLD_D)
+    # 上下箍（暗色包边，衬托暖黄）
+    hline(img, 5, 11, 5, I.GOLD_D)
+    hline(img, 5, 11, 13, I.GOLD_D)
+    px(img, 4, 5, I.GOLD_D)
+    px(img, 12, 5, I.GOLD_D)
+    px(img, 4, 13, I.GOLD_D)
+    px(img, 12, 13, I.GOLD_D)
+    # 底部小穗
+    px(img, 8, 14, I.GOLD_D)
+    px(img, 8, 15, I.GOLD_D)
+    add_outline(img, C.OUTLINE)
+    return img
+
+
+def wood_sign_icon():
+    """木牌（v3 规范重绘）：立杆三色 + 牌面三色木纹 + 字痕 + 四角钉 + 右下投影。
+    调色板对齐 signpost/plank 锚点。"""
+    img = blank()
+    # 立杆（三色，杆顶斜切高光）
+    rect(img, 7, 11, 9, 14, I.PLANK)
+    px(img, 7, 12, I.PLANK_D)
+    px(img, 7, 13, I.PLANK_D)
+    px(img, 8, 15, I.PLANK_D)
+    px(img, 8, 11, I.PLANK_D)
+    px(img, 7, 11, I.PLANK_D)
+    # 杆顶（微高光）
+    px(img, 8, 11, I.SIGN_L)
+    # 牌面（三色 + 木纹横线，左上亮右下暗）
+    rect(img, 3, 4, 13, 10, I.SIGN)
+    hline(img, 3, 13, 4, I.SIGN_L)
+    hline(img, 3, 13, 10, I.SIGN_D)
+    vline(img, 13, 4, 10, I.SIGN_D)
+    px(img, 4, 5, I.SIGN_L)
+    px(img, 4, 6, I.SIGN_L)
+    # 木纹（两横线，暗色，错位显木质感）
+    hline(img, 5, 11, 6, I.SIGN_D)
+    hline(img, 5, 11, 8, I.SIGN_D)
+    hline(img, 6, 12, 7, I.SIGN_D)
+    # 字痕（更深一档）
+    hline(img, 6, 10, 6, I.PLANK_D)
+    hline(img, 6, 10, 8, I.PLANK_D)
+    # 四角钉（金属）
+    px(img, 5, 5, I.METAL)
+    px(img, 11, 5, I.METAL)
+    px(img, 5, 9, I.METAL_D)
+    px(img, 11, 9, I.METAL_D)
+    # 牌面右下投影（内部）
+    px(img, 12, 9, I.SIGN_D)
+    add_outline(img, C.OUTLINE)
+    return img
+
+
+# ============================================================================
 # 主入口
 # ============================================================================
 def main() -> None:
+    import argparse
+    ap = argparse.ArgumentParser(description="生成物品图标（16×16 像素风）")
+    ap.add_argument('--only', nargs='*', help='只生成指定文件名（如 flower_seedling.png lantern.png）')
+    args = ap.parse_args()
     os.makedirs(ICON_DIR, exist_ok=True)
 
     outputs = [
@@ -515,8 +668,15 @@ def main() -> None:
         ("wood.png", wood_icon(), "木材"),
         ("stamina.png", stamina_icon(), "体力"),
         ("coin.png", coin_icon(), "金币"),
+        # SHOP-01 商店复兴补缺（2026-08-09）
+        ("flower_seedling.png", flower_seedling_icon(), "旧花苗"),
+        ("lantern.png", lantern_icon(), "小灯笼"),
+        ("wood_sign.png", wood_sign_icon(), "木牌"),
     ]
+    targets = args.only or [o[0] for o in outputs]
     for name, img, desc in outputs:
+        if name not in targets:
+            continue
         img.save(os.path.join(ICON_DIR, name))
         print(f"[OK] {name}  16x16  ({desc})")
 

@@ -16,7 +16,9 @@ type SfxName =
   // v0.10.4 观星夜 v2：微风（树叶沙沙 + 远处虫鸣，低音量一次性，约 20% 强度）
   | 'wind'
   // 声音补全计划 v1.0（2026-08-09）：P0-4/5/6 成就感音效 + 高频通用音效
-  | 'quest_complete' | 'repair_complete' | 'shard_deliver' | 'ui_confirm' | 'door_open' | 'door_close';
+  | 'quest_complete' | 'repair_complete' | 'shard_deliver' | 'ui_confirm' | 'door_open' | 'door_close'
+  // v1.1 采集体验升级：挖矿三击（岩石震动石屑 / 矿石破碎闪光）
+  | 'rock_hit' | 'rock_break';
 
 let ctx: AudioContext | null = null;
 
@@ -166,6 +168,22 @@ export function play(name: SfxName): void {
       tone(150, 0.25, 'sawtooth', 0.05, 0.05);
       tone(80, 0.2, 'triangle', 0.12, 0.25);
       noise(0.15, 0.12, 0.3);
+      break;
+
+    case 'rock_hit':
+      // 挖矿普通击：镐头凿入岩石的闷响 + 石屑溅落（低沉短促，区别于砍树的木质音）
+      tone(95, 0.09, 'triangle', 0.22);
+      tone(65, 0.12, 'triangle', 0.18, 0.02);
+      rockBurst(0.07, 0.12, 0.02);
+      break;
+
+    case 'rock_break':
+      // 矿石破碎（最后一击）：岩石碎裂 + 金属闪光余韵（成功感，同层于 tree_fall）
+      tone(140, 0.14, 'square', 0.14);
+      tone(90, 0.2, 'triangle', 0.16, 0.04);
+      rockBurst(0.16, 0.2, 0.03); // 碎屑较多
+      tone(880, 0.12, 'sine', 0.07, 0.08); // 闪光泛音（矿物亮起）
+      tone(1320, 0.18, 'sine', 0.05, 0.16);
       break;
 
     case 'invalid':
@@ -347,6 +365,30 @@ function dirtBurst(duration: number, volume: number, delay: number): void {
   const filter = c.createBiquadFilter();
   filter.type = 'lowpass';
   filter.frequency.value = 650; // 土感：中低频，避免"沙沙"电子感
+  const g = c.createGain();
+  g.gain.setValueAtTime(volume, c.currentTime + delay);
+  g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + delay + duration);
+  src.connect(filter); filter.connect(g); g.connect(c.destination);
+  src.start(c.currentTime + delay);
+  src.stop(c.currentTime + delay + duration + 0.01);
+}
+
+/**
+ * 岩屑/碎石短促爆发（v1.1 采集体验升级辅助）：中高频带通噪声，颗粒感强于土屑。
+ * 用于挖矿石屑飞溅、矿石破碎的"碎裂"质感。
+ */
+function rockBurst(duration: number, volume: number, delay: number): void {
+  const c = getCtx();
+  const bufferSize = Math.ceil(c.sampleRate * duration);
+  const buffer = c.createBuffer(1, bufferSize, c.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource();
+  src.buffer = buffer;
+  const filter = c.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 1800; // 石感：中高频颗粒，区别于土屑的低通
+  filter.Q.value = 0.8;
   const g = c.createGain();
   g.gain.setValueAtTime(volume, c.currentTime + delay);
   g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + delay + duration);

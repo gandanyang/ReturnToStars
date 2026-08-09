@@ -38,27 +38,27 @@ function getVillagerTrust(): number {
 
 /** 日常事件池 */
 export const DAILY_EVENTS: DailyEvent[] = [
-  // ── 村长事件 ──
+  // ── 镇长事件 ──
   {
     id: 'elder_morning',
-    name: '村长晨间问候',
+    name: '镇长晨间问候',
     condition: () => {
       const t = getTime();
       return t.hour >= 8 && t.hour < 10 && getVillagerTrust() >= 20;
     },
     dialogue: [
-      { speaker: '村长', color: COLORS.elder, text: '早啊，小林。今天天气不错，适合干活。' },
-      { speaker: '村长', color: COLORS.elder, text: '有什么需要帮忙的随时来找我。' },
+      { speaker: '镇长', color: COLORS.elder, text: '早啊，小林。今天天气不错，适合干活。' },
+      { speaker: '镇长', color: COLORS.elder, text: '有什么需要帮忙的随时来找我。' },
     ],
     weight: 2,
   },
   {
     id: 'elder_garden_complete',
-    name: '村长评价花园',
+    name: '镇长评价花园',
     condition: () => isRestored('garden') && getVillagerTrust() >= 50,
     dialogue: [
-      { speaker: '村长', color: COLORS.elder, text: '花园修好了？不错不错。' },
-      { speaker: '村长', color: COLORS.elder, text: '你爷爷以前最喜欢在这里种花了。' },
+      { speaker: '镇长', color: COLORS.elder, text: '花园修好了？不错不错。' },
+      { speaker: '镇长', color: COLORS.elder, text: '你爷爷以前最喜欢在这里种花了。' },
     ],
     weight: 1,
   },

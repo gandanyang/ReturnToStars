@@ -36,7 +36,7 @@
 
 ### 3.3 MapScene.ts（触发点）
 
-- 村长交付碎片（`SHARD_DELIVER_DIALOGUE` onComplete）后，检测 `getStoryStep() !== 'observatory_complete'`：
+- 镇长交付碎片（`SHARD_DELIVER_DIALOGUE` onComplete）后，检测 `getStoryStep() !== 'observatory_complete'`：
   - camera fade → `scene.start('farm', { spawn: 庄园外固定点, endingScene: true })`
 - farm 场景 create 检测到 `endingScene` 时：
   - 播放收尾演出（见 §4 脚本）
