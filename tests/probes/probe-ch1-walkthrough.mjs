@@ -198,10 +198,15 @@ async function run() {
       if (done === 'dialogue') break;
       await sleep(250);
     }
-    await skipDialogue(page, 9); // 车站对白 9 行
+    await skipDialogue(page, 10); // 车站对白 10 行（2026-08-09 开场优化 +1 情绪句「好久没回去了」）
     await page.evaluate(() => {
       window.debug.setStoryStep('done');
       window.debug.nextDay(); // f7：第一天镇长「暂时有事」不委托 → Day 2 才能接任务（与 probe-stargaze 同步）
+      // 时序隔离（RC 验收遗留 2026-08-10）：day 已推到 2，B1「岛屿的第一声回应」触发条件
+      // day>=2 满足 → 若走查到观星夜（farm, 21:00）会误捕 B1 台词。模拟玩家已在 day2 清晨看过
+      // 该演出（标记一次性事件已触发），避免节点污染。真实游戏中 B1 与观星夜互斥由
+      // inStargazeCutscene 守卫保证（probe-rc-ch1-morning-isolation 已验证）。
+      window.debug.events.markTriggered('first_morning_response');
       window.debug.setTime(10, 0);
     });
     console.log('  序章已快进，storyStep=done');
