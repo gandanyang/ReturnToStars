@@ -131,8 +131,8 @@ async function run() {
     check('A3 夏雅自动出现在老屋门口（无需靠近）', d.morningXiya === true, `morningXiya=${d.morningXiya}`);
     check('A4 对白自动打开', d.dialogueOpen === true, `dialogueOpen=${d.dialogueOpen}`);
     check('A5 对白含定稿句「早上好，林澈」', dialogueHas(d.dialogueLines, '早上好，林澈'));
-    check('A6 对白含定稿句「归星岛，好像又重新呼吸了一次」', dialogueHas(d.dialogueLines, '归星岛，好像又重新呼吸了一次'));
-    check('A7 对白含定稿句「植物比人更诚实」', dialogueHas(d.dialogueLines, '植物比人更诚实'));
+    check('A6 对白含定稿句「昨天的苗还立着」', dialogueHas(d.dialogueLines, '昨天的苗还立着'));
+    check('A7 对白含定稿句「剩下的事情，就交给时间」', dialogueHas(d.dialogueLines, '剩下的事情，就交给时间'));
     await page.screenshot({ path: join(SHOT_DIR, 'day2-morning-dialogue.png') });
 
     // 2) 跳过对白 → 任务注入 + 存档
