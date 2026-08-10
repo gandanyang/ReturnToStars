@@ -228,6 +228,21 @@ export const ELDER_QUEST_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '主线任务已接受：去爷爷以前常去的后山看看。' },
 ];
 
+/** A4 角色自主表达测试（2026-08-10 制作人定稿）：day1 见过镇长（elder_starter_gift 已触发）后的承接版，
+ *  去掉重复自我介绍「你就是小林吧/您好您是……」；day1 未见过仍用 ELDER_QUEST_DIALOGUE 完整版。 */
+export const ELDER_QUEST_RETURN_DIALOGUE: DialogueLine[] = [
+  { speaker: '镇长', color: COLORS.elder, text: '来了。你爷爷的事，我们接着聊。' },
+  { speaker: '镇长', color: COLORS.elder, text: '昨天那个石头后面，我就知道你会来。' },
+  { speaker: '镇长', color: COLORS.elder, text: '你爷爷啊，年轻时候就喜欢晚上坐在那块石头上看天。' },
+  { speaker: '林澈', color: COLORS.linche, text: '……他真的喜欢看星星？' },
+  { speaker: '镇长', color: COLORS.elder, text: '喜欢。他以前也经常往后山跑。' },
+  { speaker: '林澈', color: COLORS.linche, text: '去做什么？' },
+  { speaker: '镇长', color: COLORS.elder, text: '（笑了笑）他说那里有些东西，值得看看。' },
+  { speaker: '', color: COLORS.system, text: '（镇长看向远处的后山，没有再说下去。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '……那我去看看吧。' },
+  { speaker: '', color: COLORS.system, text: '主线任务已接受：去爷爷以前常去的后山看看。' },
+];
+
 /** f7（2026-08-07 制作人拍板）：第一天镇长「暂时有事」——主线委托推迟到第二天，顺带赠送启动物资 */
 export const ELDER_BUSY_DIALOGUE: DialogueLine[] = [
   { speaker: '镇长', color: COLORS.elder, text: '你就是小林吧？林爷爷家的孙子。' },

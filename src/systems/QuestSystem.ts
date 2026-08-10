@@ -16,7 +16,7 @@ import { getTime } from '../data/TimeSystem';
 import { markRestored } from '../data/FarmRestore';
 import { hasTriggered } from './EventManager';
 import { play } from './AudioSystem';
-import { COLORS, ELDER_QUEST_DIALOGUE, ELDER_BUSY_DIALOGUE, ELDER_BUSY_SHORT_DIALOGUE, SHARD_DELIVER_DIALOGUE, ELDER_WHY_FARM_DIALOGUE, type DialogueLine, getStoryStep, isTutorialDone, isObservatoryComplete } from './StorySystem';
+import { COLORS, ELDER_QUEST_DIALOGUE, ELDER_QUEST_RETURN_DIALOGUE, ELDER_BUSY_DIALOGUE, ELDER_BUSY_SHORT_DIALOGUE, SHARD_DELIVER_DIALOGUE, ELDER_WHY_FARM_DIALOGUE, type DialogueLine, getStoryStep, isTutorialDone, isObservatoryComplete } from './StorySystem';
 
 /** 任务状态 */
 export type QuestState = 'not_started' | 'accepted' | 'collected' | 'completed';
@@ -86,7 +86,11 @@ export function getElderDialogue(): DialogueLine[] {
           : ELDER_BUSY_DIALOGUE;
       }
       acceptQuest();
-      return ELDER_QUEST_DIALOGUE;
+      // A4 角色自主表达测试：day1 见过镇长（elder_starter_gift 已触发）→ 承接版去重复自我介绍；
+      // day1 未见过（第一天没去镇）→ 完整自我介绍版
+      return hasTriggered('elder_starter_gift')
+        ? ELDER_QUEST_RETURN_DIALOGUE
+        : ELDER_QUEST_DIALOGUE;
     case 'accepted':
       return [{ speaker: '镇长', color: COLORS.elder, text: '去你爷爷以前常去的后山看看吧，孩子。' }];
     case 'collected':
