@@ -1,7 +1,7 @@
 /* eslint-disable */
 // ══════════════════════════════════════════════════════════════════
 // 语音映射数据 —— 由 tools/gen_mainline_voice.py --emit-voicebank 自动生成，勿手改
-// 生成时间：2026-08-10 04:32:11
+// 生成时间：2026-08-10 08:04:51
 // 说明：speaker='' 表示通配（少女/HR/纸条），text 为归一化后原文（已剥（笑）等标注）
 // ══════════════════════════════════════════════════════════════════
 export interface VoiceEntry { file: string; speaker: string; text: string }
@@ -186,13 +186,12 @@ export const VOICE_ENTRIES: VoiceEntry[] = [
   { file: 'adventurer/adv_07.wav', speaker: '阿风', text: '嘿！你回来了！' },
   { file: 'adventurer/adv_08.wav', speaker: '阿风', text: '路过，顺便看看。听说你把这儿拾掇得挺像样，我来长长见识。' },
   { file: 'adventurer/adv_09.wav', speaker: '阿风', text: '乱不怕，有人气就行。你忙你的，我先走啦——回头找你玩。' },
-  { file: 'carpenter/carpenter_01.wav', speaker: '木匠老周', text: '……青禾镇的。我叫老周。' },
-  { file: 'carpenter/carpenter_02.wav', speaker: '木匠老周', text: '听说岛上又有人修房子了。' },
-  { file: 'carpenter/carpenter_03.wav', speaker: '木匠老周', text: '你爷爷的房子，是他一点一点修起来的。' },
   { file: 'carpenter/carpenter_04.wav', speaker: '木匠老周', text: '门轴、窗栓、田边的栅栏……有不顺手的地方，喊我。' },
-  { file: 'carpenter/carpenter_05.wav', speaker: '木匠老周', text: '有人开始修，就有人愿意留下。' },
   { file: 'carpenter/carpenter_06.wav', speaker: '木匠老周', text: '……这屋子的木料，是你张罗来的？' },
   { file: 'carpenter/carpenter_07.wav', speaker: '木匠老周', text: '……这岛上，修东西的人，快绝了。' },
+  { file: 'carpenter/carpenter_08.wav', speaker: '木匠老周', text: '……瓦换过了。' },
+  { file: 'carpenter/carpenter_09.wav', speaker: '木匠老周', text: '修得不错。' },
+  { file: 'carpenter/carpenter_10.wav', speaker: '木匠老周', text: '嗯。东西都带来了。' },
   { file: 'shopkeeper/shop_01.wav', speaker: '商店老板', text: '欢迎光临星辰杂货店！' },
   { file: 'shopkeeper/shop_02.wav', speaker: '商店老板', text: '收获的作物、挖到的矿石都可以卖给我换金币。种子和工具也有卖。' },
   { file: 'shopkeeper/shop_03.wav', speaker: '商店老板', text: '需要什么随便看。钱货两清，童叟无欺。' },

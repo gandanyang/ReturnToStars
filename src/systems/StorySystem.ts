@@ -357,17 +357,19 @@ export const FOREST_ROAD_RESTORED_DIALOGUE: DialogueLine[] = [
 ];
 
 /** FEATURE-041 复兴循环 v0.11：木匠回归演出对白（老屋修复完成后，次日进入 farm 自动触发）
- *  方向稿，待制作人定稿（剧情权限：Agent 不自行扩写）。
+ *  已定稿（制作人 2026-08-10，A1 角色自主表达测试）：老周描述动作不总结规律，
+ *  收尾"嗯。东西都带来了。"=生活事实非主题表达；结构=作者总结→玩家发现。
  *  角色定位：青禾镇留下来的手艺人，不善言辞但可靠；重建行动的第一个具体执行者。 */
 export const CARPENTER_RETURN_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（老屋修好的第二天清晨，一个背着工具箱的人站在门口，正打量新补好的屋瓦。）' },
-  { speaker: '木匠老周', color: '#c89860', text: '……青禾镇的。我叫老周。' },
-  { speaker: '木匠老周', color: '#c89860', text: '听说岛上又有人修房子了。' },
-  { speaker: '林澈', color: COLORS.linche, text: '嗯。这屋子是我爷爷留下的。' },
-  { speaker: '木匠老周', color: '#c89860', text: '你爷爷的房子，是他一点一点修起来的。' },
+  { speaker: '木匠老周', color: '#c89860', text: '……瓦换过了。' },
+  { speaker: '林澈', color: COLORS.linche, text: '嗯。我爷爷留下的。' },
+  { speaker: '林澈', color: COLORS.linche, text: '荒了几年，我想着先修起来。' },
+  { speaker: '木匠老周', color: '#c89860', text: '修得不错。' },
   { speaker: '木匠老周', color: '#c89860', text: '门轴、窗栓、田边的栅栏……有不顺手的地方，喊我。' },
   { speaker: '林澈', color: COLORS.linche, text: '你是说……你要留下？' },
-  { speaker: '木匠老周', color: '#c89860', text: '有人开始修，就有人愿意留下。' },
+  { speaker: '木匠老周', color: '#c89860', text: '（看了一眼工具箱）' },
+  { speaker: '木匠老周', color: '#c89860', text: '嗯。东西都带来了。' },
   { speaker: '', color: COLORS.system, text: '（归星岛，多了一个会修东西的人。）' },
 ];
 

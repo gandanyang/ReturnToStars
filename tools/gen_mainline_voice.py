@@ -329,14 +329,14 @@ T = [
     ("adventurer", "adv_08", "路过，顺便看看。听说你把这儿拾掇得挺像样，我来长长见识。"),
     ("adventurer", "adv_09", "乱不怕，有人气就行。你忙你的，我先走啦——回头找你玩。"),
 
-    # ---- 木匠老周（carpenter）：CARPENTER_RETURN_DIALOGUE 首遇 5 句 + 老屋对话 2 句（制作人 2026-08-10 首批 7 条，MiniMax 音色 laozhou_carpenter_v1）----
-    ("carpenter", "carpenter_01", "……青禾镇的。我叫老周。"),
-    ("carpenter", "carpenter_02", "听说岛上又有人修房子了。"),
-    ("carpenter", "carpenter_03", "你爷爷的房子，是他一点一点修起来的。"),
+    # ---- 木匠老周（carpenter）：CARPENTER_RETURN_DIALOGUE 定稿稿 4 句 + 老屋对话 2 句（制作人 2026-08-10 A1 施工版，MiniMax 音色 laozhou_carpenter_v1）----
+    # A1 定稿后：carpenter_01/02/03/05 随文本删除（资产保留）；_04 门轴窗栓定稿稿继续使用；_08/09/10 为定稿稿新句
     ("carpenter", "carpenter_04", "门轴、窗栓、田边的栅栏……有不顺手的地方，喊我。"),
-    ("carpenter", "carpenter_05", "有人开始修，就有人愿意留下。"),
     ("carpenter", "carpenter_06", "……这屋子的木料，是你张罗来的？"),
     ("carpenter", "carpenter_07", "……这岛上，修东西的人，快绝了。"),
+    ("carpenter", "carpenter_08", "……瓦换过了。"),
+    ("carpenter", "carpenter_09", "修得不错。"),
+    ("carpenter", "carpenter_10", "嗯。东西都带来了。"),
 
     # ---- 商店老板（shopkeeper）：SHOPKEEPER_DIALOGUES ----
     ("shopkeeper", "shop_01", "欢迎光临星辰杂货店！"),

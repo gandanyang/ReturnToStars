@@ -181,8 +181,8 @@ async function run() {
     check('C1 回归：对白自动打开', d.dialogueOpen === true, `dialogueOpen=${d.dialogueOpen}`);
     check('C2 回归：木匠演出精灵出现在老屋旁', d.carpenterReturnSprite === true);
     check('C3 对白发言人含「木匠老周」', d.dialogueSpeakers.some((s) => s.includes('木匠老周')), `speakers=${d.dialogueSpeakers.join(',')}`);
-    check('C4 对白含回归点题句「有人开始修，就有人愿意留下」',
-      d.dialogueLines.some((l) => l.includes('有人开始修，就有人愿意留下')));
+    check('C4 对白含收尾生活事实句「嗯。东西都带来了。」（A1 定稿替代旧点题句）',
+      d.dialogueLines.some((l) => l.includes('东西都带来了')));
     await page.screenshot({ path: join(SHOT_DIR, 'revival-v011-return-dialogue.png') });
 
     // 跳过对白 → 结束回调存档（含 carpenter_returned）
