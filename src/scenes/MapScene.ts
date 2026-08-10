@@ -9044,7 +9044,7 @@ export class MapScene extends Phaser.Scene {
     if (!this.firstWater) {
       this.firstWater = true;
       triggerTag('first_water');
-      showMemoryMoment('有些东西不会马上改变，但每天照顾一点，就会慢慢回来。');
+      showMemoryMoment('水浇下去，能不能活，明天才知道。');
     }
     return true;
   }

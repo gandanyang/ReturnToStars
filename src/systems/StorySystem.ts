@@ -174,18 +174,17 @@ export const XIYA_EVENING_OBS_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '可好像，从没人问过她，累不累。' },
 ];
 
-/** 清理完成 → 播种（v0.7 生活化引导） */
+/** 清理完成 → 播种（v0.7 生活化引导；A2 角色自主表达测试：删②林澈总结式独白「先有人开始」，独白只保留一处=开垦处①） */
 export const SOW_SEEDS_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '地翻好了。把萝卜种子撒下去，浇水后就会发芽。' },
-  { speaker: '林澈', color: COLORS.linche, inner: true, text: '种下去的时候，看不到结果也没关系。很多事情，都是先有人开始，后来才慢慢有变化。' },
   { speaker: '', color: COLORS.system, text: '获得物品：【萝卜种子】×3' },
   { speaker: '', color: COLORS.system, text: hint('按 [R] 键切换到萝卜种子，然后对着锄过的土地按 [E] 播种。播种 3 块土地。', '对着锄过的土地点「交互」播种萝卜（默认种子）。播种 3 块土地。') },
 ];
 
-/** 播种完成 → 浇水（v0.7 生活化引导；E-08 金币循环意义：卖钱→修庄园） */
+/** 播种完成 → 浇水（v0.7 生活化引导；E-08 金币循环意义：卖钱→修庄园；A2：③林澈独白改技术脑「观察→分析」短句） */
 export const WATER_CROPS_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '种下去，就得天天来看它。你爷爷说，庄稼最怕被忘记。' },
-  { speaker: '林澈', color: COLORS.linche, inner: true, text: '有些东西不会马上改变，但每天照顾一点，就会慢慢回来。' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '水浇下去，能不能活，明天才知道。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '庄园还有不少地方需要修，等收成以后，可以拿去镇上的店换些钱。' },
   { speaker: '林澈', color: COLORS.linche, text: '卖掉？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯。留下需要的，换成需要的东西，这里才能慢慢恢复起来。' },
