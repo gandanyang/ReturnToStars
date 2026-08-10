@@ -65,6 +65,10 @@ export const COPPER_PRICE = 15;
 export const IRON_PRICE = 30;
 /** 木材收购价 */
 export const WOOD_PRICE = 8;
+/** 木材买入价（商店整捆木材 8G/根，平价无套利；资源快速置换复用此价） */
+export const WOOD_BUY_PRICE = 8;
+/** 石头买入价（商店整齐石料 12G/2块 = 6G/块，> 收购价 5G 无套利；资源快速置换复用此价） */
+export const STONE_BUY_PRICE = 6;
 
 /**
  * 可出售物品 → 收购价（一键出售用）。

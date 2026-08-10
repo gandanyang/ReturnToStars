@@ -16,6 +16,7 @@
  */
 
 import { getItemCount, addItem, type ItemType } from '../data/Inventory';
+import { getCoins, spendCoins, WOOD_BUY_PRICE } from '../data/Economy';
 import { markTriggered, hasTriggered } from './EventManager';
 
 /** 需求物品类别：wood=木材 / food=食物（聚合） */
@@ -96,6 +97,40 @@ export function getRequestShortageText(req: ResidentRequest): string {
   }
   const have = FOOD_ITEMS.reduce((sum, it) => sum + getItemCount(it), 0);
   return `${FOOD_LABEL}不足，还差 ${req.count - have} 份`;
+}
+
+/**
+ * 资源快速置换：木材类需求「用金币一键补齐」所需花费（按商店买入价 8G/根）。
+ * 金币足以补齐全部缺口时返回花费；否则返回 null（不弹购买）。
+ * 食物类需求不支持金币购买（聚合复杂，返回 null）。
+ */
+export function getRequestQuickBuyCost(req: ResidentRequest): number | null {
+  if (req.itemKind !== 'wood') return null;
+  if (isRequestDone(req.id)) return null;
+  const need = req.count - getItemCount('wood');
+  if (need <= 0) return null;
+  const cost = need * WOOD_BUY_PRICE;
+  if (cost > getCoins()) return null;
+  return cost;
+}
+
+/**
+ * 资源快速置换：用金币补齐木材缺口后立即交付。
+ * 返回 FulfillResult（success / insufficient / done_already）。调用方负责反馈对白 + save。
+ */
+export function fulfillRequestWithGold(id: string): FulfillResult {
+  const req = getRequestById(id);
+  if (!req) return 'not_found';
+  if (isRequestDone(id)) return 'done_already';
+  if (req.itemKind !== 'wood') return 'insufficient';
+  const need = req.count - getItemCount('wood');
+  if (need <= 0) return 'insufficient';
+  const cost = need * WOOD_BUY_PRICE;
+  if (!spendCoins(cost)) return 'insufficient';
+  addItem('wood', need);
+  addItem('wood', -req.count);
+  markTriggered(id);
+  return 'success';
 }
 
 // ============ 交付 ============

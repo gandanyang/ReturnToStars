@@ -31,10 +31,10 @@ import {
   getPlotCenter,
   type FarmPlotId,
 } from '../data/FarmPlot';
-import { getProjectShortfall, isRestored, markRestored, getRevivalLevel } from '../data/FarmRestore';
+import { getProjectShortfall, getQuickBuyCost, isRestored, markRestored, getRevivalLevel } from '../data/FarmRestore';
 import { addItem, getItemCount, itemIconHtml } from '../data/Inventory';
 import { formatTime, getTime, nextDay as timeNextDay, setTime, setTimeFull, tick as timeTick } from '../data/TimeSystem';
-import { getCoins, spendCoins, addCoins } from '../data/Economy';
+import { getCoins, spendCoins, addCoins, WOOD_BUY_PRICE } from '../data/Economy';
 import { addXp, getLevel, getXp, getXpToNext, setOnLevelUp } from '../data/FarmProgress';
 import { getStamina, consumeStamina, resetStamina, MAX_STAMINA } from '../data/Stamina';
 import { ORE_DEPOSITS, OreDeposit, isOreMined, resetOres, hitOre, getOreHits, getOreHitCost, ORE_MAX_HITS } from '../data/MineState';
@@ -6992,6 +6992,43 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
+   * 资源快速置换（2026-08-11 制作人拍板）：建设/交付资源不足时，若金币足以按商店价补齐缺失
+   * 木材/石头，弹选项「用金币一键补齐（X G）」/「先不买」；购买成功由 onBuy 执行完成逻辑。
+   * 金币不足补齐全部 → 不弹选项，维持原有不足提示。
+   */
+  private offerQuickBuy(opts: {
+    shortfallText: string;
+    cost: number | null;
+    onBuy: () => void;
+  }): void {
+    if (opts.cost === null) {
+      this.showDialogueText(opts.shortfallText);
+      return;
+    }
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(
+      [
+        {
+          speaker: '',
+          color: COLORS.system,
+          text: opts.shortfallText,
+          options: [`用金币一键补齐（${opts.cost} G）`, '先不买'],
+        },
+      ],
+      () => this.updateHUD(),
+      (index: number) => {
+        if (index === 0 && opts.cost !== null) {
+          if (spendCoins(opts.cost)) {
+            opts.onBuy();
+          } else {
+            this.showDialogueText('金币不够……先去卖掉一些收获吧。');
+          }
+        }
+      },
+    );
+  }
+
+  /**
    * 与老屋交互：未恢复时靠近按 E → 检查资源（木头×30 石头×20 金币×100）→
    * 资源不足提示缺什么；足够则扣除 → markRestored('oldHouse') → 外观替换 → 存档。
    */
@@ -7008,14 +7045,36 @@ export class MapScene extends Phaser.Scene {
       gold: getCoins(),
     });
     if (missing.length > 0) {
-      this.showDialogueText(`老屋破损严重，还缺：${missing.join('、')}。`);
+      const cost = getQuickBuyCost('oldHouse', {
+        wood: getItemCount('wood'),
+        stone: getItemCount('stone'),
+        gold: getCoins(),
+      });
+      this.offerQuickBuy({
+        shortfallText: `老屋破损严重，还缺：${missing.join('、')}。`,
+        cost,
+        onBuy: () => {
+          const needWood = 30 - getItemCount('wood');
+          if (needWood > 0) addItem('wood', needWood);
+          const needStone = 20 - getItemCount('stone');
+          if (needStone > 0) addItem('stone', needStone);
+          this.tryOldHouseRestoreComplete();
+        },
+      });
       return true;
     }
+    this.tryOldHouseRestoreComplete();
+    return true;
+  }
+
+  /** 老屋修复完成逻辑（资源已足够/一键补齐后） */
+  private tryOldHouseRestoreComplete(): void {
     addItem('wood', -30);
     addItem('stone', -20);
     spendCoins(100);
     markRestored('oldHouse');
-    g.restored = true;
+    const g = this.oldHouseRestore;
+    if (g) g.restored = true;
     // 声音补全 v1.0（2026-08-09）：修复成功——老屋恢复的成就感
     play('repair_complete');
     // FEATURE-041：老屋修复完成 → 归星记录「修复老屋」（木匠回归判定的状态条件之一）
@@ -7033,7 +7092,6 @@ export class MapScene extends Phaser.Scene {
     this.storyDialogue.play(OLD_HOUSE_RESTORED_DIALOGUE, () => {
       setTimeout(() => showMemoryMoment('风吹过修补好的屋瓦——这座岛，开始像家了。'), 1600);
     });
-    return true;
   }
 
   // ============ P2 农场复兴视觉化（菜园层次/工具区/树荫/碎石小路） ============
@@ -7464,13 +7522,33 @@ export class MapScene extends Phaser.Scene {
       gold: getCoins(),
     });
     if (missing.length > 0) {
-      this.showDialogueText(`后山道路还未修整，还缺：${missing.join('、')}。`);
+      const cost = getQuickBuyCost('forestRoad', {
+        wood: getItemCount('wood'),
+        stone: getItemCount('stone'),
+        gold: getCoins(),
+      });
+      this.offerQuickBuy({
+        shortfallText: `后山道路还未修整，还缺：${missing.join('、')}。`,
+        cost,
+        onBuy: () => {
+          const needStone = 50 - getItemCount('stone');
+          if (needStone > 0) addItem('stone', needStone);
+          this.tryForestRoadRestoreComplete();
+        },
+      });
       return true;
     }
+    this.tryForestRoadRestoreComplete();
+    return true;
+  }
+
+  /** 后山道路修复完成逻辑（资源已足够/一键补齐后） */
+  private tryForestRoadRestoreComplete(): void {
     addItem('stone', -50);
     spendCoins(200);
     markRestored('forestRoad');
-    g.restored = true;
+    const g = this.forestRoadRestore;
+    if (g) g.restored = true;
     this.buildForestRoadRestored();
     // 声音补全 v1.0（2026-08-09）：修复成功——后山道路恢复的成就感
     play('repair_complete');
@@ -7486,7 +7564,6 @@ export class MapScene extends Phaser.Scene {
     this.storyDialogue.play(FOREST_ROAD_RESTORED_DIALOGUE, () => {
       setTimeout(() => showMemoryMoment('这条路重新连通了——后山不再是孤岛。'), 1600);
     });
-    return true;
   }
 
   /**
@@ -7591,12 +7668,28 @@ export class MapScene extends Phaser.Scene {
 
     const wood = getItemCount('wood');
     if (wood < 3) {
-      this.storyDialogue.play(XIYA_GARDEN_TRELLIS_NEED_DIALOGUE, () => this.updateHUD());
+      // 资源快速置换：木材×3 按商店价补齐（8G/根），金币不足补齐全部 → 维持原提示
+      const needWood = 3 - wood;
+      const cost = needWood * WOOD_BUY_PRICE;
+      this.offerQuickBuy({
+        shortfallText: '藤架还差几根木材。你要是有空，从庄园里砍几根来？',
+        cost: getCoins() >= cost ? cost : null,
+        onBuy: () => {
+          addItem('wood', needWood);
+          this.trySideXiyaGardenComplete();
+        },
+      });
       return true;
     }
+    this.trySideXiyaGardenComplete();
+    return true;
+  }
 
+  /** 花田藤架交付完成逻辑（木材已足够/一键补齐后） */
+  private trySideXiyaGardenComplete(): void {
     addItem('wood', -3);
     this.sideXiyaGardenDone = true;
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     if (!isPhotoUnlocked('xiya_garden')) {
       unlockPhoto('xiya_garden');
       this.notifyPhotoUnlocked('xiya_garden');
@@ -7976,7 +8069,6 @@ export class MapScene extends Phaser.Scene {
         } as any);
       });
     });
-    return true;
   }
 
   /**

@@ -17,6 +17,8 @@
  *   - 版本号不递增
  */
 
+import { WOOD_BUY_PRICE, STONE_BUY_PRICE } from './Economy';
+
 /** 恢复点/建设点 key 集合 */
 export const RESTORE_KEYS = ['garden', 'oldHouse', 'forestRoad'] as const;
 
@@ -55,6 +57,31 @@ export function getProjectShortfall(
   if ((req.stone ?? 0) > have.stone) missing.push(`石头×${req.stone! - have.stone}`);
   if ((req.gold ?? 0) > have.gold) missing.push(`金币×${req.gold! - have.gold}`);
   return missing;
+}
+
+/**
+ * 资源快速置换（一键购买补齐）：计算用金币按商店价补齐该建设点缺失的木材/石头所需花费。
+ * 价格复用 Economy 买入价（木材 8G/根、石头 6G/块），与商店同源不新增价格。
+ * 金币缺口（缺失的金币本身）无法用金币补齐 → 返回 null（调用方不弹购买选项）。
+ * 返回 null 表示金币不足以补齐全部缺失资源；返回数字表示补齐所需花费。
+ */
+export function getQuickBuyCost(
+  key: RestoreKey,
+  have: { wood: number; stone: number; gold: number },
+): number | null {
+  const req = RESTORE_PROJECTS[key].requirements;
+  if (!req) return null;
+  // 金币缺口用金币买不来（缺失金币本身不可买）→ 无法一键补齐
+  if ((req.gold ?? 0) > have.gold) return null;
+  let cost = 0;
+  const needWood = (req.wood ?? 0) - have.wood;
+  if (needWood > 0) cost += needWood * WOOD_BUY_PRICE;
+  const needStone = (req.stone ?? 0) - have.stone;
+  if (needStone > 0) cost += needStone * STONE_BUY_PRICE;
+  // 无缺失（仅当调用方误用时）或金币不够 → 不弹
+  if (cost <= 0) return null;
+  if (cost > have.gold) return null;
+  return cost;
 }
 
 /** 恢复状态表：key = 建设点 */

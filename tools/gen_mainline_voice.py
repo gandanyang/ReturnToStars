@@ -81,10 +81,10 @@ ROLES = {
         ref_text="[sigh] 哎呀，俺这山里粗汉，不会说啥漂亮话。小兄弟，[laughter] 进了这山口，你就甭客气了！先干了这碗热汤暖暖身子，在这儿歇脚，保准安稳！",
         cfg=2.4, steps=16, atempo=1.0, sex="male",
     ),
-    "gardener": dict(  # 花匠小梅：少女，温柔明亮（2026-08-05 制作人定案音源：千早爱音中文 sample S5）
+    "gardener": dict(  # 花匠小梅：少女，温柔明亮（2026-08-11 制作人定案：MiniMax 温暖少女 Warm_Girl 全量重配；VoxCPM 千早爱音 S5 为旧声线降级备选）
         ref=r"art_source\audio_generated\千早爱音中文S5_20260805_001.mp3",
         ref_text="大家好啊我是千石由乃，今天来点大家想看的东西",
-        cfg=2.4, steps=16, atempo=1.0, sex="female",
+        cfg=2.4, steps=16, atempo=1.0, sex="female", minimax_voice="Chinese (Mandarin)_Warm_Girl",
     ),
     "adventurer": dict(  # 冒险家阿风：青年男，爽朗（2026-08-05 制作人定案重配：男磁性怒音样本 替换旧参考音 阿风_20260804_001）
         ref=r"E:\BINGdown\VoxCPM\examples\男磁性.MP3",
@@ -307,8 +307,8 @@ T = [
     # ---- 花匠小梅（gardener）：GARDENER_DIALOGUES ----
     ("gardener", "garden_01", "你好呀，我叫小梅。这些花都是我亲手种的，漂亮吧？"),
     ("gardener", "garden_02", "你爷爷以前每天下午都会来闻这株花的味道。他说这和城市的空气不一样。"),
-    ("gardener", "garden_03", "种东西啊，没什么秘诀。每天来看看它们，浇水、除草……"),
-    ("gardener", "garden_04", "只要用心，土地就会用丰收回报你。你的庄园也会一样的。"),
+    ("gardener", "garden_03", "种东西啊……说不上来为什么。浇水、除草、看它们一天一个样，心里就踏实。"),
+    ("gardener", "garden_04", "你那边的地，我刚去看过，荒是荒了点。你种上东西，它就活过来了。"),
     ("gardener", "garden_05", "这花不是卖的，是有人托我种的。"),
     ("gardener", "garden_06", "不知道。但那个人说，总有一天会有人来收。"),
     ("gardener", "garden_07", "（笑）你也感觉到了？"),

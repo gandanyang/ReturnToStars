@@ -13,8 +13,10 @@ import {
   getResidentRequests,
   canFulfillRequest,
   fulfillRequest,
+  fulfillRequestWithGold,
   isRequestDone,
   getRequestShortageText,
+  getRequestQuickBuyCost,
   getRequestById,
   type ResidentRequest,
 } from '../systems/ResidentRequestSystem';
@@ -104,13 +106,28 @@ function createDom(): void {
   });
   // 事件委托：交付按钮
   panelEl.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest('[data-action="deliver"]') as HTMLElement | null;
-    if (!btn) return;
-    e.stopPropagation();
-    const id = btn.getAttribute('data-id');
+    const id = (() => {
+      const btn = (e.target as HTMLElement).closest('[data-action="deliver"],[data-action="gold-buy"]') as HTMLElement | null;
+      return btn?.getAttribute('data-id') ?? null;
+    })();
     if (!id) return;
+    const isGold = !!(e.target as HTMLElement).closest('[data-action="gold-buy"]');
     const req = getRequestById(id);
     if (!req || isRequestDone(id)) return;
+    if (isGold) {
+      const result = fulfillRequestWithGold(id);
+      if (result === 'success') {
+        onDeliverCb?.(id);
+        return;
+      }
+      const card = (e.target as HTMLElement).closest('.rb-card') as HTMLElement | null;
+      const err = card?.querySelector('[data-err]') as HTMLElement | null;
+      if (err) {
+        err.style.display = 'block';
+        err.textContent = '❌ 金币不够，先去卖些收获吧。';
+      }
+      return;
+    }
     const result = fulfillRequest(id);
     if (result === 'success') {
       onDeliverCb?.(id);
@@ -118,7 +135,7 @@ function createDom(): void {
     }
     if (result === 'insufficient') {
       // 注意：按钮自身也带 data-id，closest('[data-id]') 会命中按钮，必须用 .rb-card 容器向上找
-      const card = btn.closest('.rb-card') as HTMLElement | null;
+      const card = (e.target as HTMLElement).closest('.rb-card') as HTMLElement | null;
       const err = card?.querySelector('[data-err]') as HTMLElement | null;
       if (err) {
         err.style.display = 'block';
@@ -132,12 +149,17 @@ function createDom(): void {
 function renderCard(req: ResidentRequest): string {
   const done = isRequestDone(req.id);
   const enough = canFulfillRequest(req);
+  const goldCost = getRequestQuickBuyCost(req);
   const statusBadge = done
     ? '<span style="color:#7ef0a0;font-size:12px;">✓ 已完成</span>'
     : '<span style="color:#e8c070;font-size:12px;">待交付</span>';
-  const button = done
+  const deliverBtn = done
     ? '<button disabled style="padding:5px 14px;border-radius:6px;border:none;background:#3a4a6e;color:#6a7ab8;font-size:12px;cursor:default;">已完成</button>'
     : `<button data-action="deliver" data-id="${req.id}" style="padding:5px 14px;border-radius:6px;border:none;background:#4a6ab8;color:#fff;font-size:12px;cursor:pointer;${enough ? '' : 'opacity:0.7;'}">交付</button>`;
+  // 资源快速置换：木材类需求不足但金币可补全 → 追加「金币补齐」按钮
+  const goldBtn = !done && goldCost !== null
+    ? `<button data-action="gold-buy" data-id="${req.id}" style="padding:5px 14px;border-radius:6px;border:none;background:#b8944a;color:#fff;font-size:12px;cursor:pointer;margin-right:6px;">💧 金币补齐交付（${goldCost} G）</button>`
+    : '';
 
   return `
     <div class="rb-card" data-id="${req.id}" style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;border-left:3px solid #7eb8da;">
@@ -150,7 +172,7 @@ function renderCard(req: ResidentRequest): string {
         ${haveText(req)}
       </div>
       <div data-err style="display:none;font-size:12px;color:#ff8a8a;margin-top:6px;"></div>
-      <div style="margin-top:10px;text-align:right;">${button}</div>
+      <div style="margin-top:10px;text-align:right;">${goldBtn}${deliverBtn}</div>
     </div>
   `;
 }
