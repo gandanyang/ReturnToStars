@@ -186,7 +186,7 @@ async function run() {
     });
     result('6a. 点击「使用」钥匙', keyClicked);
     await sleep(500);
-    await waitAndSkipDialogue(page, 11); // GATE_OPENED_DIALOGUE 11 行（v0.8+E-07 现实+情感动机 + 先开三块地 + 锄地情感句 v0.10.2）
+    await waitAndSkipDialogue(page, 11); // GATE_OPENED_DIALOGUE 8 行（2026-08-09 压缩；多打 advance 为安全 no-op）
 
     info = await sceneInfo(page);
     const afterKey = await page.evaluate(() => {

@@ -133,9 +133,22 @@ try {
     if (!el) return null;
     const cards = [...el.querySelectorAll('[data-action="play"]')];
     const first = cards[0]?.textContent ?? '';
-    return { count: cards.length, firstHasCn: /归来与新生之岛/.test(first), firstHasEn: /When The Island Wakes/.test(first), hasSpring: [...cards].some((c) => c.textContent.includes('春深有信')) };
+    const all = cards.map((c) => c.textContent ?? '');
+    return {
+      count: cards.length,
+      firstHasCn: /归来与新生之岛/.test(first),
+      firstHasEn: /Stars Gather/.test(first),
+      hasSpring: all.some((t) => t.includes('春深有信')),
+      // 2026-08-10 音乐盒扩容断言：补录 linche_theme2 + 新增 4 首归档曲
+      hasLinche2: all.some((t) => t.includes('抉择之路') && t.includes('The Road I Choose')),
+      hasIslandWakes: all.some((t) => t.includes('岛之苏醒') && t.includes('When The Island Wakes')),
+      hasFollowWind: all.some((t) => t.includes('随风而行') && t.includes('Follow the Wind')),
+      hasRoadsWind: all.some((t) => t.includes('风之路') && t.includes('Roads of the Wind')),
+      hasChasingWind: all.some((t) => t.includes('逐风') && t.includes('Chasing the Wind')),
+    };
   });
-  result('T3 曲目列表 7 首含中文名/英文名', !!listInfo && listInfo.count === 7 && listInfo.firstHasCn && listInfo.firstHasEn && listInfo.hasSpring, JSON.stringify(listInfo));
+  result('T3 曲目列表 12 首含中文名/英文名', !!listInfo && listInfo.count === 12 && listInfo.firstHasCn && listInfo.firstHasEn && listInfo.hasSpring, JSON.stringify(listInfo));
+  result('T3b 音乐盒扩容（抉择之路补录 + 4 首归档新曲）', !!listInfo && listInfo.hasLinche2 && listInfo.hasIslandWakes && listInfo.hasFollowWind && listInfo.hasRoadsWind && listInfo.hasChasingWind, JSON.stringify(listInfo));
 
   await page.evaluate(() => {
     const btn = document.querySelector('#music-box-panel [data-action="play"][data-key="title"]');
@@ -145,6 +158,16 @@ try {
   result('T4 点击《归来与新生之岛》→ 播放', cur4 === 'title', cur4);
   const badge4 = await waitBadge('title');
   result('T4b 徽标实时刷新到《归来与新生之岛》', badge4, `badge=${badge4}`);
+
+  // ── 2026-08-10 音乐盒扩容：新归档曲可播放 ──
+  await page.evaluate(() => {
+    const btn = document.querySelector('#music-box-panel [data-action="play"][data-key="island_wakes"]');
+    btn?.click();
+  });
+  const cur4c = await waitMusic('island_wakes');
+  result('T4c 点击《岛之苏醒》(When The Island Wakes)→ 播放', cur4c === 'island_wakes', cur4c);
+  const badge4c = await waitBadge('island_wakes');
+  result('T4d 徽标实时刷新到《岛之苏醒》', badge4c, `badge=${badge4c}`);
 
   await page.evaluate(() => {
     const btn = document.querySelector('[data-action="play"][data-key="spring_letter"]');
@@ -168,8 +191,9 @@ try {
   });
   const vis7 = await waitPanel(true);
   await page.evaluate(() => document.querySelector('#music-box-panel [data-action="stop"]')?.click());
-  const cur7 = await waitMusic('farm_day');
-  result('T7 「停止播放」恢复老屋日常 BGM', vis7 && cur7 === 'farm_day', `visible=${vis7} music=${cur7}`);
+  // 老屋（house）场景默认 BGM = linche_theme2（林澈·抉择之路，playSceneBgm 分支）
+  const cur7 = await waitMusic('linche_theme2');
+  result('T7 「停止播放」恢复老屋日常 BGM', vis7 && cur7 === 'linche_theme2', `visible=${vis7} music=${cur7}`);
 
   // ── v0.11（P0.5 音乐优先级）：我的歌 > 地图默认 ──
   // T8 选曲（设为"我的歌"）→ 切到青禾镇 → 音乐保持我的歌（不切回 town 默认）
@@ -206,14 +230,14 @@ try {
   });
   const vis9 = await waitPanel(true);
   await page.evaluate(() => document.querySelector('#music-box-panel [data-action="stop"]')?.click());
-  const cur9a = await waitMusic('farm_day');
+  const cur9a = await waitMusic('linche_theme2');
   await page.evaluate(() => {
     window.debug.setTime(10, 0);
     window.__game.scene.start('town', { spawn: { x: 160, y: 192 } });
   });
   await waitScene('town');
   const cur9b = await waitMusic('town');
-  result('T9 停止播放后切到青禾镇恢复地图默认 BGM', cur9a === 'farm_day' && cur9b === 'town', `house=${cur9a} town=${cur9b}`);
+  result('T9 停止播放后切到青禾镇恢复地图默认 BGM', cur9a === 'linche_theme2' && cur9b === 'town', `house=${cur9a} town=${cur9b}`);
 
   result('附加 无加载失败/页面错误', warns.length === 0, warns.join('; ').slice(0, 160));
 } catch (e) {

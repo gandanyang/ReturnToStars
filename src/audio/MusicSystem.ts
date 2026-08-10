@@ -26,6 +26,11 @@ const TRACKS: Record<string, string> = {
   linche_theme: 'assets/audio/music/linche_theme.ogg',
   // 林澈个人曲 2（2026-08-09 制作人归档《The Road I Choose》）：老屋（情绪基地）默认 BGM
   linche_theme2: 'assets/audio/music/linche_theme2.ogg',
+  // 音乐盒收藏扩容（2026-08-10 制作人归档 4 首 no-watermark）：功能分配待定（"后面分功能"）
+  island_wakes: 'assets/audio/music/island_wakes.ogg',
+  follow_wind: 'assets/audio/music/follow_wind.ogg',
+  roads_wind: 'assets/audio/music/roads_wind.ogg',
+  chasing_wind: 'assets/audio/music/chasing_wind.ogg',
 };
 
 /**
@@ -46,13 +51,19 @@ export interface MusicTrackMeta {
 }
 
 export const MUSIC_CATALOG: MusicTrackMeta[] = [
-  { key: 'title', title: '归来与新生之岛', en: 'When The Island Wakes', desc: '归星岛主题曲' },
+  { key: 'title', title: '归来与新生之岛', en: 'Stars Gather', desc: '归星岛主题曲' },
   { key: 'farm_day', title: '农场日常', en: 'Farm Days', desc: '归星岛的日子' },
   { key: 'town', title: '青禾镇的清晨', en: 'Morning in Qinghe Town', desc: '小镇日常' },
   { key: 'spring_letter', title: '春深有信', en: 'Letters in Spring', desc: '夏雅主题曲' },
   { key: 'linche_theme', title: '林澈主题曲', en: 'The Waiting Shore', desc: '等待的彼岸' },
+  { key: 'linche_theme2', title: '林澈·抉择之路', en: 'The Road I Choose', desc: '老屋的旋律' },
   { key: 'stargaze_night', title: '观星夜', en: 'Stargazing Night', desc: '星夜氛围' },
   { key: 'stargaze_final', title: '观星夜·终章', en: 'Starlight Finale', desc: '群星之约' },
+  // 音乐盒收藏扩容（2026-08-10 制作人归档 no-watermark 版，功能分配待定——"后面分功能"）
+  { key: 'island_wakes', title: '岛之苏醒', en: 'When The Island Wakes', desc: '归星岛主题曲候选' },
+  { key: 'follow_wind', title: '随风而行', en: 'Follow the Wind', desc: '风之旋律 · 候选' },
+  { key: 'roads_wind', title: '风之路', en: 'Roads of the Wind', desc: '风之旋律 · 候选' },
+  { key: 'chasing_wind', title: '逐风', en: 'Chasing the Wind', desc: '风之旋律 · 候选' },
 ];
 
 /** 根据浏览器支持选择最佳格式 */

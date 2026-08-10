@@ -10,6 +10,7 @@ dist-ssr/
 
 # Vite 缓存
 .vite/
+vite.config.ts.timestamp-*.mjs
 
 # 日志
 *.log

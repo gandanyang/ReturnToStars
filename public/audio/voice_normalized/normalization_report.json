@@ -1,0 +1,51 @@
+[
+  {
+    "file": "garden_01.wav",
+    "original_loudness": -25.46,
+    "normalized_loudness": -15.24,
+    "adjustment": 10.22,
+    "status": "success"
+  },
+  {
+    "file": "garden_02.wav",
+    "original_loudness": -24.76,
+    "normalized_loudness": -17.72,
+    "adjustment": 7.040000000000003,
+    "status": "success"
+  },
+  {
+    "file": "garden_03.wav",
+    "original_loudness": -24.97,
+    "normalized_loudness": -14.93,
+    "adjustment": 10.04,
+    "status": "success"
+  },
+  {
+    "file": "garden_04.wav",
+    "original_loudness": -24.1,
+    "normalized_loudness": -16.1,
+    "adjustment": 8.0,
+    "status": "success"
+  },
+  {
+    "file": "garden_05.wav",
+    "original_loudness": -24.48,
+    "normalized_loudness": -15.99,
+    "adjustment": 8.49,
+    "status": "success"
+  },
+  {
+    "file": "garden_06.wav",
+    "original_loudness": -23.22,
+    "normalized_loudness": -15.75,
+    "adjustment": 7.469999999999999,
+    "status": "success"
+  },
+  {
+    "file": "garden_07.wav",
+    "original_loudness": -23.81,
+    "normalized_loudness": -16.0,
+    "adjustment": 7.809999999999999,
+    "status": "success"
+  }
+]

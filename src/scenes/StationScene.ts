@@ -15,6 +15,7 @@ import { Player } from '../entities/Player';
 import { InputManager } from '../systems/InputManager';
 import { TouchControls } from '../systems/TouchControls';
 import { StoryDialogue } from '../ui/StoryDialogue';
+import { showChapterBanner, cancelChapterBanner } from '../ui/ChapterBanner';
 import {
   STATION_DIALOGUE,
   COLORS,
@@ -760,6 +761,20 @@ export class StationScene extends Phaser.Scene {
     // 跳过按钮（开场全程显示，点击后跳过所有动画直接进入可玩状态）
     this.createSkipButton();
 
+    // Chapter 0「归途」（制作人 2026-08-10 拍板：章节仪式感，标题黑屏后、列车进站前）
+    // 文案制作人定稿，不扩写；Banner 播放完才进入列车进站时序；跳过开场会取消 Banner。
+    showChapterBanner({
+      chapter: 'CHAPTER 0',
+      title: '归途',
+      subtitle: '有些地方，离开很久，也还是会等你回来。',
+    }).then(() => {
+      if (this.introSkipped) return;
+      this.startTrainArrival();
+    });
+  }
+
+  /** 原开场时序：黑屏 + 列车声 → 淡入车站 → 音量提示 → 手机通知 → 情绪句 → 车站独白 */
+  private startTrainArrival(): void {
     // 阶段1：黑屏 + 列车声
     this.time.delayedCall(800, () => {
       if (this.introSkipped) return;
@@ -775,7 +790,15 @@ export class StationScene extends Phaser.Scene {
             // 阶段3：手机通知
             this.showPhoneNotification(() => {
               if (this.introSkipped) return;
-              this.playStationDialogue();
+              // 2026-08-09 开场 180 秒优化（制作人拍板）：通知关闭 → 停顿 1s → 林澈情绪句（纯文本，无配音）
+              // → 车站独白。给「回来」一个主观情绪的落点，不解释、不进 STATION_DIALOGUE（避免牵动配音链）。
+              this.time.delayedCall(1000, () => {
+                if (this.introSkipped) return;
+                this.storyDialogue.play([{ speaker: '林澈', color: COLORS.linche, inner: true, text: '……好久没回去了。' }], () => {
+                  if (this.introSkipped) return;
+                  this.playStationDialogue();
+                });
+              });
             });
           });
         });
@@ -792,7 +815,7 @@ export class StationScene extends Phaser.Scene {
       padding: '8px 20px', background: 'rgba(0,0,0,0.6)',
       color: '#ccc', fontSize: '14px', fontFamily: 'monospace',
       border: '1px solid #555', borderRadius: '4px',
-      cursor: 'pointer', zIndex: '800',
+      cursor: 'pointer', zIndex: '9999', // 盖过 Chapter Banner（9998），开场全程可跳过
       userSelect: 'none', transition: 'background 0.2s',
     });
     btn.textContent = '跳过开场';
@@ -808,6 +831,9 @@ export class StationScene extends Phaser.Scene {
   private skipIntro(): void {
     if (this.introSkipped) return;
     this.introSkipped = true;
+
+    // Chapter 0 Banner 若在播，立即取消（快速淡出，不阻塞）
+    cancelChapterBanner();
 
     // 清除列车声定时器
     if (this.trainInterval) { clearInterval(this.trainInterval); this.trainInterval = null; }
@@ -1033,7 +1059,7 @@ export class StationScene extends Phaser.Scene {
     requestAnimationFrame(() => {
       if (this.phoneOverlay) this.phoneOverlay.style.opacity = '1';
     });
-    VoiceBank.play('', '因业务流程智能化调整，您的岗位职责将进行重新分配。');
+    VoiceBank.play('', '因业务流程智能化调整，您的岗位职责将进行重新分配。', false, 0.5);
 
     // 点击：第 1 页翻页到第 2 页并播第 2 页短信播报；第 2 页关闭时停止朗读（保留红线文案调用，无匹配静音）。
     // closing 防重：关闭后淡出期间忽略重复点击，避免 onClose（playStationDialogue）被重复触发（P0 稳定性）。
@@ -1043,13 +1069,13 @@ export class StationScene extends Phaser.Scene {
       if (page2.style.display === 'none') {
         page1.style.display = 'none';
         page2.style.display = 'block';
-        VoiceBank.play('', '随着智能化系统升级，公司将对部分岗位进行调整。');
+        VoiceBank.play('', '随着智能化系统升级，公司将对部分岗位进行调整。', false, 0.5);
         return;
       }
       if (closing) return;
       closing = true;
       VoiceBank.stop();
-      VoiceBank.play('', StationScene.PHONE_NOTIFY_VOICE_TEXT);
+      VoiceBank.play('', StationScene.PHONE_NOTIFY_VOICE_TEXT, false, 0.5);
       this.phoneOverlay.style.opacity = '0';
       setTimeout(() => {
         if (this.phoneOverlay) {

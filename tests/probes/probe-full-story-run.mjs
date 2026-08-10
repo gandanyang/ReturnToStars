@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SHOT_DIR = join(__dirname, 'test-screenshots', 'full-run');
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const GAME_URL = 'http://localhost:5173/?reset=1';
+const GAME_URL = 'http://localhost:5175/?reset=1'; // 临时 5175（5173 被占用），验证后改回
 
 mkdirSync(SHOT_DIR, { recursive: true });
 
@@ -36,6 +36,23 @@ function result(step, passed, detail = '') {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let shotIdx = 0;
+
+/**
+ * 导航容错 evaluate：页面在场景切换瞬间会销毁执行上下文（Puppeteer 经典竞态），
+ * 此时 evaluate 抛 "Execution context was destroyed"——真实玩家不受影响（浏览器自身渲染），
+ * 仅探针在导航间隙打点会崩。此 helper 等待导航稳定后重试，最多 6 次。
+ */
+async function safeEval(page, fn, arg, retries = 6) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await page.evaluate(fn, arg);
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await sleep(300);
+    }
+  }
+  return undefined;
+}
 
 async function shot(page, label) {
   shotIdx++;
@@ -90,19 +107,29 @@ async function pressBackpack(page) {
  * 真实逐行推进对话并记录全部行（不跳对话）。
  * 每行：若打字中先按一次显全文 → 读当前行 → 推进到下一行。
  * 遇选项行（line.options）停止，返回行列表。
+ *
+ * 推进检测（v2 修订，2026-08-11 P0 修复）：
+ *  原检测 `d.index !== before` 在「1 行 dialogue + onComplete 重启新 dialogue」场景下失效
+ *  （play() 会重置 index=0 → before=0, after=0 → 误判未推进 → 提前 break，station_intro 卡死）。
+ *  改为三状态任一变化即视为推进：
+ *    A. index 变了（同段对话下一行）
+ *    B. lines 引用变了（onComplete 启动新对话，play() 重新赋值 this.lines）
+ *    C. isOpen 翻转（对话关闭，或关闭后立即被 onComplete 重启）
+ *  lines 引用比对最可靠：未来同文本连续 dialogue（如两段"这里还是老样子"心语）
+ *  text 一样但 lines 是不同数组实例。
  */
 async function walkDialogue(page, maxLines = 45) {
   await sleep(600);
   const lines = [];
   for (let i = 0; i < maxLines; i++) {
     // 打字机中：先显示全文（真实玩家长按/连点行为）
-    await page.evaluate(() => {
+    await safeEval(page, () => {
       const s = window.__game.scene.getScenes(true)[0];
       const d = s?.storyDialogue;
       if (d?.isOpen() && d.typing) d.advance();
     });
     await sleep(120);
-    const cur = await page.evaluate(() => {
+    const cur = await safeEval(page, () => {
       const s = window.__game.scene.getScenes(true)[0];
       const d = s?.storyDialogue;
       if (!d?.isOpen()) return null;
@@ -112,15 +139,38 @@ async function walkDialogue(page, maxLines = 45) {
     if (!cur) break;
     lines.push(cur);
     if (cur.options?.length) break; // 选项行：停下等玩家点选
-    const advanced = await page.evaluate(() => {
+    // 推进前快照（外部可观察状态：index / lines 引用 / isOpen）
+    // ⚠ 隐含契约：依赖 StoryDialogue.play() 当前实现 `this.lines = lines`（重新赋值），
+    //    若未来改为 mutate（如 this.lines.length = 0; this.lines.push(...newLines)），
+    //    引用不会变化，linesId 检测会失效，需同步调整为 lines 长度或首行文本比对。
+    const before = await safeEval(page, () => {
       const s = window.__game.scene.getScenes(true)[0];
       const d = s?.storyDialogue;
-      if (!d?.isOpen()) return false;
-      const before = d.index;
-      d.advance();
-      return d.index !== before;
+      if (!d) return null;
+      return { index: d.index, linesId: d.lines, isOpen: d.isOpen() };
     });
-    if (!advanced) break;
+    if (!before) break;
+    // 推进（advance 内部有 completed/options/historyPanel 静默拦截，是正常防重入，不靠返回值判断）
+    await safeEval(page, () => {
+      const s = window.__game.scene.getScenes(true)[0];
+      const d = s?.storyDialogue;
+      if (d?.isOpen()) d.advance();
+    });
+    await sleep(180); // 给 onComplete 启动新对话留时间（play() 同步重置 index）
+    const after = await safeEval(page, () => {
+      const s = window.__game.scene.getScenes(true)[0];
+      const d = s?.storyDialogue;
+      if (!d) return null;
+      return { index: d.index, linesId: d.lines, isOpen: d.isOpen() };
+    });
+    if (!after) break;
+    // 三状态任一变化即视为推进；都没变 = advance 被静默拦截且无新对话 → 真卡住 → break
+    const progressed =
+      after.index !== before.index ||
+      after.linesId !== before.linesId ||
+      after.isOpen !== before.isOpen;
+    if (!progressed) break;
+    if (!after.isOpen) break; // 对话真关闭且无新对话 → 本轮结束
   }
   await sleep(250);
   return lines;
@@ -146,12 +196,12 @@ async function clickOption(page, keyword) {
 async function drainAutoDialogue(page, timeoutMs = 8000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const open = await page.evaluate(() => {
+    const open = await safeEval(page, () => {
       const s = window.__game.scene.getScenes(true)[0];
       return s?.storyDialogue?.isOpen?.() ?? false;
     });
     if (!open) return true;
-    await page.evaluate(() => {
+    await safeEval(page, () => {
       const s = window.__game.scene.getScenes(true)[0];
       if (s?.storyDialogue?.isOpen()) s.storyDialogue.advance();
     });
@@ -274,6 +324,9 @@ async function run() {
 
     // ============ 2. 车站开场：音量/手机通知 → 开场对白 → 选项 ============
     await dismissOverlays(page);
+    // 08-09 P0 修订：通知关闭后 delayedCall(1000ms) 才播林澈情绪句独白，
+    // walkDialogue 进入太早会读不到对话 → 等 storyDialogue 打开
+    await waitDialogueOpen(page, 5000);
     await shot(page, '02-phone-dismissed');
     const stationLines = await walkDialogue(page);
     result('车站开场对白 7 行播放', stationLines.length >= 7, `行数=${stationLines.length}`);

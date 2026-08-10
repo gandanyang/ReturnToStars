@@ -95,8 +95,9 @@ export class VoiceBank {
     return 'audio/voice_normalized/' + matches[i].file.replace(/\.wav$/i, '.ogg');
   }
 
-  /** 播放台词语音；找不到音频静默跳过，不阻塞对话 */
-  static play(speaker: string, text: string, inner = false): void {
+  /** 播放台词语音；找不到音频静默跳过，不阻塞对话。
+   *  volume 0~1 相对增益（默认 1；如短信播报等提示音可用 0.5 压低）。 */
+  static play(speaker: string, text: string, inner = false, volume = 1): void {
     const url = VoiceBank.find(speaker, text);
     if (!url) {
       // 当前行无语音（旁白/系统行等）：停止上一句残留语音，保证语音与显示行同步
@@ -113,7 +114,7 @@ export class VoiceBank {
     
     if (audioBuf) {
       // 缓存命中，直接播放
-      VoiceBank.playBuffer(ctx, audioBuf, inner);
+      VoiceBank.playBuffer(ctx, audioBuf, inner, volume);
     } else {
       // 缓存未命中，fetch + decode 后播放（防 IDM：URL 加时间戳）
       fetch(antiIDM(url))
@@ -124,7 +125,7 @@ export class VoiceBank {
         .then(arrayBuf => ctx.decodeAudioData(arrayBuf))
         .then(audioBuf => {
           preloadCache.set(url, audioBuf);
-          VoiceBank.playBuffer(ctx, audioBuf, inner);
+          VoiceBank.playBuffer(ctx, audioBuf, inner, volume);
         })
         .catch(err => {
           console.warn(`[VoiceBank] 加载失败: ${url}`, err);
@@ -133,12 +134,12 @@ export class VoiceBank {
   }
 
   /** 使用 AudioBufferSourceNode 播放音频（防 IDM 下载弹窗） */
-  private static playBuffer(ctx: AudioContext, audioBuf: AudioBuffer, inner: boolean): void {
+  private static playBuffer(ctx: AudioContext, audioBuf: AudioBuffer, inner: boolean, volume = 1): void {
     const source = ctx.createBufferSource();
     source.buffer = audioBuf;
     
     const gain = ctx.createGain();
-    gain.gain.value = 1.0;
+    gain.gain.value = volume;
     
     if (inner) {
       // 内心独白：轻混响

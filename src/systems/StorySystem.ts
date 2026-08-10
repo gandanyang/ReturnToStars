@@ -86,15 +86,15 @@ export const XIYA_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: hint('获得物品：【庄园钥匙】  按 [B] 键打开背包，使用钥匙打开大门。', '获得物品：【庄园钥匙】  点按右下角「背包」按钮，使用钥匙打开大门。') },
 ];
 
-/** 开门后 → 整理庄园（v0.7 旧锄头+祖孙情感；E-07 现实动机+情感动机叠加） */
+/** 开门后 → 整理庄园（v0.7 旧锄头+祖孙情感；E-07 现实动机+情感动机叠加）
+ *  2026-08-09 开场 180 秒优化（制作人拍板）：11 → 8 句——删除疑问+解释组（"爷爷一个人打理/只要还有人愿意住下来"）
+ *  与说教收尾（"有些事要等你自己回来"），保留四件套：荒凉第一眼 → 旧物锚点（锄头）→ 情绪入口（没跟我说过这些）→ 行动目标。
+ *  关联配音：gate_03/gate_04/gate_07 随删句停用（voicebank 已同步移除映射，音频文件保留）。 */
 export const GATE_OPENED_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, text: '……比我以为的还要荒。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '这里以前不是这样的。' },
-  { speaker: '林澈', color: COLORS.linche, text: '爷爷一个人打理这么大的地方？' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '嗯。他说，只要还有人愿意住下来，这里就不会荒废。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '旧了点，但还能用。你爷爷当年就是用这把锄头，把这片地一锄一锄开出来的。' },
   { speaker: '林澈', color: COLORS.linche, text: '他从来没跟我说过这些。' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '有些事，要等你自己回来了，才会知道。' },
   { speaker: '', color: COLORS.system, text: '（夏雅拿出一把旧锄头。）' },
   { speaker: '夏雅', color: COLORS.xiya, text: '先开三块地。地要先翻过，才愿意接住新的种子。' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '小时候觉得翻土很麻烦。现在才发现，土地一直在等有人重新照顾它。' },
@@ -556,7 +556,7 @@ export const GARDENER_PLUM_ENTRY_DIALOGUE: DialogueLine[] = [
 /** T3 小梅「小梅花」：种下完成对白（花圃长出梅花，环境变化） */
 export const GARDENER_PLUM_DONE_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（花种入土。小梅小心地覆上土，又浇了一点水。）' },
-  { speaker: '花匠小梅', color: COLORS.gardener, text: '你看，只要有人照顾，它还是会开花的。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '你看，埋下去的时候才这么点土。它会开花的，梅花耐冷。' },
   { speaker: '花匠小梅', color: COLORS.gardener, text: '到时候你来看，它会长得很好的。' },
 ];
 

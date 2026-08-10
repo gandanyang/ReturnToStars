@@ -325,18 +325,18 @@ async function run() {
     }
     ok('10. 观星夜对话打开', endOpen);
 
-    // 夏雅立绘（§8.5 方案 A；2026-08-05 资产替换 xiya.png → xiya_ai_avatar.png；2026-08-06 升级 v2；2026-08-07 转 webp；2026-08-09 形象基准 v3）
+    // 夏雅立绘（§8.5 方案 A；2026-08-05 xiya.png → xiya_ai_avatar.png；08-06 v2；08-07 转 webp；08-09 形象基准 v3；08-10 重出 v4）
     await advanceN(page, 1);
     let portraitSrc = '';
-    for (let i = 0; i < 10 && !portraitSrc.includes('xiya_ai_avatar_v3.webp'); i++) {
+    for (let i = 0; i < 10 && !portraitSrc.includes('xiya_ai_avatar_v4.webp'); i++) {
       portraitSrc = await page.evaluate(() => {
         const s = window.__game.scene.getScene('farm');
         const img = s?.storyDialogue?.portraitEl?.querySelector('img');
         return img ? img.getAttribute('src') : '';
       });
-      if (!portraitSrc.includes('xiya_ai_avatar_v3.webp')) await sleep(200);
+      if (!portraitSrc.includes('xiya_ai_avatar_v4.webp')) await sleep(200);
     }
-    ok('11. 夏雅立绘头像显示', portraitSrc.includes('xiya_ai_avatar_v3.webp'), portraitSrc || '<无立绘>');
+    ok('11. 夏雅立绘头像显示', portraitSrc.includes('xiya_ai_avatar_v4.webp'), portraitSrc || '<无立绘>');
 
     await skipDialogue(page, 16); // 推进到选项行（DEMO_ENDING 18 行，选项行前 17 行需 34 次 advance；已推进 1 行，还需 33 次=skipDialogue(16)）
 

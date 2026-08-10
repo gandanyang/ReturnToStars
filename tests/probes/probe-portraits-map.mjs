@@ -26,6 +26,33 @@ function pngSize(buf) {
   return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
 }
 
+/** 从 WebP 头部读宽高（支持 VP8X/VP8/VP8L） */
+function webpSize(buf) {
+  if (buf.length < 30 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WEBP') return null;
+  const tag = buf.toString('ascii', 12, 16);
+  if (tag === 'VP8X') {
+    // Canvas Width/Height 各 24 bit，位于 24 字节起的 6 字节内（little-endian）
+    const w = 1 + (buf[24] | (buf[25] << 8) | (buf[26] << 16));
+    const h = 1 + (buf[27] | (buf[28] << 8) | (buf[29] << 16));
+    return { w, h };
+  }
+  if (tag === 'VP8 ') {
+    // VP8 帧头：3 字节帧标记（offset 20-22）→ 3 字节 start code 0x9D 0x01 0x2A（offset 23-25）
+    // → 2 字节宽（14 bit，直接为实际尺寸）+ 2 字节高
+    const w = buf.readUInt16LE(26) & 0x3fff;
+    const h = buf.readUInt16LE(28) & 0x3fff;
+    return { w, h };
+  }
+  if (tag === 'VP8L') {
+    // 0x2F 后 4 字节：低 14 bit 宽-1、次 14 bit 高-1（little-endian 位打包）
+    const bits = buf.readUInt32LE(21);
+    const w = 1 + (bits & 0x3fff);
+    const h = 1 + ((bits >> 14) & 0x3fff);
+    return { w, h };
+  }
+  return null;
+}
+
 const src = readFileSync(dialoguePath, 'utf8').replace(/\r/g, '');
 // 提取 PORTRAIT_MAP 块中的 `key: 'path'`
 const block = src.match(/const PORTRAIT_MAP[\s\S]*?= \{\n([\s\S]*?)\n\};/);
@@ -33,7 +60,7 @@ if (!block) {
   console.error('❌ 未找到 PORTRAIT_MAP 定义');
   process.exit(1);
 }
-const entries = [...block[1].matchAll(/^\s*([^:]+?):\s*'([^']+)',?\s*$/gm)].map(m => ({
+const entries = [...block[1].matchAll(/^\s*([^:\/][^:]*?):\s*'([^']+)',?\s*(?:\/\/.*)?$/gm)].map(m => ({
   speaker: m[1].trim(), path: m[2],
 }));
 
@@ -49,9 +76,10 @@ for (const { speaker, path } of entries) {
     check(`[${speaker}] ${path} 文件存在`, false);
     continue;
   }
-  const size = pngSize(readFileSync(abs));
+  const buf = readFileSync(abs);
+  const size = pngSize(buf) || webpSize(buf);
   const okSize = size && size.w === 512 && size.h === 512;
-  check(`[${speaker}] ${path}`, okSize, okSize ? `${size.w}x${size.h}${dup}` : `尺寸=${size ? `${size.w}x${size.h}` : '非PNG'}${dup}`);
+  check(`[${speaker}] ${path}`, okSize, okSize ? `${size.w}x${size.h}${dup}` : `尺寸=${size ? `${size.w}x${size.h}` : '非PNG/非WebP'}${dup}`);
   mapPath.add(path);
 }
 

@@ -23,13 +23,13 @@ import { DialogueHistoryPanel } from './DialogueHistoryPanel';
 /** 对话立绘映射（§8.5 方案 A）：说话人 → 立绘资源；无映射角色回退首字色块 */
 const PORTRAIT_MAP: Record<string, string> = {
   林澈: 'assets/portraits/linchen_ai.webp',
-  夏雅: 'assets/portraits/xiya_ai_avatar_v3.webp', // 2026-08-09 形象基准 v3（成熟 18 岁少女，见夏雅角色圣经）
+  夏雅: 'assets/portraits/xiya_ai_avatar_v4.webp', // 2026-08-10 重出 v4（按 08-09 v3 基准外观要素；v3 保留可回滚）
   镇长: 'assets/portraits/elder_ai.webp',
   爷爷的笔记: 'assets/portraits/grandpa_ai.webp',
   爷爷: 'assets/portraits/grandpa_ai.webp',
   信: 'assets/portraits/grandpa_ai.webp',
-  冒险家阿风: 'assets/portraits/afeng_ai.webp',
-  阿风: 'assets/portraits/afeng_ai.webp',
+  冒险家阿风: 'assets/portraits/afeng_ai_v2.webp',
+  阿风: 'assets/portraits/afeng_ai_v2.webp',
   矿工老张: 'assets/portraits/miner_ai.webp',
   老张: 'assets/portraits/miner_ai.webp',
   花匠小梅: 'assets/portraits/xiaomei_ai.webp',
@@ -377,7 +377,7 @@ export class StoryDialogue {
 
     // 选项行：隐藏普通文本，渲染选项按钮
     if (line.options && line.options.length > 0) {
-      this.showOptions(line.options);
+      this.showOptions(line.options, line.text);
       return;
     }
 
@@ -486,7 +486,7 @@ export class StoryDialogue {
   }
 
   /** 渲染选项按钮（选项行） */
-  private showOptions(options: string[]): void {
+  private showOptions(options: string[], promptText = ''): void {
     if (!this.optionsEl) return;
     this.optionsEl.innerHTML = '';
     options.forEach((opt, i) => {
@@ -517,6 +517,13 @@ export class StoryDialogue {
     this.nameEl.textContent = '';
     this.nameEl.style.display = 'none';
     this.textEl.textContent = '';
+    // 选项行的主文本（若有）保留在 textEl 展示——供「资源快速置换」提示用途
+    // （既有观星夜/车站选项 line.text 为空，不受影响）
+    if (promptText) {
+      this.textEl.textContent = promptText;
+      this.textEl.style.fontStyle = 'normal';
+      this.textEl.style.color = '#e0e0e0';
+    }
     this.portraitEl.style.display = 'none';
     this.hintEl.style.opacity = '0';
     this.typing = false;

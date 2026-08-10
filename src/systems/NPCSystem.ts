@@ -238,8 +238,8 @@ const GARDENER_DIALOGUES: DialogueLine[] = [
   { speaker: '花匠小梅', color: '#a0d888', text: '你好呀，我叫小梅。这些花都是我亲手种的，漂亮吧？' },
   { speaker: '', color: COLORS.system, text: '（小梅指了指身旁的一株花。）' },
   { speaker: '花匠小梅', color: '#a0d888', text: '你爷爷以前每天下午都会来闻这株花的味道。他说这和城市的空气不一样。' },
-  { speaker: '花匠小梅', color: '#a0d888', text: '种东西啊，没什么秘诀。每天来看看它们，浇水、除草……' },
-  { speaker: '花匠小梅', color: '#a0d888', text: '只要用心，土地就会用丰收回报你。你的庄园也会一样的。' },
+  { speaker: '花匠小梅', color: '#a0d888', text: '种东西啊……说不上来为什么。浇水、除草、看它们一天一个样，心里就踏实。' },
+  { speaker: '花匠小梅', color: '#a0d888', text: '你那边的地，我刚去看过，荒是荒了点。你种上东西，它就活过来了。' },
   { speaker: '花匠小梅', color: '#a0d888', text: '这花不是卖的，是有人托我种的。' },
   { speaker: '林澈', color: COLORS.linche, text: '托给谁？' },
   { speaker: '花匠小梅', color: '#a0d888', text: '不知道。但那个人说，总有一天会有人来收。' },
@@ -252,6 +252,10 @@ const ADVENTURER_DIALOGUES: DialogueLine[] = [
   { speaker: '阿风', color: '#88b8e8', text: '嘿！你就是新搬来的林澈吧？我叫阿风，这座岛的每个角落我都跑遍了。' },
   { speaker: '阿风', color: '#88b8e8', text: '告诉你个秘密——后山深处有东西在发光，镇长神神秘秘的不肯说。' },
   { speaker: '阿风', color: '#88b8e8', text: '想去探险的话，记得备足体力。后山可比看上去大得多！' },
+  // 后山阿风对话重置（2026-08-10）：v0.5.5 台词润色误删本句，但 voicebank adv_04 映射与 ogg 未删 → 孤儿配音。
+  // 依据：阿风人物圣经 §九「不推倒 adv_01~09 台词」+《追风的人》语言风格（生活化藏诗意，日常 70%/文学 30%）。
+  // 本句=冒险家对后山的神秘敬畏（嘴硬心软：吓唬人却其实在提醒），恢复为与 voicebank 一致的常驻对白。
+  { speaker: '阿风', color: '#88b8e8', text: '后山深处……有些东西，最好别惊醒。' },
   { speaker: '林澈', color: COLORS.linche, text: '（笑）你越这么说，我越想去看。' },
   { speaker: '阿风', color: '#88b8e8', text: '嘿！你这小子，胆子不小啊！' },
   { speaker: '林澈', color: COLORS.linche, text: '不是胆子大。只是觉得，既然来了这座岛，就该看看它藏着什么。' },
@@ -309,7 +313,7 @@ const NPC_DAILY_LINES: Record<string, DialogueLine[]> = {
     { speaker: '花匠小梅', color: '#a0d888', text: '我的水壶漏了，正愁呢。' },
     { speaker: '花匠小梅', color: '#a0d888', text: '这株花啊，是我爷爷种的。' },
     { speaker: '花匠小梅', color: '#a0d888', text: '你庄园里的土地，养得越来越好了。' },
-    { speaker: '花匠小梅', color: '#a0d888', text: '种花和种菜一样，都得用心。' },
+    { speaker: '花匠小梅', color: '#a0d888', text: '昨天下过雨，今早的花瓣都是水珠。' },
     { speaker: '花匠小梅', color: '#a0d888', text: '以前爷爷经常带我们去看星星。' },
   ],
   adventurer: [

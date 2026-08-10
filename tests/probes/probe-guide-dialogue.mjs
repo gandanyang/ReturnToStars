@@ -122,7 +122,7 @@ async function run() {
     await pressBackpack(page);
     await page.evaluate(() => { const b = document.querySelector('button[data-action="use-key"]'); if (b) b.click(); });
     await sleep(1200);
-    await skipDialogue(page, 11); // GATE_OPENED_DIALOGUE 11 行（E-07 叠加 + 先开三块地 + 锄地情感句 v0.10.2）
+    await skipDialogue(page, 11); // GATE_OPENED_DIALOGUE 8 行（2026-08-09 压缩：删疑问/解释组；多打 advance 为安全 no-op）
     info = await sceneInfo(page);
     console.log(`3. 开门 → 步骤=${info.step}${info.step === 'clear_land' ? ' ✅' : ' ❌'}`);
 

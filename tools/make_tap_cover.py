@@ -59,12 +59,14 @@ def main():
     ap.add_argument("--sub-en", type=str, default=None)
     ap.add_argument("--sub-cn", type=str, default=None)
     ap.add_argument("--no-sub-cn", action="store_true", help="不叠底部中文副标题")
+    ap.add_argument("--title-only", action="store_true",
+                    help="只叠主标题（去掉英文副题与中文副标题；TapTap 审核要求宣传图除游戏名外无任何文字）")
     args = ap.parse_args()
 
     title, en, cn = default_copy()
     title = args.title or title
-    en = args.sub_en or en
-    cn = args.sub_cn or cn
+    en = args.sub_en if args.sub_en is not None else ("" if args.title_only else en)
+    cn = args.sub_cn if args.sub_cn is not None else ("" if args.title_only else cn)
 
     img = Image.open(args.src).convert("RGBA")
     W, H = img.size
@@ -81,15 +83,16 @@ def main():
     f_en = ImageFont.truetype(FONT_REG, max(30, int(font_size * 0.34)))
     f_cn = ImageFont.truetype(FONT_SIMHEI, max(26, int(font_size * 0.30)))
 
-    # —— 顶部：主标题 + 英文副题 ——
+    # —— 顶部：主标题 + 英文副题（title-only 时跳过英文副题） ——
     t_w = text_w(draw, title, f_main)
     t_x = (W - t_w) / 2
     t_y = H * 0.085
     draw.text((t_x, t_y), title, font=f_main, fill=GOLD,
               stroke_width=6, stroke_fill=STROKE_DARK)
-    en_w = text_w(draw, en, f_en)
-    draw.text(((W - en_w) / 2, t_y + font_size + 14), en, font=f_en,
-              fill=EN_BLUE, stroke_width=3, stroke_fill=STROKE_DARK)
+    if en:
+        en_w = text_w(draw, en, f_en)
+        draw.text(((W - en_w) / 2, t_y + font_size + 14), en, font=f_en,
+                  fill=EN_BLUE, stroke_width=3, stroke_fill=STROKE_DARK)
 
     # —— 底部：中文副标题（半透明底条；--no-sub-cn 时不叠） ——
     if not args.no_sub_cn and cn:

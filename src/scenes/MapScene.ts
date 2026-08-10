@@ -65,12 +65,14 @@ import { triggerTag } from '../systems/GuiXingRecordSystem';
 import { triggerOnce, hasTriggered } from '../systems/EventManager';
 import { unlockPhoto, isPhotoUnlocked, PHOTO_DATABASE } from '../data/PhotoAlbum';
 import { MusicBoxPanel } from '../ui/MusicBoxPanel';
+import { showChapterBanner } from '../ui/ChapterBanner';
 import { TouchControls, setActionButtonLabel, setWaitHandler } from '../systems/TouchControls';
 import { showMemoryMoment } from '../ui/MemoryMoment';
 import { playMemoryFlashback } from '../ui/MemoryFlashback';
 import { getShardFlashback, SHARD_PROGRESS_LINES, XIYA_LAMP_FLASHBACK, XIYA_GARDEN_FLASHBACK, ELDER_STAR_FLASHBACK, XIYA_PHOTO_FLASHBACK, PLUM_BLOOM_FLASHBACK, SHOP_CROP_ENTRY_DIALOGUE, SHOP_CROP_NEED_DIALOGUE, SHOP_CROP_DONE_DIALOGUE, SHOP_CROP_FLASHBACK } from '../data/MemoryFlashbacks';
 import { ShopPanel } from '../ui/ShopPanel';
 import { BackpackPanel } from '../ui/BackpackPanel';
+import { GiftPanel } from '../ui/GiftPanel';
 import { QuestPanel } from '../ui/QuestPanel';
 import { openWaitPanel, closeWaitPanel, isWaitPanelOpen } from '../ui/WaitPanel';
 import { StoryDialogue } from '../ui/StoryDialogue';
@@ -93,7 +95,7 @@ import {
   OLD_HOUSE_RESTORED_DIALOGUE, FOREST_ROAD_RESTORED_DIALOGUE,
   CARPENTER_RETURN_DIALOGUE,
   ADVENTURER_WELCOME_BACK_DIALOGUE,
-  XIYA_GARDEN_TRELLIS_DIALOGUE, XIYA_GARDEN_TRELLIS_NEED_DIALOGUE, XIYA_GARDEN_TRELLIS_DONE_DIALOGUE,
+  XIYA_GARDEN_TRELLIS_DIALOGUE, XIYA_GARDEN_TRELLIS_DONE_DIALOGUE,
   ELDER_TEA_QUEST_DIALOGUE, ELDER_STAR_SITE_DIALOGUE,
   XIYA_PHOTO_ENTRY_DIALOGUE, XIYA_PHOTO_DONE_DIALOGUE,
   MINER_LAMP_ENTRY_DIALOGUE, MINER_LAMP_NEED_DIALOGUE, MINER_LAMP_DONE_DIALOGUE,
@@ -128,10 +130,15 @@ export interface MapSceneFlags {
   firstMineHint?: boolean;
   /** SHOP-01 商店复兴：商店老板复兴台词已播档位（-1=未播；0/1/2 对应复兴度，档位推进才播，读档不重复） */
   shopRevivalTier?: number;
+  /** 镇子商店状态：undefined=未触发关闭剧情 / 'closed'=看过关闭剧情待开店 / 'opened'=已营业
+   *  旧档兼容：加载时若 shopRevivalTier≥0（已用过商店）→ 直接派生为 'opened'，不出现关闭剧情 */
+  shopState?: 'closed' | 'opened';
   woodcutTipShown: boolean;
   mineTipShown: boolean;
   tutorialProgress: number;
   boundaryTipShown: boolean;
+  /** P3-01 灯塔"黑"阶段：西侧海湾灯塔远景提示已看过（一次性入档，读档不重复） */
+  lighthouseSeaHintShown?: boolean;
   gardenHintShown: boolean;
   shortcutHintDone: boolean;
   /** 支线试点：夏雅「院子有人照顾」（花园恢复后，旧藤架事件） */
@@ -241,6 +248,21 @@ export class MapScene extends Phaser.Scene {
   // Plot 点击反馈（plotId → 至 plotFlashUntil 短暂高亮，对应原单格 tapFlash）
   private plotFlashId: FarmPlotId | null = null;
   private plotFlashUntil = 0;
+  // E-11 农场批量操作反馈（2026-08-10 制作人拍板：方案 A+成长感）：
+  // 批量操作数据瞬间完成，视觉分批渐进揭示（"让大规模劳动被看见"）；
+  // 可跳过（再次交互即完成）/ 会话内同类第 2 次起加速 / 不阻塞玩家移动。数据无异步，切场景零风险。
+  private batchReveal: {
+    plotId: FarmPlotId;
+    type: 'till' | 'plant' | 'water' | 'harvest';
+    tiles: { col: number; row: number }[];
+    idx: number;
+    step: number;
+    total: number;
+    parts: string;
+    timer: Phaser.Time.TimerEvent | null;
+  } | null = null;
+  // 会话加速计数：同类批量操作第 2 次起演出时长减半（scene 生命周期，不入档）
+  private batchSessionCount: Partial<Record<'till' | 'plant' | 'water' | 'harvest', number>> = {};
   // 上一帧时间戳（ms），用于计算 dt 调用 TimeSystem.tick
   private lastFrameTime = 0;
   // 当前场景中的 NPC 列表（create 时从 NPCSystem 查询并创建 sprite）
@@ -289,6 +311,8 @@ export class MapScene extends Phaser.Scene {
   private mineTipShown = false;
   // 未开放区域边界提示（P1）：靠近世界边界（非出口）轻提示一次；离开边界带后重置
   private boundaryTipShown = false;
+  // P3-01 灯塔"黑"阶段：西侧海湾灯塔远景提示已看过（一次性，随 mapFlags 入档，读档不重复）
+  private lighthouseSeaHintShown = false;
   // 当前选中的种子类型（R 键切换，用于播种）
   private selectedCropType: CropType = 'radish';
   // 种子类型切换冷却（防连发）
@@ -312,6 +336,11 @@ export class MapScene extends Phaser.Scene {
   private musicBoxPanel: MusicBoxPanel | null = null;
   /** 音乐盒首次打开的仪式感（会话级，不入档）：第一次先浮字台词再弹面板 */
   private musicBoxIntroduced = false;
+  // P0 爷爷的归星包裹（2026-08-11）：老屋（house）旧木箱交互物 + 包裹面板；一次性 triggerOnce('grandpa_gift_opened')
+  private grandpaGiftMark: Phaser.GameObjects.Container | null = null;
+  private grandpaGiftPanel: GiftPanel | null = null;
+  /** 爷爷包裹交互基准坐标（house 木箱 L1-4 装饰位置中心） */
+  private grandpaGiftPos: { x: number; y: number } = { x: 0, y: 0 };
   /** 需求板引导（首次靠近提示，会话级，不入档） */
   private residentBoardHintShown = false;
   // 教程：大门墙壁（物理矩形，钥匙使用后销毁）
@@ -428,6 +457,8 @@ export class MapScene extends Phaser.Scene {
   private firstMineHint = false;
   // SHOP-01 商店复兴：老板复兴台词已播档位（-1=未播；档位推进才播一次，随 mapFlags 入档）
   private shopRevivalTier = -1;
+  /** 镇子商店状态机（'none'=未触发关闭剧情 / 'closed'=待开店 / 'opened'=营业中；随 mapFlags 入档） */
+  private shopState: 'none' | 'closed' | 'opened' = 'none';
   // M1-3 花园清理引导：玩家靠近花园区域时首次提示（一次性，内存 flag）
   private gardenHintShown = false;
   // 教程提示 DOM
@@ -499,10 +530,16 @@ export class MapScene extends Phaser.Scene {
   private centerSmallMap = false;
   private lastQuestObj: string = '';
   private lastHour: number = -1;
-  // 农场商店摊位（v0.6 商店入口：农田旁空地，靠近按 E 打开 ShopPanel）
-  private farmShop: {
+  // 镇子商店门面（老板搬回镇上：Graphics 建筑，关闭/营业两态，纯视觉不参与交互）
+  private townShop: {
     mark: Phaser.GameObjects.Text;
     stall: Phaser.GameObjects.Graphics;
+    pos: { x: number; y: number };
+  } | null = null;
+  // 自动售货机（2026-08-11 制作人拍板：衰落中维持最低限度运转——全天基础补给，独立交互锚点）
+  private shopMachine: {
+    g: Phaser.GameObjects.Graphics;
+    lamp: Phaser.GameObjects.Text;
     pos: { x: number; y: number };
   } | null = null;
   // 自动农业机器人视觉（v0.6 庄园自动化 MVP：id → 机器人容器）
@@ -542,10 +579,12 @@ export class MapScene extends Phaser.Scene {
       firstChopHint: inst.firstChopHint,
       firstMineHint: inst.firstMineHint,
       shopRevivalTier: inst.shopRevivalTier,
+      shopState: inst.shopState === 'none' ? undefined : inst.shopState,
       woodcutTipShown: inst.woodcutTipShown,
       mineTipShown: inst.mineTipShown,
       tutorialProgress: inst.tutorialProgress,
       boundaryTipShown: inst.boundaryTipShown,
+      lighthouseSeaHintShown: inst.lighthouseSeaHintShown,
       gardenHintShown: inst.gardenHintShown,
       shortcutHintDone: inst.shortcutHintDone,
       sideXiyaGardenAsked: inst.sideXiyaGardenAsked,
@@ -586,10 +625,13 @@ export class MapScene extends Phaser.Scene {
       this.firstChopHint = saved.firstChopHint ?? false;
       this.firstMineHint = saved.firstMineHint ?? false;
       this.shopRevivalTier = saved.shopRevivalTier ?? -1;
+      // 镇子商店状态：旧档已用过商店（复兴台词已播）→ 直接营业，不出现关闭剧情
+      this.shopState = saved.shopState ?? (saved.shopRevivalTier !== undefined && saved.shopRevivalTier >= 0 ? 'opened' : 'none');
       this.woodcutTipShown = saved.woodcutTipShown;
       this.mineTipShown = saved.mineTipShown;
       this.tutorialProgress = saved.tutorialProgress;
       this.boundaryTipShown = saved.boundaryTipShown;
+      this.lighthouseSeaHintShown = saved.lighthouseSeaHintShown ?? false;
       this.gardenHintShown = saved.gardenHintShown;
       this.shortcutHintDone = saved.shortcutHintDone;
       this.sideXiyaGardenAsked = saved.sideXiyaGardenAsked ?? false;
@@ -1003,6 +1045,8 @@ export class MapScene extends Phaser.Scene {
       this.setupGardenerPlum();
       // FEATURE-038 居民需求板（小镇广场右侧信息板交互物）
       this.setupResidentBoard();
+      // 镇子商店门面（老板搬回镇上：关闭/营业两态视觉，入口=对话 shopkeeper）
+      this.setupTownShop();
     }
 
     // gate 庄园大门美术升级（生活杂物/小动物/夜间门灯，零资源纯代码；教程逻辑零触碰）
@@ -1013,6 +1057,11 @@ export class MapScene extends Phaser.Scene {
     // P1 家的音乐盒：老屋（house）音乐盒交互物 → 曲目收藏面板
     if (this.mapKey === 'house') {
       this.setupMusicBox();
+    }
+
+    // P0 爷爷的归星包裹：老屋（house）旧木箱交互物（第一次进屋出现，一次性领取，见 setupGrandpaGift）
+    if (this.mapKey === 'house' && !hasTriggered('grandpa_gift_opened')) {
+      this.setupGrandpaGift();
     }
 
     // M1-3 爷爷旧花园恢复点（玩家清理荒废角落 → 环境变化 + 存档持久化）
@@ -1034,16 +1083,23 @@ export class MapScene extends Phaser.Scene {
 
     // day2 清晨「岛屿的第一声回应」：睡醒后切场景/重进 farm 时尝试触发（trySleep 挂钩点在睡觉时）
     if (this.mapKey === 'farm') {
+      // 第0章「回到归星岛」（制作人 2026-08-10 拍板：章节仪式感）：首次踏入归星岛弹 Banner
+      // D-025 时序红线（2026-08-11）：当前 Demo 全为第0章《归星》，观星夜之后才进第1章 → 显示 CHAPTER 0
+      // 一次性：triggerOnce('chapter1_arrival') 持久化判重（key 保留避免旧档重复触发）；文案制作人定稿，不扩写。
+      this.time.delayedCall(450, () => {
+        triggerOnce('chapter1_arrival', () => {
+          showChapterBanner({
+            chapter: 'CHAPTER 0',
+            title: '回到归星岛',
+            subtitle: '这座岛，好像比记忆里安静了很多。',
+          });
+        });
+      });
       this.time.delayedCall(900, () => this.tryFirstMorningSequence());
       // FEATURE-041 木匠回归演出：老屋修复后当晚/次日进入 farm 时尝试触发（与清晨剧情各自判重隔离）
       this.time.delayedCall(950, () => this.tryCarpenterReturn());
       // 反馈 #28 阿风欢迎「你回来了！」：去过镇上后回 farm 尝试触发（依赖 ch1TownIntroDone，错开清晨演出）
       this.time.delayedCall(1000, () => this.tryAdventurerWelcome());
-    }
-
-    // 农场商店摊位（靠近按 E 打开 ShopPanel，买种子不用跑小镇）
-    if (this.mapKey === 'farm') {
-      this.setupFarmShop();
     }
 
     // 自动农业机器人（v0.6 庄园自动化 MVP：从存档恢复机器人视觉）
@@ -1543,6 +1599,9 @@ export class MapScene extends Phaser.Scene {
     // P1 未开放区域边界提示：靠近世界边界（非出口）轻提示一次；出口排除由方法内处理
     this.updateBoundaryTip();
 
+    // P3-01 灯塔"黑"阶段：靠近西侧海湾（locked 出口）一次性提示——"海那边有一座熄灭的灯塔"
+    this.checkLighthouseSeaHint();
+
     // FEATURE-038 需求板引导：首次靠近需求板时提示（会话级一次性，不入档）
     if (this.mapKey === 'town' && this.residentBoardMark && !this.residentBoardHintShown) {
       const dx = this.player.x - this.residentBoardMark.x;
@@ -1889,6 +1948,80 @@ export class MapScene extends Phaser.Scene {
     MusicSystem.setMusicBoxTrack(null);
     const h = getTime().hour;
     MusicSystem.playSceneBgm('house', h);
+  }
+
+  /**
+   * P0 爷爷的归星包裹（2026-08-11 制作人拍板）：老屋（house）旧木箱交互物。
+   * 位置 (17,12)：即 setupHouseFurniture L1-4 装饰木箱（fillRoundedRect(17T,12T,16,16)，中心 (280,200)）。
+   * 视觉：木箱上加「爷爷的包裹」标签 + 呼吸光晕（吸引注意，参照音乐盒模式，零资产）。
+   * 触发：第一次进入 house 场景且未领取时创建（hasTriggered 判重）；领取后 destroy，此后进屋不再出现。
+   */
+  private setupGrandpaGift(): void {
+    if (this.mapKey !== 'house') return;
+    const T = TILE_SIZE;
+    const gx = 17 * T + T / 2; // 280
+    const gy = 12 * T + T / 2; // 200
+    this.grandpaGiftPos = { x: gx, y: gy };
+    const box = this.add.container(gx, gy).setDepth(4);
+
+    // 呼吸光晕（吸引注意）
+    const glow = this.add.ellipse(0, 0, 26, 20, 0xffd98a, 0.14);
+    box.add(glow);
+    this.tweens.add({
+      targets: glow,
+      alpha: { from: 0.1, to: 0.28 },
+      duration: 1200,
+      yoyo: true,
+      repeat: -1,
+    });
+
+    // 「爷爷的包裹」标签（挂在木箱上方）
+    const label = this.add.text(0, -14, '爷爷的包裹', {
+      fontSize: '10px',
+      color: '#ffe082',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setOrigin(0.5);
+    box.add(label);
+
+    this.grandpaGiftMark = box;
+  }
+
+  /**
+   * 与老屋旧木箱交互（靠近按 E 打开爷爷的归星包裹面板）
+   * 面板点「收下」后发放纪念物 + 启动资源，triggerOnce 持久化 + 存档。
+   */
+  private tryGrandpaGiftInteract(): boolean {
+    if (!this.grandpaGiftMark || !this.grandpaGiftMark.visible) return false;
+    const dx = this.player.x - this.grandpaGiftPos.x;
+    const dy = this.player.y - this.grandpaGiftPos.y;
+    if (dx * dx + dy * dy > 48 * 48) return false;
+
+    if (!this.grandpaGiftPanel) this.grandpaGiftPanel = new GiftPanel();
+    this.inputManager.clearAction();
+    this.grandpaGiftPanel.open(() => this.grantGrandpaGift());
+    return true;
+  }
+
+  /** 发放爷爷的归星包裹（纪念物 + 启动资源；一次性 triggerOnce 入档，防重复领取） */
+  private grantGrandpaGift(): void {
+    triggerOnce('grandpa_gift_opened', () => {
+      addItem('grandpa_letter', 1);
+      addItem('dried_fish', 1);
+      addItem('flower_seedling', 1);
+      addItem('wood', 5);
+      addItem('stone', 5);
+      addCoins(200);
+      // 领取后移除木箱提示，此后进屋不再出现
+      if (this.grandpaGiftMark) {
+        this.grandpaGiftMark.destroy();
+        this.grandpaGiftMark = null;
+      }
+      this.updateHUD();
+      this.updateQuestHUD();
+      this.showDialogueText('（你收好了爷爷留下的东西。信纸很旧，字迹很稳。）');
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing });
+    });
   }
 
   /**
@@ -2889,6 +3022,40 @@ export class MapScene extends Phaser.Scene {
     sand.fillStyle(0x9a8a6a, 0.3);
     for (const [px, py] of [[46, 160], [56, 176], [50, 196], [60, 210]]) sand.fillRect(px, py, 3, 2);
     sand.setDepth(2);
+
+    // 3.5) 灯塔远景剪影（2026-08-10 制作人反馈"去灯塔早期被堵住、没有提示"）：
+    //      P3-01 灯塔"黑"阶段：海湾深处立一座熄灭的灯塔——玩家"看得见"海那边有座塔（制造牵挂），
+    //      而不是面对一片空海。纯 Graphics 零资源；不触碰碰撞/存档/出口玩法（出口锁定仍由 exits.ts 控制）。
+    const lh = this.add.graphics();
+    const lhCol = night ? 0x0c141e : 0x2e3c4e; // 塔身：夜晚近黑剪影 / 白天深蓝灰
+    // 礁石基座（塔基下两侧，模拟海上礁石岛）
+    lh.fillStyle(night ? 0x0a111a : 0x26313e, 0.9);
+    lh.fillRect(2, 198, 10, 14);
+    lh.fillRect(26, 196, 10, 16);
+    // 塔身
+    lh.fillStyle(lhCol, 0.92);
+    lh.fillRect(11, 152, 14, 48);
+    // 塔身横纹（风化层次）
+    lh.lineStyle(1, night ? 0x000000 : 0x1c2632, 0.5);
+    for (const yy of [160, 168, 176, 184, 192]) {
+      lh.beginPath(); lh.moveTo(11, yy); lh.lineTo(25, yy); lh.strokePath();
+    }
+    // 塔基台阶线
+    lh.lineStyle(1, night ? 0x000000 : 0x1c2632, 0.6);
+    lh.beginPath(); lh.moveTo(9, 198); lh.lineTo(27, 198); lh.strokePath();
+    // 灯室（熄灭：全黑剪影 + 窗棂，无光——灯塔"黑"阶段，不画任何光）
+    lh.fillStyle(night ? 0x060a10 : 0x1a2430, 0.95);
+    lh.fillRect(13, 140, 10, 12);
+    lh.lineStyle(1, night ? 0x000000 : 0x10161e, 0.6);
+    lh.beginPath(); lh.moveTo(18, 140); lh.lineTo(18, 152); lh.strokePath(); // 窗棂
+    lh.beginPath(); lh.moveTo(13, 146); lh.lineTo(23, 146); lh.strokePath();
+    // 塔顶护栏（灯室上方细横条）
+    lh.fillStyle(lhCol, 0.95);
+    lh.fillRect(10, 136, 16, 4);
+    lh.setDepth(2.2);
+    // 海雾呼吸（远景若有若无，营造"海那边"的牵挂感）
+    lh.setAlpha(0.55);
+    this.tweens.add({ targets: lh, alpha: { from: 0.4, to: 0.7 }, duration: 3400, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
 
     // 4) 海面碰撞墙（挡玩家进入海区 x<40；玩家贴海边站立看海）
     const wall = this.add.rectangle(20, 184, 40, 80, 0x000000, 0);
@@ -4383,6 +4550,27 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
+   * 灯塔海角提示（2026-08-10 制作人反馈"去灯塔早期直接被堵住、没有提示"）：
+   * 玩家走到农场西侧海湾（灯塔 locked 出口触发区）时，一次性轻提示——
+   * 让玩家知道海那边立着一座熄灭的灯塔（制造牵挂，不破坏神秘感），而不是"莫名其妙被堵住"。
+   * 触发区：exits.ts farm 西侧海湾 locked 出口 (36,160,28,48)；海面碰撞墙挡 x<40，
+   * 玩家贴海站立中心必落在区内。一次性入档（lighthouseSeaHintShown），读档不重复。
+   * 教程未完成不提示（与 updateBoundaryTip 一致，避免抢占教程引导注意力）。
+   */
+  private checkLighthouseSeaHint(): void {
+    if (this.mapKey !== 'farm') return;
+    if (this.lighthouseSeaHintShown) return;
+    if (!isTutorialDone()) return;
+    const x = this.player.x;
+    const y = this.player.y;
+    // locked 出口触发区外扩 8px（玩家贴海站立 x≈46-64，保证命中）
+    if (x >= 36 - 8 && x <= 64 + 8 && y >= 160 - 8 && y <= 208 + 8) {
+      this.lighthouseSeaHintShown = true;
+      this.showDialogueText('西边的海雾里立着一座灯塔。塔灯灭了很多年——也许有一天，会有人重新把它点亮。');
+    }
+  }
+
+  /**
    * 显示自定义文字对话框（3 秒后自动消失）
    * 用于任务对话/采集提示等非 NPC 固定台词
    * PC：玩家头顶跟随（不变）
@@ -4718,23 +4906,29 @@ export class MapScene extends Phaser.Scene {
     if (npc.id === 'mystery' && isObservatoryComplete()) {
       lines = [...lines, ...getMysteryAfterObservatory()];
     }
+    // 2026-08-11 制作人拍板（商人回镇 + 商店剧情化）：镇子商店状态剧情（关闭 → 带作物开店 → 营业）
+    // 优先级最高：触发时完全替代默认欢迎词（避免「店门关着还欢迎光临」的矛盾）
+    const stateLines = this.buildShopStateDialogue();
     // T3.5 商店老板「镇子热闹了」：首次卖出作物后，白天对话触发（一次性）
     // 在欢迎剧本前注入入口对白（asked）或交付链（done），不抢走 shopkeeper 打开商店流程
     const shopSide = this.buildShopSideDialogue();
     // SHOP-01 商店复兴：老板「复兴度观察者」三阶段台词（档位推进才播，优先级低于 T3.5 事件链）
     const revivalLines = this.buildShopRevivalDialogue();
-    const finalLines = shopSide
-      ? [...shopSide, ...(revivalLines ?? []), ...lines]
-      : revivalLines
-        ? [...revivalLines, ...lines]
-        : lines;
+    const finalLines = stateLines
+      ? stateLines
+      : shopSide
+        ? [...shopSide, ...(revivalLines ?? []), ...lines]
+        : revivalLines
+          ? [...revivalLines, ...lines]
+          : lines;
     this.storyDialogue.play(finalLines, () => {
       // BUG-041：神秘少女对白末尾「消失在林间」→ 对话完成隐藏精灵（演出层，不存档）
       if (npc.id === 'mystery') {
         npc.setVanished();
       }
       // 商店老板：对话结束后自动打开商店
-      if (npc.id === 'shopkeeper') {
+      // 商店状态剧情（关闭/待开店）时不打开——仅 'opened'（营业中）才弹商店面板
+      if (npc.id === 'shopkeeper' && this.shopState === 'opened') {
         this.inputManager.clearAction();
         this.shopPanel.open();
       }
@@ -4797,6 +4991,82 @@ export class MapScene extends Phaser.Scene {
       }, 250);
     });
     return doneLines;
+  }
+
+  /**
+   * 2026-08-11 制作人拍板（商人回镇 + 商店剧情化）：镇子商店状态剧情机
+   * build 模式，供 showDialogue 注入（优先级最高——触发时完全替代默认欢迎词）：
+   * - 'none'（白天首次对话）→ 关闭剧情（老板 + 夏雅各一句）→ 转 'closed' + 入档，不打开商店
+   * - 'closed' 且携带作物 → 扣除 1 个作物 → 开店剧情（「青禾镇今年第一次收到的新鲜蔬菜」+ 复兴反馈）→
+   *   转 'opened' + 更新门面 + 入档，对话结束由 showDialogue 打开商店
+   * - 'closed' 且无作物 → 短台词提示（店门还关着，等有新鲜东西）
+   * - 'opened' → null（走正常商店剧本：T3.5 送菜链 / SHOP-01 复兴台词 / 欢迎词）
+   * 台词内联于 MapScene（StorySystem 冻结区单写者制，不新增剧情数据）。
+   */
+  private buildShopStateDialogue(): DialogueLine[] | null {
+    if (this.shopState === 'opened') return null;
+    const FOOD_ITEMS = ['radish', 'tomato', 'corn', 'strawberry'] as const;
+    const have = FOOD_ITEMS.reduce((sum, id) => sum + getItemCount(id), 0);
+
+    if (this.shopState === 'none') {
+      this.shopState = 'closed';
+      save({
+        x: this.player.x, y: this.player.y,
+        scene: this.mapKey, facing: this.player.facing,
+        dailyQuest: getDailyQuestSaveData(),
+      } as any);
+      return [
+        { speaker: '', color: COLORS.system, text: '（招牌还挂着，店门却关得严严实实，门上钉着一块木板。）' },
+        { speaker: '商店老板', color: '#8ac8a0', text: '以前这里每天都有人来，现在大家都没什么心气了。' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '以前爷爷他们还在的时候，镇上的集市很热闹。' },
+        { speaker: '商店老板', color: '#8ac8a0', text: '要是你能种出点新鲜东西来……说不定这店，还能重新开起来。' },
+        { speaker: '商店老板', color: '#8ac8a0', text: '店现在还没重新开起来，不过我留了个旧售货机，至少不会让你连种子都买不到。' },
+      ];
+    }
+
+    // shopState === 'closed'：等待第一批农产品开店
+    if (have <= 0) {
+      return [
+        { speaker: '商店老板', color: '#8ac8a0', text: '店门还关着……等有新鲜东西再说吧。' },
+      ];
+    }
+
+    // 有作物：扣除 1 个作为第一批货，开店（复兴反馈通过台词表达，不新增数值系统）
+    let need = 1;
+    for (const id of FOOD_ITEMS) {
+      const c = getItemCount(id);
+      if (c <= 0) continue;
+      const take = Math.min(c, need);
+      addItem(id, -take);
+      need -= take;
+      if (need <= 0) break;
+    }
+    this.shopState = 'opened';
+    this.updateTownShopVisual();
+    // 2026-08-11 制作人拍板：开店瞬间反馈（door_open 音效 + 招牌弹起，纯演出层零存档风险）
+    play('door_open');
+    const mark = this.townShop?.mark;
+    if (mark) {
+      mark.setScale(0.8, 0.8);
+      this.tweens.add({
+        targets: mark,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 320,
+        ease: 'Back.Out',
+      });
+    }
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    return [
+      { speaker: '', color: COLORS.system, text: '（林澈把第一批作物放在了柜台上。）' },
+      { speaker: '商店老板', color: '#8ac8a0', text: '这是青禾镇今年第一次收到的新鲜蔬菜。' },
+      { speaker: '商店老板', color: '#8ac8a0', text: '……行，这店，重新开张！' },
+      { speaker: '', color: COLORS.system, text: '（店铺重新营业了。镇子，好像又活过来了一点。）' },
+    ];
   }
 
   /**
@@ -4986,6 +5256,11 @@ export class MapScene extends Phaser.Scene {
       if (this.tryMusicBoxInteract()) return;
     }
 
+    // P0 爷爷的归星包裹（老屋旧木箱，第一次进屋可领取，一次性）
+    if (this.mapKey === 'house' && this.grandpaGiftMark) {
+      if (this.tryGrandpaGiftInteract()) return;
+    }
+
     // 1.5 Demo 结尾：观星点（主线完成 + 夜晚 + 靠近观星点按 E）
     if (this.tryStargaze()) return;
 
@@ -5028,6 +5303,19 @@ export class MapScene extends Phaser.Scene {
     // T3 小梅「小梅花」：小镇花圃种花（一次性事件）
     if (this.mapKey === 'town') {
       if (this.trySideGardenerPlum()) return;
+    }
+
+    // 2026-08-11 镇子商店门口自动售货机（制作人拍板：衰落中维持最低限度运转）
+    // 独立交互锚点：全天可用、只卖基础补给；老板在场也不受影响（机器不抢老板存在感）
+    // 必须优先于需求板：售货机(384,156) 距需求板(360,136) 仅 ~31px，需求板 48px 半径会抢先命中
+    if (this.mapKey === 'town' && this.shopMachine) {
+      const dx = this.player.x - this.shopMachine.pos.x;
+      const dy = this.player.y - this.shopMachine.pos.y;
+      if (dx * dx + dy * dy < 24 * 24) {
+        this.inputManager.clearAction();
+        this.shopPanel.open('machine');
+        return;
+      }
     }
 
     // FEATURE-038 居民需求板（小镇广场右侧信息板，靠近按 E 打开面板）
@@ -5078,11 +5366,6 @@ export class MapScene extends Phaser.Scene {
     // M1-3 夏雅见证（花园恢复后，夏雅在花园旁，靠近按 E 播放生活记忆对白）
     if (this.mapKey === 'farm' && this.gardenXiya) {
       if (this.tryGardenXiyaInteract()) return;
-    }
-
-    // 农场商店摊位（靠近按 E 打开 ShopPanel，优先于 NPC/农田交互）
-    if (this.mapKey === 'farm' && this.farmShop) {
-      if (this.tryFarmShopInteract()) return;
     }
 
     // FEATURE-036 旧农业机器人（花园恢复后出现，靠近按 E 修复获得，一次性）
@@ -5144,6 +5427,24 @@ export class MapScene extends Phaser.Scene {
         this.showDialogue(nearest);
       }
       return;
+    }
+
+    // 2026-08-11 镇子商店门面（商人回镇）交互锚点：靠近店门按 E
+    // - 老板在场 → 对话老板（完整商店：收购/稀有商品/复兴任务）
+    // - 老板不在场 → 打开自动售货机面板（基础补给，消除"老板下班买不到种子"的挫败）
+    if (this.mapKey === 'town' && this.townShop) {
+      const dx = this.player.x - this.townShop.pos.x;
+      const dy = this.player.y - this.townShop.pos.y;
+      if (dx * dx + dy * dy < 30 * 30) {
+        const boss = this.npcList.find((n) => n.id === 'shopkeeper');
+        if (boss && boss.sprite && !boss.vanished) {
+          this.showDialogue(boss);
+        } else {
+          this.inputManager.clearAction();
+          this.shopPanel.open('machine');
+        }
+        return;
+      }
     }
 
     // 0.45 后山老树：靠近按 E 查看
@@ -7705,7 +8006,6 @@ export class MapScene extends Phaser.Scene {
         } as any);
       });
     });
-    return true;
   }
 
   /**
@@ -8069,6 +8369,7 @@ export class MapScene extends Phaser.Scene {
         } as any);
       });
     });
+    return true;
   }
 
   /**
@@ -8285,67 +8586,116 @@ export class MapScene extends Phaser.Scene {
     if (this.oldRobotLabel) { this.oldRobotLabel.destroy(); this.oldRobotLabel = null; }
   }
 
-  // ============ 农场商店摊位 ============
+  // ============ 镇子商店门面 ============
 
   /**
-   * 创建农场商店摊位（v0.6 商店入口：靠近按 E 打开 ShopPanel）
-   * 位置：农田东侧空地 (col 31, row 13)，更靠近小镇出口（col 37-39, row 9-11），
-   *   避开农田区（cols 12-28, rows 8-16）/ 玩家出生点 (col 20, row 18.75) / 树木 / 水塘 / 海角区。
-   * 摊位竖放（2026-08-10 制作人拍板：往镇子方向挪 + 竖过来）。
-   * 纯视觉（Graphics 柜台 + 文字标签），不放瓦片——
-   * 原因：Walls 层 gid 6 是睡觉判定格（会误判睡觉）、gid 3 石墙会挡路挡碰撞。
+   * 创建镇子商店门面（2026-08-11 制作人拍板：商人回镇 + 商店剧情化）
+   * 位置：中央广场 shopkeeper 站位 (col16.5, row10.5) 上方 (row 8.25)，避开 NPC 区/行道树/出口。
+   * 纯视觉（Graphics 门面 + 招牌），不参与交互——入口 = 对话 shopkeeper（营业时间 08-18 老板在店）。
+   * 两态：'closed' 门板关 + 招牌灰 / 'opened' 门开 + 招牌亮 + 柜台有货。
    */
-  private setupFarmShop(): void {
+  private setupTownShop(): void {
     const T = TILE_SIZE;
-    const x = 31 * T + T / 2; // 504
-    const y = 13 * T + T / 2; // 216
+    // 2026-08-11 挡路修复：门面从中央大道（16.5,8.25）搬到广场东侧空地
+    // 位置 (col24.5, row9.5)：(392,152)；行8 c24-25 为草地、行9-10 c24-25 为广场，
+    // 顶部 y-22=130 不压上右屋（行3-7）、底部 y+22=174 < 中央大道行11 上沿 176，不压路。
+    // 交互安全：与花匠小梅 town 站位 (296,168) 相距 97px（30px 门面圆与 24px NPC 圆不重叠）。
+    const x = 24.5 * T;        // 392，广场东端（避开纵向主路 col14-15、行11 大道与小梅站位）
+    const y = 9.5 * T;         // 152
     const g = this.add.graphics();
     g.setDepth(3);
-    // 遮阳棚（红底 + 白条纹）——竖放：宽 7 高 44
-    g.fillStyle(0xc0392b, 1);
-    g.fillRect(x - 3, y - 22, 7, 44);
-    g.fillStyle(0xf5f5f5, 1);
-    g.fillRect(x - 3, y - 16, 7, 6);
-    g.fillRect(x - 3, y - 4, 7, 6);
-    g.fillRect(x - 3, y + 8, 7, 6);
-    // 支撑柱（上下）
-    g.fillStyle(0x6b4a2a, 1);
-    g.fillRect(x - 9, y - 20, 3, 15);
-    g.fillRect(x - 9, y + 5, 3, 15);
-    // 柜台（木色桌面 + 深色台沿）——竖放：宽 9 高 44
-    g.fillStyle(0x8a5a33, 1);
-    g.fillRect(x - 8, y - 22, 9, 44);
-    g.fillStyle(0x6b4423, 1);
-    g.fillRect(x - 1, y - 22, 2, 44);
-    // 柜台货品（萝卜红 / 叶绿 / 玉米黄 三色点）——竖排
-    g.fillStyle(0xe74c3c, 1);
-    g.fillCircle(x - 3, y - 12, 2.5);
-    g.fillStyle(0x2ecc71, 1);
-    g.fillCircle(x - 3, y - 2, 2.5);
-    g.fillStyle(0xf1c40f, 1);
-    g.fillCircle(x - 3, y + 8, 2.5);
-    // 标签（放摊位右侧空地，不压农田）——去掉"打开方式"提示（制作人 2026-08-07 拍板：删"按E打开"）
-    const mark = this.add.text(x + 16, y, '商店', {
+    const mark = this.add.text(x, y + 1, '星辰杂货店', {
       fontFamily: 'Arial',
-      fontSize: '11px',
+      fontSize: '8px',
       color: '#ffe082',
       stroke: '#000000',
       strokeThickness: 2,
       align: 'center',
     }).setOrigin(0.5).setDepth(4);
-    this.farmShop = { mark, stall: g, pos: { x, y } };
+    this.townShop = { mark, stall: g, pos: { x, y } };
+    this.updateTownShopVisual();
+    // 自动售货机（2026-08-11 制作人拍板）：门面左侧并排（不再占用任何道路），独立交互（全天基础补给）
+    // 位置 (col22, row9.75)：(352,156)，行9-10 广场无碰撞；距小梅站位 57px > 24px，交互不冲突
+    const mx = x - 40;         // 352
+    const my = y + 4;          // 156
+    const mg = this.add.graphics();
+    mg.setDepth(3);
+    // 机身（旧金属灰蓝，暗示"镇上残存的旧物"）
+    mg.fillStyle(0x5a6b7a, 1);
+    mg.fillRect(mx - 9, my - 12, 18, 24);
+    mg.fillStyle(0x6e8294, 1);
+    mg.fillRect(mx - 7, my - 10, 14, 20);
+    // 玻璃窗（暗色，关闭期未点亮）
+    mg.fillStyle(0x2e4059, 1);
+    mg.fillRect(mx - 5, my - 8, 10, 9);
+    // 出货口
+    mg.fillStyle(0x3a2e22, 1);
+    mg.fillRect(mx - 6, my + 6, 12, 5);
+    // 待机指示灯（呼吸动画：暗示"机器还活着，镇上还有一点生活痕迹"）
+    const lamp = this.add.text(mx + 8, my - 11, '●', {
+      fontSize: '8px',
+      color: '#ffd97a',
+    }).setOrigin(0.5).setDepth(4);
+    this.tweens.add({
+      targets: lamp,
+      alpha: { from: 0.3, to: 1 },
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+    });
+    this.add.text(mx, my + 17, '自动售货机', {
+      fontFamily: 'Arial',
+      fontSize: '9px',
+      color: '#b8c4ce',
+      stroke: '#000000',
+      strokeThickness: 2,
+      align: 'center',
+    }).setOrigin(0.5).setDepth(4);
+    this.shopMachine = { g: mg, lamp, pos: { x: mx, y: my } };
   }
 
-  /** 与农场商店摊位交互（靠近按 E → 打开 ShopPanel） */
-  private tryFarmShopInteract(): boolean {
-    if (!this.farmShop) return false;
-    const dx = this.player.x - this.farmShop.pos.x;
-    const dy = this.player.y - this.farmShop.pos.y;
-    // 半径 32px（约 2 格）：农田 row 16 面向下、摊位两侧走道均能触发
-    if (dx * dx + dy * dy > 32 * 32) return false;
-    this.inputManager.clearAction();
-    this.shopPanel.open();
-    return true;
+  /** 商店门面两态刷新：'opened' 营业 / 其余关闭（读档与开店完成时调用） */
+  private updateTownShopVisual(): void {
+    if (!this.townShop) return;
+    const { stall: g, mark, pos } = this.townShop;
+    const x = pos.x;
+    const y = pos.y;
+    const open = this.shopState === 'opened';
+    g.clear();
+    // 屋顶（暖红三角 + 屋檐）
+    g.fillStyle(0x8a3b2e, 1);
+    g.fillTriangle(x - 24, y - 10, x + 24, y - 10, x, y - 22);
+    g.fillStyle(0xa04a36, 1);
+    g.fillRect(x - 26, y - 10, 52, 4);
+    // 墙面（暖木色）
+    g.fillStyle(0x8a5a33, 1);
+    g.fillRect(x - 22, y - 6, 44, 22);
+    // 招牌横板
+    g.fillStyle(0x6b4423, 1);
+    g.fillRect(x - 20, y - 4, 40, 10);
+    mark.setColor(open ? '#ffe082' : '#9a9a9a');
+    mark.setVisible(true);
+    if (open) {
+      // 营业：暖光门洞 + 柜台货品（萝卜红 / 叶绿 / 玉米黄）
+      g.fillStyle(0x2b1d12, 1);
+      g.fillRect(x - 6, y + 6, 12, 12);
+      g.fillStyle(0xffcc88, 0.45);
+      g.fillRect(x - 6, y + 6, 12, 12);
+      g.fillStyle(0xe74c3c, 1);
+      g.fillCircle(x - 13, y + 16, 2.5);
+      g.fillStyle(0x2ecc71, 1);
+      g.fillCircle(x, y + 17, 2.5);
+      g.fillStyle(0xf1c40f, 1);
+      g.fillCircle(x + 13, y + 16, 2.5);
+    } else {
+      // 关闭：木板门 + 门缝 + 门前灰土（萧条感）
+      g.fillStyle(0x6b4423, 1);
+      g.fillRect(x - 6, y + 6, 12, 12);
+      g.fillStyle(0x5a3a1e, 1);
+      g.fillRect(x - 2, y + 6, 2, 12);
+      g.fillStyle(0x555555, 0.35);
+      g.fillRect(x - 16, y + 18, 32, 4);
+    }
   }
 
   // ============ 自动农业机器人（v0.6 庄园自动化 MVP） ============
@@ -8921,16 +9271,6 @@ export class MapScene extends Phaser.Scene {
     if (this.seedSelectorEl) return;
     if (this.cropPickerEl) return;
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    // 移动端点击商店摊位 → 直接打开商店（不误判为"不能在这里"）
-    if (this.farmShop) {
-      const dx = world.x - this.farmShop.pos.x;
-      const dy = world.y - this.farmShop.pos.y;
-      if (dx * dx + dy * dy <= 26 * 26) {
-        this.inputManager.clearAction();
-        this.shopPanel.open();
-        return;
-      }
-    }
     const col = Math.floor(world.x / TILE_SIZE);
     const row = Math.floor(world.y / TILE_SIZE);
     if (!isInFarmArea(col, row)) {
@@ -9016,8 +9356,8 @@ export class MapScene extends Phaser.Scene {
         if (availableSeeds.length === 0) {
           // Commit 3：无任何种子 → 明确引导（不弹选择器，不打断节奏）
           this.flashTileError(col, row);
-          this.showFloatText(tileCenterX, tileCenterY, '没有种子，去商店看看吧', '#ff8a80');
-          this.showDialogueText('没有种子了……去商店买一些吧！');
+          this.showFloatText(tileCenterX, tileCenterY, '没有种子，去镇上商店看看吧', '#ff8a80');
+          this.showDialogueText('没有种子了……去镇上的商店买一些吧！');
           return;
         }
         if (availableSeeds.length === 1) {
@@ -9190,8 +9530,8 @@ export class MapScene extends Phaser.Scene {
         this.storyDialogue.play(FIRST_HARVEST_DIALOGUE, () => {
           // T2-1 Day1 引导链：收获 → 出售 → 修复（底部提示条，3 秒自动消失，不打断）
           this.showDialogueText(this.hintText(
-            '收获的作物可以拿到农田右下角的商店卖掉换金币！这些收成，是镇上老房子的建材费。',
-            '收获的作物可以拿到农田右下角的商店卖掉换金币！这些收成，是镇上老房子的建材费。'));
+            '收获的作物可以拿到青禾镇的商店卖掉换金币！这些收成，是镇上老房子的建材费。',
+            '收获的作物可以拿到青禾镇的商店卖掉换金币！这些收成，是镇上老房子的建材费。'));
           this.updateHUD();
         });
       });
@@ -9204,121 +9544,185 @@ export class MapScene extends Phaser.Scene {
   /**
    * Plot 批量交互入口：按优先级 收获 > 浇水 > 播种 > 锄地，整块田一次执行。
    * 每 Plot 取最高优先级统一执行，避免混合田内各自为政。
+   * E-11（2026-08-10）：演出活跃时先完成剩余揭示（再次交互 = 跳过演出），再路由新操作。
    */
   private interactPlot(plotId: FarmPlotId): void {
+    this.finishBatchReveal();
     const summary = getPlotSummary(plotId);
     const center = getPlotCenter(plotId);
-    if (summary.grown > 0) { this.harvestPlot(plotId); return; }
-    if (summary.planted > 0) { this.waterPlot(plotId); return; }
-    if (summary.tilled > 0) { this.plantPlot(plotId); return; }
-    if (summary.empty > 0) { this.tillPlot(plotId); return; }
+    if (summary.grown > 0) { this.startBatch(plotId, 'harvest'); return; }
+    if (summary.planted > 0) { this.startBatch(plotId, 'water'); return; }
+    if (summary.tilled > 0) { this.startBatch(plotId, 'plant'); return; }
+    if (summary.empty > 0) { this.startBatch(plotId, 'till'); return; }
     // 全为 watered（成长中）：明确反馈，避免"点了没反应"
     this.flashPlotError(plotId);
     this.showFloatText(center.x, center.y, '作物还在成长，明天再来看看', '#ff8a80');
   }
 
-  /** 批量锄地：整块田所有 empty → tilled */
-  private tillPlot(plotId: FarmPlotId): void {
+  /**
+   * E-11 批量操作统一执行器（2026-08-10 制作人拍板：方案 A+成长感）：
+   * 数据层瞬间完成（与旧批量逻辑完全一致，零存档/平衡风险），视觉分批渐进揭示——
+   * "林澈正在整理这一片田"被看见，而不是瞬间完成。
+   * 时长分级（按实际操作格数）：≤5 立即；6-15 → 1.5s；16-30 → 2.5s；31+ → 3.5s。
+   * 会话内同类操作第 2 次起时长减半（第 3 次再减半，不无限拖）。
+   * 跳过：演出期间再次交互（interactPlot 入口 finishBatchReveal）。
+   */
+  private startBatch(plotId: FarmPlotId, type: 'till' | 'plant' | 'water' | 'harvest'): void {
     const center = getPlotCenter(plotId);
-    if (getItemCount('old_hoe') <= 0) {
+    // 工具前置校验（保持原 tillPlot/waterPlot 反馈）
+    if (type === 'till' && getItemCount('old_hoe') <= 0) {
       this.flashPlotError(plotId);
       this.showFloatText(center.x, center.y, '没有锄头，不能锄地', '#ff8a80');
       this.showDialogueText('还没有锄头，先打开庄园大门吧。');
       return;
     }
-    let n = 0;
-    for (const { col, row } of getPlotTiles(plotId)) {
-      if (this.tillTileAt(col, row)) n++;
-    }
-    if (n > 0) {
-      play('hoe'); // 批量只播一次音效（不 16 次）
-      this.soilDust(center.x, center.y); // v1.0 批量锄地土屑（center 一次，不逐格）
-      this.showFloatText(center.x, center.y, `锄地 ×${n}`, '#ffe082');
-    }
-    this.refreshPlotVisual(plotId);
-  }
-
-  /**
-   * 批量播种：优先铺满当前选中种子，库存用尽后用其他可用种子补齐。
-   * 全部无种子 → 飘字引导。
-   */
-  private plantPlot(plotId: FarmPlotId): void {
-    const center = getPlotCenter(plotId);
-    const tiles = getPlotTiles(plotId);
-    const tilledTotal = getPlotSummary(plotId).tilled;
-    if (tilledTotal === 0) return;
-    let planted = 0;
-    // 第一轮：当前选中的种子
-    let count = getItemCount(CROP_DEFS[this.selectedCropType].seedItem as any);
-    for (const { col, row } of tiles) {
-      if (getTileState(col, row) !== 'tilled') continue;
-      if (count <= 0) break;
-      if (this.plantTileAt(col, row, this.selectedCropType)) { planted++; count--; }
-    }
-    // 第二轮：其他可用种子补齐（避免留下锄好的地空着）
-    if (planted < tilledTotal) {
-      for (const ct of CROP_TYPES) {
-        if (ct === this.selectedCropType) continue;
-        let c2 = getItemCount(CROP_DEFS[ct].seedItem as any);
-        for (const { col, row } of tiles) {
-          if (getTileState(col, row) !== 'tilled') continue;
-          if (c2 <= 0) break;
-          if (this.plantTileAt(col, row, ct)) { planted++; c2--; }
-        }
-      }
-    }
-    if (planted > 0) {
-      play('plant');
-      this.seedDrop(center.x, center.y); // v1.0 批量落种反馈（center 一次）
-      this.showFloatText(center.x, center.y, `播种 ×${planted}`, '#ffe082');
-      this.updateDailyQuestPanel();
-    } else {
-      this.flashPlotError(plotId);
-      this.showFloatText(center.x, center.y, '没有种子，去商店看看吧', '#ff8a80');
-      this.showDialogueText('没有种子了……去商店买一些吧！');
-    }
-    this.refreshPlotVisual(plotId);
-  }
-
-  /** 批量浇水：整块田所有 planted → watered，区域水波扩散 */
-  private waterPlot(plotId: FarmPlotId): void {
-    const center = getPlotCenter(plotId);
-    if (getItemCount('old_watering_can') <= 0) {
+    if (type === 'water' && getItemCount('old_watering_can') <= 0) {
       this.flashPlotError(plotId);
       this.showFloatText(center.x, center.y, '没有水壶，不能浇水', '#ff8a80');
       this.showDialogueText('还没有水壶，完成播种任务后才能浇水。');
       return;
     }
-    let n = 0;
-    for (const { col, row } of getPlotTiles(plotId)) {
-      if (this.waterTileAt(col, row)) n++;
+    // ===== 数据层瞬间完成（收集实际操作格） =====
+    const tiles = getPlotTiles(plotId);
+    const affected: { col: number; row: number }[] = [];
+    let parts = '';
+    if (type === 'till') {
+      for (const { col, row } of tiles) if (this.tillTileAt(col, row)) affected.push({ col, row });
+      parts = `锄地 ×${affected.length}`;
+    } else if (type === 'plant') {
+      const tilledTotal = getPlotSummary(plotId).tilled;
+      if (tilledTotal === 0) return;
+      // 第一轮：当前选中的种子；第二轮：其他可用种子补齐（原 plantPlot 逻辑）
+      let count = getItemCount(CROP_DEFS[this.selectedCropType].seedItem as any);
+      for (const { col, row } of tiles) {
+        if (getTileState(col, row) !== 'tilled') continue;
+        if (count <= 0) break;
+        if (this.plantTileAt(col, row, this.selectedCropType)) { affected.push({ col, row }); count--; }
+      }
+      if (affected.length < tilledTotal) {
+        for (const ct of CROP_TYPES) {
+          if (ct === this.selectedCropType) continue;
+          let c2 = getItemCount(CROP_DEFS[ct].seedItem as any);
+          for (const { col, row } of tiles) {
+            if (getTileState(col, row) !== 'tilled') continue;
+            if (c2 <= 0) break;
+            if (this.plantTileAt(col, row, ct)) { affected.push({ col, row }); c2--; }
+          }
+        }
+      }
+      parts = `播种 ×${affected.length}`;
+      if (affected.length > 0) this.updateDailyQuestPanel();
+    } else if (type === 'water') {
+      for (const { col, row } of tiles) if (this.waterTileAt(col, row)) affected.push({ col, row });
+      parts = `浇水 ×${affected.length}`;
+      if (affected.length > 0) this.updateDailyQuestPanel();
+    } else {
+      // harvest：byType 汇总（未成熟保留，原 harvestPlot 逻辑）
+      const byType = new Map<CropType, number>();
+      for (const { col, row } of tiles) {
+        const ct = this.harvestTileAt(col, row);
+        if (ct) { affected.push({ col, row }); byType.set(ct, (byType.get(ct) ?? 0) + 1); }
+      }
+      parts = [...byType.entries()].map(([ct, c]) => `${CROP_DEFS[ct].icon}×${c}`).join(' ');
+      if (affected.length > 0) this.updateDailyQuestPanel();
     }
-    if (n > 0) {
-      play('water');
-      this.plotWaterRipple(plotId); // 区域水波扩散（替代逐格水花）
-      this.moistDarken(center.x, center.y); // v1.0 批量湿润色变（center 一次）
-      this.showFloatText(center.x, center.y, `浇水 ×${n}`, '#64b5f6');
-      this.updateDailyQuestPanel();
+
+    const n = affected.length;
+    if (n <= 0) {
+      // 无实际操作成功（如播种时无种子）→ 原 plantPlot 错误反馈
+      if (type === 'plant') {
+        this.flashPlotError(plotId);
+        this.showFloatText(center.x, center.y, '没有种子，去镇上商店看看吧', '#ff8a80');
+        this.showDialogueText('没有种子了……去镇上的商店买一些吧！');
+      }
+      this.refreshPlotVisual(plotId);
+      return;
     }
-    this.refreshPlotVisual(plotId);
+
+    // 音效（批量只播一次，不逐格）
+    play(type === 'till' ? 'hoe' : type === 'plant' ? 'plant' : type === 'water' ? 'water' : 'harvest');
+
+    // ===== 小批量（≤5 格）：立即揭示，保持现状手感 =====
+    if (n <= 5) {
+      this.refreshPlotVisual(plotId);
+      const color = type === 'water' ? '#64b5f6' : type === 'harvest' ? '#7ef0a0' : '#ffe082';
+      this.showFloatText(center.x, center.y, type === 'harvest' ? `收获 ${parts}` : parts, color);
+      return;
+    }
+
+    // ===== 大批量：视觉分批揭示（数据已瞬间完成，演出只做"被看见"） =====
+    this.showDialogueText(type === 'harvest' ? '正在收获作物……' : '正在整理田地……');
+    const session = this.batchSessionCount[type] ?? 0;
+    this.batchSessionCount[type] = session + 1;
+    let dur = n <= 15 ? 1500 : n <= 30 ? 2500 : 3500;
+    if (session >= 1) dur = Math.round(dur * 0.5); // 第 2 次起加速
+    if (session >= 2) dur = Math.round(dur * 0.5); // 第 3 次起再加速
+    if (dur < 400) dur = 400;
+    const step = Math.max(4, Math.ceil(n / Math.max(1, Math.round(dur / 200))));
+    this.batchReveal = { plotId, type, tiles: affected, idx: 0, step, total: n, parts, timer: null };
+    this.batchReveal.timer = this.time.addEvent({
+      delay: 200,
+      repeat: -1,
+      callback: () => this.tickBatchReveal(),
+    });
+    // 开场中心特效（整片田"开始动了"）
+    if (type === 'till') this.soilDust(center.x, center.y);
+    else if (type === 'plant') this.seedDrop(center.x, center.y);
+    else if (type === 'water') { this.plotWaterRipple(plotId); this.moistDarken(center.x, center.y); }
   }
 
-  /** 批量收获：整块田所有 grown → 收获（未成熟保留） */
-  private harvestPlot(plotId: FarmPlotId): void {
-    const center = getPlotCenter(plotId);
-    let n = 0;
-    const byType = new Map<CropType, number>();
-    for (const { col, row } of getPlotTiles(plotId)) {
-      const ct = this.harvestTileAt(col, row);
-      if (ct) { n++; byType.set(ct, (byType.get(ct) ?? 0) + 1); }
+  /** E-11 演出推进：每 200ms 揭示一批格子（视觉刷新为结果态 + 逐格轻反馈） */
+  private tickBatchReveal(): void {
+    const job = this.batchReveal;
+    if (!job) return;
+    const to = Math.min(job.total, job.idx + job.step);
+    for (let i = job.idx; i < to; i++) {
+      const { col, row } = job.tiles[i];
+      const visual = this.tileRects.get(`${col},${row}`);
+      if (visual) this.updateTileVisual(col, row, visual);
+      const cx = col * TILE_SIZE + TILE_SIZE / 2;
+      const cy = row * TILE_SIZE + TILE_SIZE / 2;
+      if (job.type === 'harvest') this.harvestPuff(cx, cy);
+      else if (job.type === 'till') this.soilDust(cx, cy);
+      else if (job.type === 'plant') this.seedDrop(cx, cy);
+      else this.moistDarken(cx, cy);
     }
-    if (n > 0) {
-      play('harvest');
-      const parts = [...byType.entries()].map(([ct, c]) => `${CROP_DEFS[ct].icon}×${c}`);
-      this.showFloatText(center.x, center.y, `收获 ${parts.join(' ')}`, '#7ef0a0');
-      this.updateDailyQuestPanel();
+    job.idx = to;
+    this.updateHUD();
+    if (to >= job.total) this.finishBatchReveal();
+  }
+
+  /** E-11 演出收尾：立即揭示剩余格 + 揭晓飘字（自然结束 / 再次交互跳过共用） */
+  private finishBatchReveal(): void {
+    const job = this.batchReveal;
+    if (!job) return;
+    if (job.timer) job.timer.remove();
+    this.batchReveal = null;
+    for (let i = job.idx; i < job.total; i++) {
+      const { col, row } = job.tiles[i];
+      const visual = this.tileRects.get(`${col},${row}`);
+      if (visual) this.updateTileVisual(col, row, visual);
     }
-    this.refreshPlotVisual(plotId);
+    this.updateHUD();
+    const center = getPlotCenter(job.plotId);
+    if (job.type === 'harvest') {
+      this.showFloatText(center.x, center.y, job.parts ? `收获 ${job.parts}` : '收获完成', '#7ef0a0');
+    } else {
+      this.showFloatText(center.x, center.y, job.parts, job.type === 'water' ? '#64b5f6' : '#ffe082');
+    }
+  }
+
+  /** E-11 收获揭示粒子：单格轻上浮星点（连续出现 = "一整片田在收获"） */
+  private harvestPuff(worldX: number, worldY: number): void {
+    const p = this.add
+      .text(worldX + Phaser.Math.Between(-4, 4), worldY - 6, '✦', { fontSize: '11px', color: '#a8f0c0' })
+      .setOrigin(0.5)
+      .setDepth(7);
+    this.tweens.add({
+      targets: p, y: worldY - 18, alpha: 0,
+      duration: Phaser.Math.Between(350, 550), ease: 'Quad.Out',
+      onComplete: () => p.destroy(),
+    });
   }
 
   /** 刷新某 Plot 全部格子的视觉 + HUD（批量操作后调用一次） */

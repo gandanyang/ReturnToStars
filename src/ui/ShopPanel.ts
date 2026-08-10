@@ -39,6 +39,9 @@ import { SmartSellPreviewPanel } from './SmartSellPreviewPanel';
 
 const ROBOT_PRICE = 30;
 
+/** 自动售货机（2026-08-11 制作人拍板：夜间/关闭期基础补给）可购买的基础商品 action 集合 */
+const MACHINE_BUY_ACTIONS = new Set(['buy-radish-seed', 'buy-tomato-seed', 'buy-corn-seed']);
+
 /** 商店商品配置 */
 interface ShopItem {
   id: string;
@@ -213,6 +216,8 @@ let onBuyCallback: ((itemId: string, count: number) => void) | undefined;
 let onSellCallback: ((count: number) => void) | undefined;
 /** E-01：首次打开商店的引导 toast 只弹一次 */
 let shopFirstOpened = false;
+/** 商店面板模式：'full' 完整商店（白天老板）/ 'machine' 自动售货机（基础补给，全天可用） */
+let currentMode: 'full' | 'machine' = 'full';
 /** FEATURE-039：智能出售预览面板 */
 let smartSellPanel: SmartSellPreviewPanel | null = null;
 
@@ -290,15 +295,15 @@ function createDom(): void {
     <div style="position:relative;width:min(460px,94vw);max-height:86vh;overflow-y:auto;background:linear-gradient(180deg,#4a3a28 0%,#3d3226 60%,#332a1e 100%);border:2px solid #b08950;border-radius:14px;padding:16px;color:#fff;font-family:Arial;box-shadow:0 8px 32px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)">
       <div id="shop-toast" style="position:absolute;left:50%;top:-2px;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#7ef0a0;font-size:13px;padding:4px 14px;border-radius:6px;display:none;pointer-events:none;white-space:normal;line-height:1.5;text-align:center;"></div>
       <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;">
-        <span style="font-size:20px;">🏪</span>
+        <span id="shop-icon" style="font-size:20px;">🏪</span>
         <div style="text-align:center;">
-          <div style="font-size:19px;font-weight:bold;color:#ffd97a;letter-spacing:2px;text-shadow:0 2px 6px rgba(0,0,0,0.5);">星辰杂货店</div>
-          <div style="font-size:11px;color:#b8a88a;margin-top:1px;letter-spacing:1px;">青禾镇 · 王叔的铺子</div>
+          <div id="shop-title" style="font-size:19px;font-weight:bold;color:#ffd97a;letter-spacing:2px;text-shadow:0 2px 6px rgba(0,0,0,0.5);">星辰杂货店</div>
+          <div id="shop-subtitle" style="font-size:11px;color:#b8a88a;margin-top:1px;letter-spacing:1px;">青禾镇 · 王叔的铺子</div>
         </div>
       </div>
       <div id="shop-coins" style="text-align:center;font-size:15px;font-weight:bold;margin-bottom:12px;color:#ffe082;background:rgba(0,0,0,0.25);border:1px solid rgba(255,224,130,0.25);border-radius:8px;padding:6px 10px;"></div>
       <div style="display:flex;gap:12px;">
-        <div style="flex:1;background:rgba(90,64,40,0.55);border:1px solid rgba(255,171,145,0.3);border-radius:10px;padding:10px;">
+        <div id="shop-sell-col" style="flex:1;background:rgba(90,64,40,0.55);border:1px solid rgba(255,171,145,0.3);border-radius:10px;padding:10px;">
           <div style="text-align:center;font-weight:bold;margin-bottom:8px;color:#ffab91;font-size:13px;letter-spacing:1px;">— 出售 —</div>
           <div id="shop-sell" style="font-size:13px;"></div>
           <div style="text-align:center;margin-top:9px;">
@@ -310,7 +315,7 @@ function createDom(): void {
           <div id="shop-buy" style="font-size:13px;"></div>
         </div>
       </div>
-      <div style="background:linear-gradient(180deg,rgba(42,61,74,0.8),rgba(34,50,62,0.8));border:1px solid #4a8a9a;border-radius:10px;padding:10px;margin-top:12px;">
+      <div id="shop-special-col" style="background:linear-gradient(180deg,rgba(42,61,74,0.8),rgba(34,50,62,0.8));border:1px solid #4a8a9a;border-radius:10px;padding:10px;margin-top:12px;">
         <div style="text-align:center;font-weight:bold;margin-bottom:8px;color:#4fc3f7;font-size:13px;letter-spacing:1px;">✨ 特殊商店</div>
         <div id="shop-special" style="font-size:13px;"></div>
       </div>
@@ -475,7 +480,22 @@ function createDom(): void {
 /** 刷新面板显示 */
 function refresh(): void {
   if (!panelEl) return;
+  const machine = currentMode === 'machine';
   const coins = getCoins();
+
+  // 标题按模式切换：完整商店（老板）vs 自动售货机（基础补给）
+  const titleEl = panelEl.querySelector('#shop-title') as HTMLElement | null;
+  if (titleEl) titleEl.textContent = machine ? '自动售货机' : '星辰杂货店';
+  const subEl = panelEl.querySelector('#shop-subtitle') as HTMLElement | null;
+  if (subEl) subEl.textContent = machine ? '夜间补给 · 基础物资（出售请白天找老板）' : '青禾镇 · 王叔的铺子';
+  const iconEl = panelEl.querySelector('#shop-icon') as HTMLElement | null;
+  if (iconEl) iconEl.textContent = machine ? '🛒' : '🏪';
+
+  // 售货机模式：隐藏出售栏与特殊商店栏（只卖基础补给，不收购、无稀有商品）
+  const sellCol = panelEl.querySelector('#shop-sell-col') as HTMLElement | null;
+  if (sellCol) sellCol.style.display = machine ? 'none' : 'block';
+  const specialCol = panelEl.querySelector('#shop-special-col') as HTMLElement | null;
+  if (specialCol) specialCol.style.display = machine ? 'none' : 'block';
 
   const coinsEl = panelEl.querySelector('#shop-coins');
   if (coinsEl) {
@@ -511,10 +531,10 @@ function refresh(): void {
     sellAllBtn.style.cursor = can ? 'pointer' : 'not-allowed';
   }
 
-  // 购买栏
+  // 购买栏（售货机模式只显示基础补给种子）
   const buyEl = panelEl.querySelector('#shop-buy');
   if (buyEl) {
-    const buyItems = SHOP_ITEMS.filter(i => i.type === 'buy');
+    const buyItems = SHOP_ITEMS.filter(i => i.type === 'buy' && (!machine || MACHINE_BUY_ACTIONS.has(i.action)));
     buyEl.innerHTML = buyItems.map(item => {
       const canBuy = item.canDo();
       const own = getItemCount(item.id as any);
@@ -571,8 +591,9 @@ export class ShopPanel {
     if (!domCreated) createDom();
   }
 
-  /** 打开商店 */
-  open(): void {
+  /** 打开商店（mode：'full' 完整商店=白天老板 / 'machine' 自动售货机=基础补给，全天可用） */
+  open(mode: 'full' | 'machine' = 'full'): void {
+    currentMode = mode;
     open = true;
     // 声音补全 v1.0（2026-08-09）：面板打开轻确认音
     play('ui_confirm');
@@ -580,8 +601,8 @@ export class ShopPanel {
       refresh();
       // A4 动效：面板 fadeIn
       panelFadeIn(panelEl, 180);
-      // E-01：首次打开商店引导卖作物赚钱（立即显示，玩家尚未操作，不会覆盖后续购买反馈）
-      if (!shopFirstOpened) {
+      // E-01：首次打开商店引导卖作物赚钱（仅完整商店；售货机不收购作物，跳过该引导）
+      if (!shopFirstOpened && mode === 'full') {
         shopFirstOpened = true;
         showToast('把收获的作物卖给我换金币，就能买更多种子！');
       }

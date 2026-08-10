@@ -115,7 +115,7 @@ async function run() {
       if (btn) btn.click();
     });
     await sleep(1200);
-    await skipDialogue(page, 11); // GATE_OPENED_DIALOGUE 11 行（v0.8+E-07 + 先开三块地 + 锄地情感句 v0.10.2）
+    await skipDialogue(page, 11); // GATE_OPENED_DIALOGUE 8 行（2026-08-09 压缩；多打 advance 为安全 no-op）
     info = await sceneInfo(page);
     console.log(`5. 使用钥匙开门 → 步骤=${info.step}${info.step === 'clear_land' ? ' ✅' : ' ❌'}`);
 

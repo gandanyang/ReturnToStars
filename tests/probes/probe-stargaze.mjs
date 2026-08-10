@@ -312,6 +312,39 @@ async function run() {
       record.hasTitle && record.sectionsFilled && record.sectionsCount >= 5 && record.hasStats,
       JSON.stringify(record));
 
+    // A7：Demo 结尾「后续钩子」（制作人 2026-08-11：指标 3 = 观星夜后玩家主动询问后续）
+    // 三层出口：①继续自由游玩 ②「给青禾镇留下一封信」（先解释再跳转）③「分享给朋友」
+    const hook = await page.evaluate(() => {
+      const el = document.querySelector('#gx-hook');
+      return {
+        exists: !!el,
+        text: el?.textContent?.replace(/\s+/g, ' ') ?? '',
+        hasStoreBtn: !!document.querySelector('#gx-hook [data-action="store"]'),
+        hasShareBtn: !!document.querySelector('#gx-hook [data-action="share"]'),
+        storeLabel: document.querySelector('#gx-hook [data-action="store"]')?.textContent ?? '',
+      };
+    });
+    result('后续钩子渲染（故事未讲完 + 两层按钮）',
+      hook.exists && hook.text.includes('还没有讲完') && hook.hasStoreBtn && hook.hasShareBtn &&
+      hook.storeLabel.includes('留下一封信'),
+      hook.text.slice(0, 50));
+    await screenshot(page, 'stargaze-ending-hook');
+
+    // A8：第一层「留下一封信」点击 → 先展开解释（不立即跳转），文案含"前往 TapTap"
+    const storeStage = await page.evaluate(() => {
+      const btn = document.querySelector('#gx-hook [data-action="store"]');
+      if (btn) btn.click();
+      const hint = document.querySelector('#gx-hook-hint');
+      return {
+        btnText: btn?.textContent ?? '',
+        hintVisible: hint ? getComputedStyle(hint).display !== 'none' : false,
+        hintText: hint?.textContent?.slice(0, 20) ?? '',
+      };
+    });
+    result('「留下一封信」两步引导（先解释后跳转）',
+      storeStage.btnText.includes('前往 TapTap') && storeStage.hintVisible && storeStage.hintText.includes('青禾镇'),
+      `${storeStage.btnText} / 提示:${storeStage.hintText}`);
+
     const info = await sceneInfo(page);
     result('storyStep = observatory_complete', info.step === 'observatory_complete', `步骤=${info.step}`);
 

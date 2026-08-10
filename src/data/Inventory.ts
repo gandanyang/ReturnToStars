@@ -7,7 +7,9 @@
 /** 物品类型 */
 export type ItemType = 'radish' | 'tomato' | 'corn' | 'strawberry' | 'radish_seed' | 'tomato_seed' | 'corn_seed' | 'strawberry_seed' | 'star_shard' | 'diamond' | 'stone' | 'copper' | 'iron' | 'manor_key' | 'old_hoe' | 'old_watering_can' | 'old_axe' | 'wood' | 'auto_farmer_robot'
   // SHOP-01 青禾镇商店复兴（2026-08-09）：岛屿修复类 + 生活装饰类商品
-  | 'flower_seedling' | 'lantern' | 'wood_sign';
+  | 'flower_seedling' | 'lantern' | 'wood_sign'
+  // 爷爷的归星包裹 v0.1（2026-08-11，制作人拍板 P0 序章体验补强）：纪念物，不参与售卖
+  | 'dried_fish' | 'grandpa_letter';
 
 /** 出售优先级标签（FEATURE-039 智能出售） */
 export type SellPriority = 'normal' | 'reserve' | 'forbidden';
@@ -49,6 +51,9 @@ export const ITEM_DEFS: Record<ItemType, ItemDef> = {
   flower_seedling: { id: 'flower_seedling', name: '旧花苗', desc: '有人曾经精心照料过它。', icon: '🌷', sellPriority: 'forbidden' },
   lantern: { id: 'lantern', name: '小灯笼', desc: '暖黄色的光，照亮回家的路。', icon: '🏮', sellPriority: 'forbidden' },
   wood_sign: { id: 'wood_sign', name: '木牌', desc: '可以写上字，也可以什么都不写。', icon: '🪧', sellPriority: 'forbidden' },
+  // 爷爷的归星包裹 v0.1（2026-08-11）：爷爷留下的纪念物，不可售
+  dried_fish: { id: 'dried_fish', name: '小鱼干', desc: '晒干的小鱼。爷爷的习惯——岛上的日子，得有点咸味。', icon: '🐟', sellPriority: 'forbidden' },
+  grandpa_letter: { id: 'grandpa_letter', name: '爷爷的信', desc: '爷爷留在包裹里的信。字迹很稳，落笔很慢。', icon: '✉️', sellPriority: 'forbidden' },
 };
 
 /** 库存数据：物品类型 → 数量 */
@@ -75,6 +80,8 @@ const inventory: Record<ItemType, number> = {
   flower_seedling: 0,
   lantern: 0,
   wood_sign: 0,
+  dried_fish: 0,
+  grandpa_letter: 0,
 };
 
 /** 读取某物品数量 */
@@ -128,9 +135,11 @@ export function restoreAllInventory(data: Partial<Record<ItemType, number>>): vo
  * 物品图标 HTML（16×16 像素图标替换 emoji 渲染）
  * @param id     物品 ID（对应 public/assets/icons/{id}.png）
  * @param size   显示尺寸（px，默认 18）
+ * 注：部分物品尚无 png 图标（如 dried_fish / grandpa_letter），缺失时 onerror 回退为 emoji，避免坏图。
  */
 export function itemIconHtml(id: string, size = 18): string {
-  return `<img src="assets/icons/${id}.png" alt="" style="width:${size}px;height:${size}px;vertical-align:middle;image-rendering:pixelated;">`;
+  const fallback = (ITEM_DEFS[id as ItemType]?.icon ?? '📦').replace(/'/g, '');
+  return `<img src="assets/icons/${id}.png" alt="" onerror="this.style.display='none';this.insertAdjacentText('afterend','${fallback}');" style="width:${size}px;height:${size}px;vertical-align:middle;image-rendering:pixelated;">`;
 }
 
 // ── FEATURE-039：物品锁定（防止一键出售卖掉关键资源） ──

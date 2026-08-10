@@ -144,13 +144,13 @@ async function run() {
     });
     await sleep(1200);
 
-    // 传送到摊位旁（col 24, row 18 中心 392,296，站位上方一格 row 17）
+    // 传送到摊位旁（col 31, row 13 中心 504,216，站位左侧一格 col 30）——2026-08-10 摊位往镇子方向挪并竖放
     const shopRes = await page.evaluate(() => {
       const s = window.__game.scene.getScene('farm');
       const p = s.player;
-      p.setPosition(24 * 16 + 8, 17 * 16 + 8); // 摊位正上方一格
+      p.setPosition(30 * 16 + 8, 13 * 16 + 8); // 摊位左侧一格
       p.setVelocity(0, 0);
-      p.facing = 'down';
+      p.facing = 'right';
       // 模拟一次交互（对应按 E / 交互按钮）
       s.tryInteract();
       return { shopOpen: s.shopPanel?.isOpen() ?? false };
