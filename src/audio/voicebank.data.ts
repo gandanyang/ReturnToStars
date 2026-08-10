@@ -1,7 +1,7 @@
 /* eslint-disable */
 // ══════════════════════════════════════════════════════════════════
 // 语音映射数据 —— 由 tools/gen_mainline_voice.py --emit-voicebank 自动生成，勿手改
-// 生成时间：2026-08-10 08:04:51
+// 生成时间：2026-08-10 11:04:20
 // 说明：speaker='' 表示通配（少女/HR/纸条），text 为归一化后原文（已剥（笑）等标注）
 // ══════════════════════════════════════════════════════════════════
 export interface VoiceEntry { file: string; speaker: string; text: string }
@@ -14,7 +14,6 @@ export const VOICE_ENTRIES: VoiceEntry[] = [
   { file: 'linche/xiya_02.wav', speaker: '林澈', text: '你认识我？' },
   { file: 'linche/xiya_04.wav', speaker: '林澈', text: '我也没想到自己会回来。本来只是想看看爷爷留下的地方。' },
   { file: 'linche/gate_01.wav', speaker: '林澈', text: '……比我以为的还要荒。' },
-  { file: 'linche/gate_03.wav', speaker: '林澈', text: '爷爷一个人打理这么大的地方？' },
   { file: 'linche/gate_06.wav', speaker: '林澈', text: '他从来没跟我说过这些。' },
   { file: 'linche/dawn_02.wav', speaker: '林澈', text: '你每天都起这么早？' },
   { file: 'linche/dawn_04.wav', speaker: '林澈', text: '……我以前，都是被闹钟叫醒的。' },
@@ -61,9 +60,7 @@ export const VOICE_ENTRIES: VoiceEntry[] = [
   { file: 'xiya/xiya_03.wav', speaker: '夏雅', text: '林爷爷以前提过你。……大家都以为，不会有人回来了。' },
   { file: 'xiya/xiya_05.wav', speaker: '夏雅', text: '那就先从这扇门开始吧。' },
   { file: 'xiya/gate_02.wav', speaker: '夏雅', text: '这里以前不是这样的。' },
-  { file: 'xiya/gate_04.wav', speaker: '夏雅', text: '嗯。他说，只要还有人愿意住下来，这里就不会荒废。' },
   { file: 'xiya/gate_05.wav', speaker: '夏雅', text: '旧了点，但还能用。你爷爷当年就是用这把锄头，把这片地一锄一锄开出来的。' },
-  { file: 'xiya/gate_07.wav', speaker: '夏雅', text: '有些事，要等你自己回来了，才会知道。' },
   { file: 'xiya/dawn_01.wav', speaker: '夏雅', text: '这么早？我睡不着，就过来看看这些地。' },
   { file: 'xiya/dawn_03.wav', speaker: '夏雅', text: '岛上的人都这样。太阳一出来，就想醒着。' },
   { file: 'xiya/harvest_01.wav', speaker: '夏雅', text: '第一次自己种出来？' },
@@ -108,6 +105,8 @@ export const VOICE_ENTRIES: VoiceEntry[] = [
   { file: 'elder/elder_03.wav', speaker: '村长', text: '我是青禾镇的镇长。你爷爷啊，年轻时候就喜欢晚上坐在那块石头上看天。' },
   { file: 'elder/elder_05.wav', speaker: '村长', text: '喜欢。他以前也经常往后山跑。' },
   { file: 'elder/elder_07.wav', speaker: '村长', text: '他说那里有些东西，值得看看。' },
+  { file: 'elder/quest_return_01.wav', speaker: '村长', text: '来了。你爷爷的事，我们接着聊。' },
+  { file: 'elder/quest_return_02.wav', speaker: '村长', text: '昨天那个石头后面，我就知道你会来。' },
   { file: 'elder/busy_01.wav', speaker: '村长', text: '我是青禾镇的镇长。本想跟你好好聊聊你爷爷的事——' },
   { file: 'elder/busy_02.wav', speaker: '村长', text: '镇上这几天忙着修缮，我实在抽不开身。明天吧，明天你来镇长家找我，咱们详谈。' },
   { file: 'elder/busy_03.wav', speaker: '村长', text: '这些是给你准备的启动物资：种子、工具，还有一点金币、木材和石头。你先在农场安顿下来。' },
