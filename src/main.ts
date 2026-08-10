@@ -224,7 +224,8 @@ applyAdaptiveLogicalSize();
 //   window.debug.getStoryStep()     获取当前教程步骤
 //   window.debug.getQuestState()     获取任务状态
 //   window.debug.setQuestState(s)    设置任务状态
-(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; sfx: (name: string) => void; ambience: () => { map: string | null; layers: number }; events: { triggerOnce: (id: string, fn: () => void) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
+//   window.debug.setMusicBoxTrack(k) 设置音乐盒"我的歌"（null 清除，恢复地图默认）
+(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; ambience: () => { map: string | null; layers: number }; events: { triggerOnce: (id: string, fn: () => void) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
   events: {
     triggerOnce,
     hasTriggered,
@@ -329,6 +330,12 @@ applyAdaptiveLogicalSize();
   guixingTags: () => Array.from(getTriggeredTags()),
   // 声音补全 v1.0（2026-08-09）：BGM 当前曲目只读钩子（探针断言 town/spring_letter 播放）
   musicCurrent: () => MusicSystem.current(),
+  setMusicBoxTrack: (k) => {
+    MusicSystem.setMusicBoxTrack(k);
+    if (k) {
+      void MusicSystem.play(k);
+    }
+  },
   // 声音补全 v1.0：SFX 冒烟钩子（探针调用各音效 key 验证可播放无异常）
   sfx: (name: string) => sfxPlay(name as never),
   // 声音补全 v1.0（2026-08-09）：环境音状态钩子（探针断言地图环境音组合已创建）

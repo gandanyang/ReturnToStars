@@ -179,6 +179,13 @@ export const MusicSystem = {
     }
     const url = getTrackUrl(key);
     if (!url) return;
+    // 同曲幂等：当前正在播放同一首（且无挂起重试）则继续播放，不打断重播。
+    // 用途：换地图时 playSceneBgm 仍会以"我的歌/剧情曲"为目标调用本函数，
+    // 命中此分支即可实现跨场景音乐连续（配合 MapScene SHUTDOWN 保留我的歌策略）。
+    if (currentKey === key && currentSource && !pendingKey) {
+      notifyListeners();
+      return;
+    }
     stopCurrent();
 
     const audioBuf = await loadAndDecode(key);
@@ -259,26 +266,36 @@ export const MusicSystem = {
   },
 
   /**
+   * 计算当前优先级下的目标曲目（剧情 > 音乐盒"我的歌" > 地图默认）。
+   * 返回 null 表示"不应播放 BGM"（当前无剧情覆盖、无我的歌时由调用方按地图决定默认曲）。
+   */
+  resolveBgmKey(mapKey: string, hour: number): string | null {
+    if (storyBgm) return storyBgm;
+    if (currentMusicBoxTrack) return currentMusicBoxTrack;
+    if (mapKey === 'town' && hour >= 5 && hour < 19) return 'town';
+    if (mapKey === 'house') return 'linche_theme2';
+    return hour >= 19 || hour < 5 ? 'stargaze_night' : 'farm_day';
+  },
+
+  /** 当前正在播放的曲目是否属于"地图默认曲"（非我的歌/剧情曲）——供场景 SHUTDOWN 判断是否可停止 */
+  isSceneDefaultPlaying(): boolean {
+    if (storyBgm || currentMusicBoxTrack) return false;
+    return currentKey !== null;
+  },
+
+  /**
    * 场景 BGM 统一入口：按优先级决定播放内容。
    * 剧情 > 音乐盒"我的歌" > 地图默认（青禾镇白天=小镇曲，老屋=林澈个人曲 2《The Road I Choose》，
-   * 其余白天=农场曲，夜晚=观星夜曲）
+   * 其余白天=农场曲，夜晚=观星夜曲）。
+   * 同曲幂等：目标曲与当前播放一致时直接返回，实现跨场景/剧情恢复时音乐连续不打断。
    */
   playSceneBgm(mapKey: string, hour: number): void {
-    if (storyBgm) {
-      void MusicSystem.play(storyBgm);
+    const target = MusicSystem.resolveBgmKey(mapKey, hour);
+    if (!target) {
+      // 理论上不会走到（resolve 恒有默认曲兜底），保险起见按 farm_day 处理
+      void MusicSystem.play('farm_day');
       return;
     }
-    if (currentMusicBoxTrack) {
-      void MusicSystem.play(currentMusicBoxTrack);
-      return;
-    }
-    if (mapKey === 'town' && hour >= 5 && hour < 19) {
-      void MusicSystem.play('town');
-    } else if (mapKey === 'house') {
-      // 林澈个人曲 2（2026-08-09 制作人归档《The Road I Choose》）：老屋=主角私域/情绪基地
-      void MusicSystem.play('linche_theme2');
-    } else {
-      void MusicSystem.play(hour >= 19 || hour < 5 ? 'stargaze_night' : 'farm_day');
-    }
+    void MusicSystem.play(target);
   },
 };

@@ -711,7 +711,11 @@ export class MapScene extends Phaser.Scene {
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, this.cleanupSceneDom, this);
     // 场景切换时停止环境音（防止上一场景环境音残留到下一场景——P0 防黑屏/残留）
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => AmbienceSystem.stop(), this);
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => MusicSystem.stop(), this);
+    // 场景切换时 BGM 策略（2026-08-10 音乐跨图连续）：仅停止"地图默认曲"；
+    // 若在播音乐盒"我的歌"或剧情曲则保留（新场景 playSceneBgm 同曲幂等命中→跨场景连续不打断）
+    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (MusicSystem.isSceneDefaultPlaying()) MusicSystem.stop();
+    }, this);
     // E-09 消磨时间：场景切换关闭等待面板（防残留）
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => closeWaitPanel(), this);
     // 天气系统：场景切换时停止雨天效果
