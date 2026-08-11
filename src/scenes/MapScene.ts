@@ -5307,11 +5307,14 @@ export class MapScene extends Phaser.Scene {
 
     // 2026-08-11 镇子商店门口自动售货机（制作人拍板：衰落中维持最低限度运转）
     // 独立交互锚点：全天可用、只卖基础补给；老板在场也不受影响（机器不抢老板存在感）
-    // 必须优先于需求板：售货机(384,156) 距需求板(360,136) 仅 ~31px，需求板 48px 半径会抢先命中
+    // 必须优先于需求板：售货机实际位置 (352,156)（mx=x-40=352）距需求板 (360,136) 仅 ~21.5px，
+    // 需求板 48px 半径会抢先命中。售货机交互半径取 20px（< 21.5px）：
+    //   玩家站需求板中心 (360,136) 距售货机 21.5px > 20px → 正常打开需求板；
+    //   玩家贴近售货机（<20px）→ 打开售货机（优先级正确，机器不吞需求板）。
     if (this.mapKey === 'town' && this.shopMachine) {
       const dx = this.player.x - this.shopMachine.pos.x;
       const dy = this.player.y - this.shopMachine.pos.y;
-      if (dx * dx + dy * dy < 24 * 24) {
+      if (dx * dx + dy * dy < 20 * 20) {
         this.inputManager.clearAction();
         this.shopPanel.open('machine');
         return;
