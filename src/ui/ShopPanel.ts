@@ -227,6 +227,79 @@ let longPressAction: string | null = null;
 const LONG_PRESS_DELAY = 400; // 首次延迟
 const LONG_PRESS_INTERVAL = 120; // 后续间隔
 
+// ── 批量购买浮层（方案 D，2026-08-11）──
+let bulkOverlay: HTMLDivElement | null = null;
+let bulkSelectedItem: ShopItem | null = null;
+let bulkSelectedQty = 1;
+
+/** 计算当前金币对该商品的最大可买数量（≥1） */
+function maxBuyable(item: ShopItem): number {
+  return Math.max(1, Math.floor(getCoins() / item.price));
+}
+
+/** 执行批量购买：循环 N 次，每次检查 canDo（金币会在过程中减少） */
+function executeBulkBuy(item: ShopItem, qty: number): void {
+  let bought = 0;
+  for (let i = 0; i < qty; i++) {
+    if (!item.canDo()) break;
+    item.do();
+    bought++;
+  }
+  if (bought > 0) {
+    onBuyCallback?.(item.id, bought);
+    showToast(`已购买 ${item.label} ×${bought}<br>当前拥有：${item.label} ×${getItemCount(item.id as any)}`);
+    play('buy');
+  } else {
+    showToast('金币不足');
+    play('invalid');
+  }
+  refresh();
+}
+
+/** 关闭批量购买浮层 */
+function closeBulkOverlay(): void {
+  if (bulkOverlay) panelFadeOut(bulkOverlay, 120);
+  bulkSelectedItem = null;
+}
+
+/** 打开批量购买浮层 */
+function openBulkOverlay(item: ShopItem): void {
+  if (!bulkOverlay) return;
+  bulkSelectedItem = item;
+  bulkSelectedQty = 1;
+  const max = maxBuyable(item);
+  // 标题/图标/单价
+  const nameEl = bulkOverlay.querySelector('#bulk-name') as HTMLElement | null;
+  if (nameEl) nameEl.textContent = item.label;
+  const iconEl = bulkOverlay.querySelector('#bulk-icon') as HTMLElement | null;
+  if (iconEl) iconEl.textContent = item.icon ?? '';
+  const priceEl = bulkOverlay.querySelector('#bulk-price') as HTMLElement | null;
+  if (priceEl) priceEl.textContent = `单价 ${item.price} G`;
+
+  // 数量档位按钮：1 / 5 / 10 / 最大
+  const tiers = [1, 5, 10, max];
+  const tierEls = bulkOverlay.querySelectorAll('[data-bulk-qty]');
+  tierEls.forEach((el, idx) => {
+    const btn = el as HTMLElement;
+    const qty = tiers[idx] ?? 1;
+    btn.dataset.bulkQty = String(qty);
+    // 最大档位显示实际数字
+    if (idx === 3) btn.textContent = `最大 ×${max}`;
+    // 金币不足该档位时置灰
+    const affordable = getCoins() >= item.price * qty;
+    btn.style.opacity = affordable ? '1' : '0.4';
+    btn.style.cursor = affordable ? 'pointer' : 'not-allowed';
+  });
+
+  // 合计/确认区初始
+  const totalEl = bulkOverlay.querySelector('#bulk-total') as HTMLElement | null;
+  if (totalEl) totalEl.textContent = `合计 ${item.price} G`;
+  const confirmBtn = bulkOverlay.querySelector('[data-bulk-action="confirm"]') as HTMLElement | null;
+  if (confirmBtn) confirmBtn.textContent = '确认购买 ×1';
+
+  panelFadeIn(bulkOverlay, 120);
+}
+
 /**
  * 防双买标志：pointerdown 已立即购买后置位；click 里购买类按钮消费并跳过。
  * 触摸端（安卓）pointerdown 购买 + refresh 重建按钮后，浏览器仍可能把 click 派发到
@@ -327,7 +400,7 @@ function createDom(): void {
   document.body.appendChild(panelEl);
 
   // 事件委托：所有按钮走 data-action 分发
-  // 长按连续购买：pointerdown 开始计时，pointerup/cancel 停止
+  // 长按连续购买：pointerdown 启动计时（不立即买），长按触发后连买；单击=弹批量浮层
   panelEl.addEventListener('pointerdown', (e) => {
     // 每个新手势重置防双买标志（若上一手势被 pointercancel 中断，标志不会残留）
     suppressNextClick = false;
@@ -340,14 +413,8 @@ function createDom(): void {
     if (!item || item.type !== 'buy') return;
     if (!item.canDo()) return;
 
-    // 阻止 pointerdown 之后派发 click（规范行为，真机 Chromium 有效；CDP 触摸仿真不保证）。
-    // 兜底由 suppressNextClick 标志在 click 处理里吞掉，双保险防「单击买 2 个」。
-    e.preventDefault();
-
-    // 首次立即购买
-    executeBuy(item);
-    suppressNextClick = true;
-    // 启动长按连续购买
+    // 长按连买：pointerdown 不立即买，延迟 400ms 后开始连买
+    // 单击（pointerup 在 400ms 内）则不触发连买，由 click 事件弹批量浮层
     longPressAction = action;
     longPressTimer = setTimeout(() => {
       longPressTimer = setInterval(() => {
@@ -360,9 +427,12 @@ function createDom(): void {
           stopLongPress();
           return;
         }
+        // 长按触发后立即买第一个，并标记 suppressNextClick 吞掉后续 click
         executeBuy(currentItem);
+        suppressNextClick = true;
       }, LONG_PRESS_INTERVAL);
     }, LONG_PRESS_DELAY);
+    // 不阻止默认行为，让 click 正常派发（单击=弹浮层）
   });
 
   panelEl.addEventListener('pointerup', stopLongPress);
@@ -401,8 +471,7 @@ function createDom(): void {
     }
     const item = SHOP_ITEMS.find(i => i.action === action);
     if (item) {
-      // 防双买：本次 pointerdown 已立即购买，吞掉紧随其后的 click（触摸端浏览器会把
-      // click 派发到 refresh 重建后的同位置按钮）。重置标志，保证下一手势正常。
+      // 长按连买已触发：吞掉紧随其后的 click（避免弹浮层）
       if (item.type === 'buy' && suppressNextClick) {
         suppressNextClick = false;
         return;
@@ -416,14 +485,15 @@ function createDom(): void {
         play('invalid');
         return;
       }
-      item.do();
       if (item.type === 'buy') {
-        onBuyCallback?.(item.id, 1);
-        showToast(`已购买 ${item.label} ×1<br>当前拥有：${item.label} ×${getItemCount(item.id as any)}`);
-      } else if (item.type === 'sell') {
-        onSellCallback?.(1);
+        // 方案 D：单击购买按钮弹批量选择浮层（1/5/10/最大）
+        openBulkOverlay(item);
+        return;
       }
-      play(item.type === 'sell' ? 'sell' : 'buy');
+      // 出售类：保持单次行为
+      item.do();
+      onSellCallback?.(1);
+      play('sell');
       refresh();
       return;
     }
@@ -471,8 +541,82 @@ function createDom(): void {
   // Esc 关闭
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && open) {
+      // 浮层打开时优先关浮层
+      if (bulkOverlay && bulkOverlay.style.display !== 'none') {
+        closeBulkOverlay();
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       closePanel();
+    }
+  });
+
+  // ── 批量购买浮层 DOM（模态，z-index 高于商店面板）──
+  bulkOverlay = document.createElement('div');
+  bulkOverlay.id = 'shop-bulk-overlay';
+  bulkOverlay.style.cssText =
+    'position:fixed;top:0;right:0;bottom:0;left:0;display:none;align-items:center;justify-content:center;' +
+    'background:rgba(0,0,0,0.55);z-index:210;user-select:none;-webkit-user-select:none;';
+  bulkOverlay.innerHTML = `
+    <div style="width:min(320px,90vw);background:linear-gradient(180deg,#4a3a28 0%,#3d3226 60%,#332a1e 100%);border:2px solid #b08950;border-radius:12px;padding:16px;color:#fff;font-family:Arial;box-shadow:0 8px 32px rgba(0,0,0,0.7);">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span id="bulk-icon" style="font-size:20px;"></span>
+        <div style="flex:1;">
+          <div id="bulk-name" style="font-size:16px;font-weight:bold;color:#ffd97a;"></div>
+          <div id="bulk-price" style="font-size:11px;color:#b8a88a;margin-top:1px;"></div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#b8a88a;margin-bottom:6px;">选择数量</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px;">
+        <button data-bulk-qty="1" style="font-size:13px;padding:8px 0;background:rgba(216,165,63,0.25);border:1px solid rgba(232,200,119,0.4);border-radius:7px;color:#ffd97a;cursor:pointer;font-weight:bold;">×1</button>
+        <button data-bulk-qty="5" style="font-size:13px;padding:8px 0;background:rgba(216,165,63,0.25);border:1px solid rgba(232,200,119,0.4);border-radius:7px;color:#ffd97a;cursor:pointer;font-weight:bold;">×5</button>
+        <button data-bulk-qty="10" style="font-size:13px;padding:8px 0;background:rgba(216,165,63,0.25);border:1px solid rgba(232,200,119,0.4);border-radius:7px;color:#ffd97a;cursor:pointer;font-weight:bold;">×10</button>
+        <button data-bulk-qty="max" style="font-size:13px;padding:8px 0;background:rgba(216,165,63,0.25);border:1px solid rgba(232,200,119,0.4);border-radius:7px;color:#ffd97a;cursor:pointer;font-weight:bold;">最大</button>
+      </div>
+      <div id="bulk-total" style="text-align:center;font-size:15px;font-weight:bold;color:#ffe082;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:10px;">
+        <button data-bulk-action="cancel" style="flex:1;font-size:13px;padding:8px 0;background:linear-gradient(180deg,#6d5334,#5a4327);border:1px solid #8a6a45;border-radius:8px;color:#fff;cursor:pointer;">取消</button>
+        <button data-bulk-action="confirm" style="flex:1;font-size:13px;padding:8px 0;background:linear-gradient(180deg,#d8a53f,#b8872a);border:1px solid #e8c877;border-radius:8px;color:#fff;font-weight:bold;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.35);">确认购买</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(bulkOverlay);
+
+  // 浮层事件委托
+  bulkOverlay.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const action = target.dataset?.bulkAction;
+    // 点遮罩空白=取消
+    if (target === bulkOverlay) { closeBulkOverlay(); return; }
+    if (action === 'cancel') { closeBulkOverlay(); return; }
+    if (action === 'confirm') {
+      if (bulkSelectedItem && bulkSelectedQty > 0) {
+        executeBulkBuy(bulkSelectedItem, bulkSelectedQty);
+      }
+      closeBulkOverlay();
+      return;
+    }
+    // 数量档位
+    const qtyStr = target.dataset?.bulkQty;
+    if (qtyStr && bulkOverlay) {
+      const qty = parseInt(qtyStr, 10);
+      if (!isNaN(qty) && qty > 0 && bulkSelectedItem) {
+        bulkSelectedQty = qty;
+        // 高亮选中档位
+        bulkOverlay.querySelectorAll('[data-bulk-qty]').forEach(el => {
+          (el as HTMLElement).style.background = 'rgba(216,165,63,0.25)';
+          (el as HTMLElement).style.borderColor = 'rgba(232,200,119,0.4)';
+        });
+        target.style.background = 'linear-gradient(180deg,#d8a53f,#b8872a)';
+        target.style.borderColor = '#e8c877';
+        // 更新合计/确认按钮
+        const total = bulkSelectedItem.price * qty;
+        const totalEl = bulkOverlay.querySelector('#bulk-total') as HTMLElement | null;
+        if (totalEl) totalEl.textContent = `合计 ${total} G`;
+        const confirmBtn = bulkOverlay.querySelector('[data-bulk-action="confirm"]') as HTMLElement | null;
+        if (confirmBtn) confirmBtn.textContent = `确认购买 ×${qty}`;
+      }
     }
   });
 }

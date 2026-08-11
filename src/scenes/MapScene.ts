@@ -5677,13 +5677,22 @@ export class MapScene extends Phaser.Scene {
     const wb = this.physics.world.bounds;
     const W = wb.width;
     const H = wb.height;
+    // 观星夜居中修复（2026-08-11）：星空底/星点需覆盖观星夜相机最大视野，否则宽屏下
+    // 视野右侧露出地图外的深灰背景（GAME_CONFIG.backgroundColor=#2d2d2d），观感为
+    // "星空特效不在屏幕正中间"。观星点(504,232) 居中时：
+    //   mobile 844x390 → logical 1298x600 → 视野 649x300，scroll=(179.5,82) → 右边界 828.5
+    //   desktop 1280x720 → logical 1067x600 → 视野 533.5x300 → 右边界 770.8
+    // 实际演出段 zoomCameraAt 后 zoom≈2.15（比上面推导的 2.0 视野更小），
+    // starW/starH 按最坏（最大）视野覆盖并留余量；星星/银河铺满扩展区（观感统一），小镇灯光仍在地图内。
+    const starW = 920;
+    const starH = 460;
     // 静态星野底（深蓝渐变 + 散布星点）
     this.starField = this.add.graphics();
     this.starField.setDepth(15); // 高于玩家(10)和作物(2-3)，盖住农田
     this.starField.setScrollFactor(1);
     // 深蓝夜空渐变（v2 微调：暗部略提亮 0x0a1628→0x0d1a30）
     this.starField.fillGradientStyle(0x0d1a30, 0x0d1a30, 0x1a2a4a, 0x1a2a4a, 1, 1, 1, 1);
-    this.starField.fillRect(0, 0, W, H);
+    this.starField.fillRect(0, 0, starW, starH);
     // 静态星点（确定性，基于位置哈希；v2 分两层：近层亮 + 远层暗）
     const rng = (seed: number) => {
       let s = seed;
@@ -5692,8 +5701,8 @@ export class MapScene extends Phaser.Scene {
     const rand = rng(42);
     // 近层 80 颗（亮 0.6~0.9，稍大）
     for (let i = 0; i < 80; i++) {
-      const sx = rand() * W;
-      const sy = rand() * H;
+      const sx = rand() * starW;
+      const sy = rand() * starH;
       const size = 1 + rand() * 1.4;
       const alpha = 0.6 + rand() * 0.3;
       this.starField.fillStyle(0xffffff, alpha);
@@ -5701,8 +5710,8 @@ export class MapScene extends Phaser.Scene {
     }
     // 远层 60 颗（暗 0.2~0.4，偏小）
     for (let i = 0; i < 60; i++) {
-      const sx = rand() * W;
-      const sy = rand() * H;
+      const sx = rand() * starW;
+      const sy = rand() * starH;
       const size = 0.5 + rand() * 0.9;
       const alpha = 0.2 + rand() * 0.2;
       this.starField.fillStyle(0xffffff, alpha);
@@ -5711,19 +5720,19 @@ export class MapScene extends Phaser.Scene {
     // 银河带（半透明白色带状，v2 宽度微增——更"银河"感）
     this.starField.fillStyle(0xffffff, 0.06);
     this.starField.beginPath();
-    this.starField.moveTo(W * 0.18, 0);
-    this.starField.lineTo(W * 0.38, H);
-    this.starField.lineTo(W * 0.64, H);
-    this.starField.lineTo(W * 0.28, 0);
+    this.starField.moveTo(starW * 0.18, 0);
+    this.starField.lineTo(starW * 0.38, starH);
+    this.starField.lineTo(starW * 0.64, starH);
+    this.starField.lineTo(starW * 0.28, 0);
     this.starField.closePath();
     this.starField.fillPath();
     // v0.10.4 银河叠淡蓝带（A 档：更"银河"感——真实夜晚而非幻想，0.04 蓝叠加白带，宽度同步微增）
     this.starField.fillStyle(0x8fb8ff, 0.04);
     this.starField.beginPath();
-    this.starField.moveTo(W * 0.2, 0);
-    this.starField.lineTo(W * 0.4, H);
-    this.starField.lineTo(W * 0.62, H);
-    this.starField.lineTo(W * 0.3, 0);
+    this.starField.moveTo(starW * 0.2, 0);
+    this.starField.lineTo(starW * 0.4, starH);
+    this.starField.lineTo(starW * 0.62, starH);
+    this.starField.lineTo(starW * 0.3, 0);
     this.starField.closePath();
     this.starField.fillPath();
     // v0.10.4 远景小镇灯光（观星夜远景：地平线一排暖黄光点——"青禾镇还亮着"，纯装饰）
@@ -5743,8 +5752,8 @@ export class MapScene extends Phaser.Scene {
     this.starCross = [];
     // 大星（8 颗：十字光芒 = 4 条短 line 交叉，container 整体旋转慢闪）
     for (let i = 0; i < 8; i++) {
-      const cx = rand() * W;
-      const cy = rand() * H;
+      const cx = rand() * starW;
+      const cy = rand() * starH;
       const c = this.add.container(cx, cy);
       const g = this.add.graphics();
       g.lineStyle(1, 0xffffff, 0.55);
@@ -5766,8 +5775,8 @@ export class MapScene extends Phaser.Scene {
     }
     // 普通闪烁星（42 颗）
     for (let i = 0; i < 42; i++) {
-      const tx = rand() * W;
-      const ty = rand() * H;
+      const tx = rand() * starW;
+      const ty = rand() * starH;
       const tSize = 1 + rand() * 2;
       const star = this.add.ellipse(tx, ty, tSize, tSize, 0xffffff, 0.8);
       star.setDepth(16); // 高于星空底(15)，盖住农田
@@ -5776,12 +5785,14 @@ export class MapScene extends Phaser.Scene {
       this.starTwinkle.push(star);
     }
     // v2 月光：淡月（天空）+ 观星点旁月光斑（让旧墙/石头收到月光，ADD 泛光）
+    // 月亮位置用绝对坐标 (400,112)：观星点(504,232) zoom≈2.15 居中时视野 y∈[82,382]，
+    // 原相对位 (W*0.62,H*0.16)=(397,64) 在视野上方之外 → 月亮全程不可见（2026-08-11 修复）。
     this.stargazeMoon = this.add.container(0, 0);
     const moonGlow = this.add.graphics();
     moonGlow.fillStyle(0xcfe0ff, 0.1);
-    moonGlow.fillCircle(W * 0.62, H * 0.16, 18);
+    moonGlow.fillCircle(400, 112, 18);
     moonGlow.fillStyle(0xdbe8ff, 0.35);
-    moonGlow.fillCircle(W * 0.62, H * 0.16, 7);
+    moonGlow.fillCircle(400, 112, 7);
     this.stargazeMoon.add(moonGlow);
     const groundMoon = this.add.ellipse(this.STARGAZE_POS.x, this.STARGAZE_POS.y + 14, 90, 30, 0xa9c4ff, 0.1);
     groundMoon.setBlendMode(Phaser.BlendModes.ADD);
@@ -5924,6 +5935,9 @@ export class MapScene extends Phaser.Scene {
     play('wind');     // v0.10.4 微风：树叶沙沙 + 远处虫鸣（低音量一次性，约 20% 强度）
     // 显示星空（v0.10.4 A 档：静态星野底 + 银河叠淡蓝 + 远景小镇灯光 + 星点闪烁）
     this.setStarFieldVisible(true);
+    // 观星夜居中兜底（2026-08-11）：starField 已扩展覆盖最大视野，这里再把相机背景
+    // 设为深蓝夜空色双保险，覆盖任何边角（晨曦结束时 setBackgroundColor() 恢复透明，防黑屏）。
+    this.cameras.main.setBackgroundColor(0x0d1a30);
     // 解除相机跟随 + 边界（#29 补丁 2026-08-08）：
     // 1. useBounds=false：观星点 (504,232) 靠近地图右下缘，zoom=2 视野 400x300 下
     //    clamp 上限只有 scroll=(40,-50)（相机中心最大 240,100），玩家会被推到画布右侧之外，

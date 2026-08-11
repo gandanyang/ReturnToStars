@@ -39,7 +39,9 @@ const makeSave = (scene, x, y, opts = {}) => ({
   // 会抢占 E 键交互），否则按 E 命中的是开场推进而非老板对话。
   story: { storyStep: 'done', ch1TownIntroDone: true },
   // sideGardenerPlumDone=true：避免小梅「小梅花」事件（锚点 17,9 距商店老板 16,10 仅 16px）抢走交互
-  mapFlags: { sideGardenerPlumDone: true, ...(opts.mapFlags ?? {}) },
+  // shopState='opened'：商店状态剧情（08-11 拍板「商人回镇」）会压过 T3.5 事件链（stateLines 优先）。
+  // T3.5 前提是"卖出过作物"，而卖出作物必然发生在商店 opened 之后，故种子必须模拟 opened 状态。
+  mapFlags: { sideGardenerPlumDone: true, shopState: opts.shopState ?? 'opened', ...(opts.mapFlags ?? {}) },
 });
 
 async function run() {

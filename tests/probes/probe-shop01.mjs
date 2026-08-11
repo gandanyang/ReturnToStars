@@ -13,7 +13,7 @@
 import puppeteer from 'puppeteer-core';
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const BASE = 'http://localhost:5173/';
+const BASE = process.env.GAME_URL || 'http://localhost:5173/';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
@@ -36,6 +36,42 @@ page.on('console', (msg) => {
   if (msg.type() === 'error' || msg.text().includes('Uncaught')) errors.push(msg.text());
 });
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+/**
+ * 购买单个商品（方案 D 交互）：真实鼠标单击购买按钮 → 批量浮层弹出 → 确认 ×1
+ * 返回 true 表示流程完整走通
+ */
+async function buyOne(page, action) {
+  // 真实鼠标单击（down+up 会触发 pointerdown → click 完整序列）
+  const ok = await page.evaluate((a) => {
+    const btn = document.querySelector(`[data-action="${a}"]`);
+    if (!btn) return false;
+    btn.scrollIntoView({ block: 'center' });
+    const r = btn.getBoundingClientRect();
+    window.__probeBtn = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    return true;
+  }, action);
+  if (!ok) return false;
+  const pt = await page.evaluate(() => window.__probeBtn);
+  await page.mouse.move(pt.x, pt.y);
+  await page.mouse.down();
+  await sleep(80);
+  await page.mouse.up();
+  await sleep(250);
+  // 等浮层出现
+  const shown = await page.evaluate(() => {
+    const o = document.getElementById('shop-bulk-overlay');
+    return o && o.style.display !== 'none';
+  });
+  if (!shown) return false;
+  // 选 ×1（默认就是 1，直接确认）
+  await page.evaluate(() => {
+    const btn = document.querySelector('#shop-bulk-overlay [data-bulk-action="confirm"]');
+    if (btn) btn.click();
+  });
+  await sleep(300);
+  return true;
+}
 
 async function waitScene(key, timeout = 20000) {
   const t0 = Date.now();
@@ -87,30 +123,27 @@ try {
   result('T1 新商品 5 项 + 描述显示', t1.wood && t1.stone && t1.flower && t1.lantern && t1.sign && t1.desc, JSON.stringify(t1));
 
   // ── T2 购买：整捆木材 8G→wood+1；整齐石料 12G→stone+2 ──
-  await page.evaluate(() => { document.querySelector('[data-action="buy-wood-bundle"]').click(); });
-  await sleep(300);
-  await page.evaluate(() => { document.querySelector('[data-action="buy-stone-stack"]').click(); });
+  const wb = await buyOne(page, 'buy-wood-bundle');
+  const sb = await buyOne(page, 'buy-stone-stack');
   await sleep(300);
   const t2 = await page.evaluate(() => ({
-    wood: window.debug.giveItem ? null : null, // 用背包查询替代（giveItem 只增不减）
     coins: document.querySelector('#shop-coins')?.textContent?.match(/\d+/)?.[0] ?? '?',
   }));
   const t2b = await page.evaluate(() => {
-    // 通过再卖 1 个萝卜验证 wood/stone 在背包：实际用 toast 计数更稳——直接读面板"已有"
     const body = document.body.innerText;
     return { woodOk: body.includes('整捆木材'), stoneOk: body.includes('整齐石料') };
   });
-  result('T2 整捆木材/整齐石料可购买（按钮存在+点击无报错）', !errors.length, t2.coins + ' ' + JSON.stringify(t2b));
+  result('T2 整捆木材/整齐石料可购买（浮层×1确认）', wb && sb && !errors.length, t2.coins + ' ' + JSON.stringify(t2b));
 
   // ── T3 旧花苗纯叙事：购买 + tag + 老板台词；再买不重复 ──
-  await page.evaluate(() => { document.querySelector('[data-action="buy-flower-seedling"]').click(); });
+  await buyOne(page, 'buy-flower-seedling');
   await sleep(700);
   const t3a = await page.evaluate(() => ({
     toast: document.querySelector('#shop-toast')?.textContent ?? '<无>',
     tags: window.debug.guixingTags?.() ?? [],
   }));
   result('T3a 花苗首次：归星tag found_old_seed + 老板台词', t3a.tags.includes('found_old_seed') && t3a.toast.includes('这种花以前岛上很多地方都有'), JSON.stringify(t3a));
-  await page.evaluate(() => { document.querySelector('[data-action="buy-flower-seedling"]').click(); });
+  await buyOne(page, 'buy-flower-seedling');
   await sleep(700);
   const t3b = await page.evaluate(() => ({
     tags: window.debug.guixingTags?.() ?? [],
@@ -120,10 +153,9 @@ try {
   result('T3b 花苗再买：不重复触发归星记录', seedCount === 1, `count=${seedCount} toast=${t3b.toast.slice(0, 30)}`);
 
   // ── T4 装饰类：小灯笼/木牌 购买 ──
-  await page.evaluate(() => { document.querySelector('[data-action="buy-lantern"]').click(); });
-  await sleep(300);
-  await page.evaluate(() => { document.querySelector('[data-action="buy-wood-sign"]').click(); });
-  await sleep(700);
+  await buyOne(page, 'buy-lantern');
+  await buyOne(page, 'buy-wood-sign');
+  await sleep(500);
   const t4 = await page.evaluate(() => ({
     tags: window.debug.guixingTags?.() ?? [],
   }));
