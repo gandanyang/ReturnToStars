@@ -1,113 +1,58 @@
 # 《归星物语》项目长期记忆
 
-> 用途：跨会话持久的工作约定与"轮子清单"。每次开工先看这里 + `docs/AI开发前必读.md` + `docs/开发约束与架构入口.md`。
+> 跨会话约定与"轮子清单"。开工先读：`docs/AI开发前必读.md` + `docs/开发约束与架构入口.md` + 任务卡。
 
-## 核心工作规范（用户明确要求：避免反复造轮子）
+## 核心规范（避免反复造轮子）
+- **新需求动手前先做"已有系统检查"**（复用方案/新增文件/修改文件），确认后再编码。
+- **红线**：禁第二个 SaveManager/EventManager/QuestTrigger；禁 Scene 直存 localStorage/global（收口 SaveSystem）；禁单 NPC 独立管理器；禁无任务要求的行为不变重构；一次性触发必须 `EventManager.triggerOnce(id, fn)`。
 
-**任何新需求动手前，必须先做"已有系统检查"，确认复用方案后再编码。**
-门禁三件套（每次任务开始必读）：
-1. `docs/AI开发前必读.md`（门禁）
-2. `docs/开发约束与架构入口.md`（架构入口 + 新增系统检查清单）
-3. 对应任务卡（`docs/tasks/…`）
+## 轮子清单（直接复用）
+- 存档 `SaveSystem.ts`｜一次性事件 `EventManager.ts`｜剧情 `StorySystem.ts`（冻结区单写者制）｜任务 `QuestSystem.ts`+`DailyQuestSystem.ts`｜相簿 `data/PhotoAlbum.ts`｜恢复 `data/FarmRestore.ts`｜NPC `NPCSystem.ts`｜环境音 `AmbienceSystem.ts`｜音乐 `audio/MusicSystem.ts`｜语音 `audio/VoiceBank.ts`（`镇长→村长` key 桥接）｜Debug `main.ts` window.debug（绕过 Vite dev 双模块）
+- UI：模块级单例+panelFadeIn/Out 统一面板；`StoryDialogue.ts` 打字机；`MemoryFlashback.ts` 闪回；`MemoryMoment.ts` 飘字
+- tools/（50+ 先查再写）：语音 gen_voice/gen_mainline_voice/gen_xiya_minimax.py+minimax_tts/fish_tts.ts；出图 gen_portrait_comfy.py/gpt_image_gen.mjs；GPT tileset 管线 gpt_tileset_normalizer.py（切块→量化→调色板映射→无缝→16px）+prompts/*.txt，锚点 `tools/star_island_palette.json`；打包 build_apk/install_apk.py；gpt-bridge.mjs 请示桥
+- 探针 tests/probes/：ch1-walkthrough/stargaze/photo-album/dialogue-history/voice/npc-*/lighthouse/west-coast-visual 等
 
-**禁止事项（重复造轮子的红线）**：
-- 禁止新建第二个 SaveManager / EventManager / QuestTrigger
-- 禁止 Scene 里直接 localStorage/global 存永久状态（一律收口 SaveSystem）
-- 禁止为单个 NPC 建独立管理器
-- 禁止无任务要求的行为不变重构
-- 禁止只判断条件不记录"已触发"（必须 `EventManager.triggerOnce(id, fn)`）
+## 协作约定
+- 多 AI 并发（WorkBuddy/TRAE/Codex）：git 写操作协调；git 写统一交 opencode/制作人（AGENTS.md 红线）；对象损坏停手报告不自行 gc
+- 截图归档进程活跃（08-10 起）：test-screenshots/ 与 tmp/ 大 png 会被并行会话移入 `archive/screenshots/`——消失≠清理，重跑探针重建即可
+- 宣发图 `public/assets/images/promo/`；相簿图 `public/assets/photos/album/`（webp ≤1280）
+- 试玩 `tmp/_player-run.mjs`：瞬时按键须 HOLD；click 弹窗须 mouse.click；坐标闭环走位；玩家被出口"吸走"时 player 可能 null（容忍）
 
-## 轮子清单（已有资产，直接复用不要重造）
+## 制作人拍板（要点）
+- **配音（最高优先级）**：一律优先 MiniMax（T2A v2），VoxCPM 仅离线备选；夏雅=female-shaonv-jingpin 定案，其他角色先定音色
+- **T2 红线**：只做 Day1 引导链+关键对白+出售反馈世界化；禁新货币/建筑/任务链/UI/经济公式；冻结：好感、新地图、战斗、大型农业扩展；EventManager 不再扩接口
+- **美术（08-07）**：GPT tileset A 工具做扎实→farm 达标复制管线；调色板映射锁定；重出图绝不覆盖历史素材
+- **术语（08-09）**：「心语任务」=角色剧情统一命名；「村长」→「镇长」全仓收敛
+- **BUG-071 关闭（08-09）**：双夏雅三层根因修复；P2 候补 XiyaStateManager（禁手工互斥列表，稳定期不重构）
+- **阶段（08-09）**：Alpha→可展示版；P0=收口→回归→TapTap→实机 PV；收口完成 `6aca71d`；下一批=「3 分钟体验测量版」
 
-### 系统层（src/systems 与 data）
-| 能力 | 入口 | 说明 |
-|---|---|---|
-| 存档 | `SaveSystem.ts` | 唯一持久状态入口（player/world/farm/story/mapFlags/album/gameState） |
-| 一次性事件 | `EventManager.ts` | triggerOnce/hasTriggered/存档恢复——剧情/相簿解锁/记忆卡/彩蛋/支线必用它 |
-| 剧情 | `StorySystem.ts` | 主线步骤 + 对白数据（**冻结区：单写者制，只读导入**） |
-| 主线任务 | `QuestSystem.ts` | 星之碎片状态机 |
-| 每日任务 | `DailyQuestSystem.ts` | 随机任务池 + 红点 |
-| 相簿解锁 | `data/PhotoAlbum.ts` | unlockPhoto 幂等 + album 存档（v0.1 已含 5 张：花园/矿灯/后山/夏雅院/村长星空） |
-| 世界恢复 | `data/FarmRestore.ts` | 花园/老屋/道路恢复状态 |
-| NPC | `NPCSystem.ts` | NPC 作息/站位/每日台词池 |
-| 环境音 | `AmbienceSystem.ts` | 昼夜/雨天环境音 |
-| 音乐 | `audio/MusicSystem.ts` | BGM（title/farm_day/stargaze，Web Audio + antiIDM） |
-| 语音 | `audio/VoiceBank.ts` | 台词→voice_normalized/ 映射（无回退） |
-| Debug | `main.ts` 的 `window.debug` | 测试钩子（探针驱动状态用，**绕过 Vite dev 双模块问题**） |
+## 平台事实
+- **横屏优先**：🔴 探针视口红线（制作人点名）：禁止竖屏视口（375×812）——触发 #rotate-hint + isMobileLayout 竖屏分支拦截交互；必须横屏（1024×768 或移动端 844×390+hasTouch）
+- 标题有"请旋转设备横屏游玩"提示；iOS 横屏 Home Indicator 安全区已适配
 
-### UI 层（src/ui）
-- 面板模式统一：模块级单例 + `panelFadeIn/panelFadeOut`（dom-anim.ts）——Backpack/Shop/Quest/Ending/PhotoAlbum/DialogueHistory 同模式
-- 对白：`StoryDialogue.ts`（打字机/立绘/选项/skip/剧情回顾冻结）
-- 记忆闪回：`MemoryFlashback.ts`（overlay）+ `data/MemoryFlashbacks.ts`（数据）
-- 记忆卡飘字：`MemoryMoment.ts`
+## 声音补全 v1.0（08-09 收口 ✅）
+6 首 BGM + SFX 程序合成包（quest/repair/shard/种田四件套/ui_confirm/door）+ 环境音（waves/birds/犬吠猫叫）全部接线；door_close 无调用点（P2）
 
-### 工具脚本（tools/，50+ 个，先查再写）
-- 语音：`gen_voice.py`/`gen_mainline_voice.py`/`gen_xiya_minimax.py`/`minimax_tts.ts`/`fish_tts.ts`/`normalize_audio.py`/`trim_voice_leads.py`/`check_voicebank_match.py`
-- 出图：`gen_portrait_comfy.py`/`gpt_image_gen.mjs`（gpt-image）/`_tmp_comfyui.mjs`（ComfyUI 文生图）
-- **GPT tileset 标准化（2026-08-07 新增）**：`gpt_tileset_normalizer.py`（切块+量化+降采样，GPT 出图→16×16 game tileset 三步管线）+ `prompts/{farm,town,forest,mine,gate,house}.txt` + `prompts/GPT_TILESET_PROMPTS.md`
-- 音频处理：`compress_audio.py`/`check_f0.py`
-- 地图/资源生成：`gen_*_tileset.py`/`gen_map_assets.py`/`gen_crops.py` 等
-- 打包：`build_apk.py`/`install_apk.py`
-- **GPT 请示桥**：`tools/gpt-bridge.mjs`（网页版 ChatGPT 传话，制作人决策顾问；用法见 `docs/工具-GPT请示桥.md`；登录态复用 Chrome 独立 profile `.gpt-bridge-profile/`）
-- 手册：`docs/APK一键打包操作手册.md`/`MiniMax语音生成工具手册.md`/`VoxCPM语音生成一键调用手册.md`
+## 音乐盒扩容 v1.1（08-10 ✅，功能待分）
+- MUSIC_CATALOG 7→12：补 linche_theme2（老屋 BGM 漏收录）+ 4 新曲（island_wakes=主题曲候选；follow_wind/roads_wind/chasing_wind=风三首候选，desc 标"候选"）；title 条目 en 修正为 Stars Gather（曾误标 When The Island Wakes）
+- mp3 源归档 `art_source/audio/music_mp3/`（7 个 no-watermark，带 (1) 的 v2 版本仅归档不进音乐盒）；ogg 转码 128kbps（follow_wind 96k）全部 ≤3.5MB
+- 老屋默认 BGM = linche_theme2（probe T7/T9 曾断言 farm_day 为过期期望，已修）
+- 探针 probe-music-box 16/16；功能分配待制作人拍板
 
-### 探针（tests/probes/，每个功能有验收探针，先查再写）
-- 主线：probe-ch1-walkthrough / probe-stargaze / probe-prologue-walkthrough
-- 相簿：probe-photo-album（**数据驱动 + window.debug 挂钩**）
-- 对话：probe-dialogue-history / probe-bug039-voice-sync / probe-voice / probe-skip-debounce
-- 系统：probe-sell-all / probe-farm-restore / probe-daily-event / probe-npc-* / probe-music-restore / probe-weather-048
+## 灯塔 = 未来内容预埋（08-10 制作人定调 ✅ 已落地，西侧海湾版）
+- **三层**：①现在=农场西侧海湾可见灯塔岛但去不了（黑灯/无执灯人/无任务/无交互）②城市复兴后=灯塔自动亮起+克制台词「**西边的灯塔**……好像又亮起来了」③任务组完成后开放，首次走入见执灯人。链路：**城市复兴 → 执灯人归来 → 灯塔重新点灯 → 开放**。
+- **实现（08-10 制作人"效果不合格"返工后）**：撤除 farm 东北角海角远景（setupFarmHorizon 删除）；**灯塔地图移农场西侧**——farm.json 左 cols0-2/rows10-13 石墙打通为海湾缺口（setupFarmWestCoast：海面/浪花/沙滩/碰撞墙 x<40），lighthouse.json 左 cols0-3/rows9-13 打通入口通道；exits.ts：farm 西侧海湾出口→lighthouse `locked:true`（ExitZone.locked，不触发切换不显示箭头，未来移除即开放）+ lighthouse 西侧出口→farm；灯塔远景+内部灯室恒灭 alpha=0、无光束；`lighthouseUnlocked` 仅设计记录不加字段；文档 `docs/design/灯塔未来内容预埋方案-v1.0.md`（含未来恢复点）。
+- **未来恢复点**：亮灯=setupFarmWestCoast 灯室改 `night ? 0.75 : 0`+呼吸+光束 / setupLighthouseVisuals 光晕改 `night ? 0.35 : 0.06`+光束+地面光斑；开放=exits.ts 移除 locked。
+- **验证**：tsc EXIT=0；west-coast 5/5、lighthouse 7/7、lighthouse-visual 9/9；像素核验海湾海面 64.7%、右上角 0% 蓝（已恢复草地）。
 
-## 项目协作约定
-- 多 AI 会话并发（WorkBuddy/TRAE/Codex）：**同仓库 git 写操作注意协调**；发现对象损坏立即停手报告，不自行 gc（见 docs/incidents/事故记录-git对象库损坏与并发操作-2026-08-06.md）
-- 工作区他人改动（支线试点/语音线等）不擅自提交，提交前确认归属
-- 宣发图输出 `public/assets/images/promo/`；相簿图 `public/assets/photos/album/`（webp ≤1280）
-- **脚本级真实操作试玩**（陌生玩家视角，2026-08-09 首用）：`tmp/_player-run.mjs` 用 Puppeteer 真实键盘 WASD+E 打通主流程找体验问题。经验要点：瞬时按键须 HOLD（`press()` 漏 `JustDown()`）；对白 HOLD E；监听 click 的弹窗须 `mouse.click`；坐标闭环走位比固定时长稳；玩家踩出口区会被"吸进"下一场景（player 瞬间 null）；`day=-1+title+station_intro`=页面 reload。详见 `memory/2026-08-09.md`。
+## ⭐ Phaser 教训（08-10）
+- 相机判定勿信 `cam.scrollX` 属性（follow+setBounds 下与实际 getWorldPoint(0,0).x 不一致）——探针轮询用 getWorldPoint；玩家移位必须 `setPosition()`（body 同步）
+- Graphics `fillStyle(color, alpha)` 的 alpha 烘焙进填充色，GameObject `.alpha` 恒 1——要 setAlpha 控制且探针断言它
+- HMR 抖动（并行会话 5173）：视觉验证必须用独立端口（5199）+ 探针 __game.scene 守卫重试
+- 探针定位场景用 `find(x => x.player)`（getScenes(true)[0] 可能是 title）；showDialogueText 是 canvas 文本，探针读 `.text`
 
-## 制作人拍板（2026-08-06 晚）
-
-- **配音规则（最高优先级）**：以后所有角色/剧情配音**一律优先走 MiniMax 管线**（T2A v2），VoxCPM 仅作离线备选。当前仅夏雅有定案 voice_id（female-shaonv-jingpin）；其他角色用 MiniMax 前需先选音色定案。新台词接入：加 gen_mainline_voice.py 的 T 列表 → 夏雅走 gen_xiya_minimax.py，**其他角色后续也切 MiniMax**（音色定案后）。
-- **执行顺序**：T2（E-07/E-08 体验债务）→ T3（夏雅整理旧照片/老张矿灯/小梅花，3 个情感事件，商店老板放 T3.5）→ T3.5（商店老板"镇子热闹了"）→ T4（完整 Demo 回归）
-- **T2 红线**：只做 Day1 引导链（清理→播种→成长→收获→出售→资源→修复）+ 村长/夏雅两个关键对白 + 出售反馈世界化；❌ 禁新货币/新建筑/新任务链/新UI/新经济公式，全部复用。
-- **冻结**：好感系统、新地图、战斗、大型农业扩展。
-- **T2 开工门禁**：先输出「现有种田流程涉及文件清单 + 修改计划」，禁止直接开写。
-- **Demo 验收标准**：首次玩家 30 分钟内应获得——一次星空体验、一次农业循环、一次 NPC 情感反馈、一次世界变化。
-- **EventManager**：不再扩接口，新内容只做消费方。
-
-## 制作人拍板（2026-08-07 美术管线）
-
-- **GPT tileset 路线 = A → B**（2026-08-07 03:30）：不批量跑 6 场景，先把 A 工具（gpt_tileset_normalizer）做扎实，farm 达标后再复制生产线。
-- **A 工具 3 件事**：① 32×32 自动切块 ② 每块量化(256→12 色, MEDIANCUT, dither=NONE) ③ 32→16 NEAREST 降采样。
-- **GPT 提示词**：从 "pixel art tileset" 改为 "**game tileset / seamless / Tiled / limited palette**" + STRICT TILE RULES（no gradients/lighting, flat pixel clusters, 8-16 colors）。
-- **normalizer v1.1（2026-08-07 04:01 拍板，GPT Pixel Asset Pipeline 6 步）**：网格检测 → 网格线删除 → 色彩量化 → **调色板映射（锁定）** → 无缝边缘修复 → 16px 输出。调色板锚点：tools/star_island_palette.json（与脚本 tileset 主色一致）。
-- **不回退 farm**：farm_hq 是"AI 原料测试样"不是最终资产；最终资产 = GPT 原稿 + normalizer 标准化（可追溯/可重新生成/来源记录，美术规范 v3 双轨制）。
-- **不建议 8 tile 一张图**（正式版拆 Ground tiles + Object tiles）；Demo 阶段沿用 8 格基础 tileset。
-- **当前产物**：tmp/farm_tileset_v3.png（近黑 4.1%、无完整暗线、主色=锚点，质量最优）；**未覆盖 public/** 等制作人验收截图后裁决。
-- **后续顺序**：P0 farm_v3 验收 → P1 逐个复制管线 farm→town→forest→house→mine→gate → P2 Visual Benchmark Scene（林澈+小屋+农田+河+树+夏雅）。
-- **v1.2+ 候补**：自动 tile 分类（免 --map）、阴影方向归一、总调色板约束、Ground/Object tiles 拆分。
-
-## 制作人拍板（2026-08-09 晚 BUG-071 评审）
-
-- **BUG-071 关闭**：双夏雅修复确认完成（morningXiya 僵尸化 / garden 隐藏清单漏 letterXiya / evening 时段重叠三层根因），验证 tsc + day2-morning 18/18 + garden-xiya 10/10 + dual-xiya 10/10。**提交归属已核实**：MapScene.ts 当前 diff 纯为 BUG-071（41 行），收口脚本 6 commit 均不含 MapScene.ts（挖矿调用点已在 HEAD，手机通知在 StationScene.ts）→ 可独立 `fix: prevent duplicate Xiya instances` 或挂入大批次，不会拆乱工作流。
-- **P2 候补（记下，现在不做）**：NPC 生命周期管理优化——夏雅已是"角色状态机"（dawn/morning/evening/garden/letter/photo 六态），未来可演化 `XiyaStateManager`（currentMode: daily/garden/letter/photo，统一负责创建/销毁/优先级/互斥）；**禁止靠手工维护互斥列表继续堆 hideXiya/clearXiya/spawnXiya**。Alpha 稳定期禁止重构，仅记录方向。
-- **阶段定性（制作人）**：BUG-071 属 Alpha 阶段"质量成熟过程"，非拖延；当前最高价值 = ① 实机 PV ② TapTap 移动端测试 ③ 美术一致性治理。
-
-## 项目平台事实（2026-08-07 制作人澄清）
-- **横屏优先，暂不碰竖屏**：标题画面有"请旋转设备横屏游玩"提示，iOS 横屏 Home Indicator 安全区已适配；竖屏适配（BUG-007）明确延后到横屏稳定后。所有截图/验证用横屏视口（1024×768 级别）。
-- **🔴 探针/测试视口红线（2026-08-08 教训，制作人点名）**：项目手机端**只支持横屏**。探针与一切测试**禁止用竖屏视口模拟手机**（如 375×812），必须用横屏视口（桌面 1024×768；移动端模拟用 **844×390 landscape + hasTouch**）。竖屏下会触发 `#rotate-hint` 全屏旋转提示层 + `isMobileLayout()` 竖屏分支，导致交互被拦截、探针误报"基线失败"（真实案例：probe-farm-tap 用 375×812 竖屏视口在"标题→车站"即卡死）。写/跑探针前先核对 viewport 为横屏。
-
-## 术语约定（2026-08-09 制作人拍板）
-- **「心语任务」= 角色专属剧情任务的统一命名**（D-012）：春深有信（夏雅）、追风的人（阿风）及未来所有 NPC 角色剧情任务。
-- 废弃旧叫法（文档/代码逐步收敛）：传说任务/角色篇章/剧情专线/角色专属剧情 → 统一「心语任务」体系。
-- 春深有信 Demo Cut 即心语任务首个实例；P2 Beta 的"角色篇章系统"改称"心语任务框架"。
-- **「村长」→「镇长」称谓统一**（2026-08-09 收口审查确认）：青禾镇执政者正式称谓为「镇长」（制作人控制台 T2 关键对白/镇长配音/镇长立绘均为正式项），「村长」是早期遗留叫法，代码/文档/任务卡同步收敛；VoiceBank 已加 `speaker==='镇长'` 桥接防语音查找回归。
-
-## 声音补全计划 v1.0（2026-08-09 已收口 ✅）
-- **全部完成且已接线**（tsc EXIT=0 核验）：P0-1 青禾镇 town.ogg、P0-2 farm_day、P0-3 夏雅 spring_letter（MapScene playStory×3）、P0-4 quest_complete/repair_complete/shard_deliver；P1 种田四件套升级（dirtBurst 土屑音）+ 地图环境音（farm 海浪/镇犬吠猫叫/雨天叠加）；额外：linche_theme/linche_theme2 林澈双曲、title_main《Stars Gather》、ui_confirm/door_open。door_close 仅定义无调用点（标记 P2 polish，不单独开工）。
-- 音乐生成管线 = `tools/gen_music.py`（纯标准库 MIDI 合成，title/farm_day/stargaze_night）+ 并行会话的 AI 音乐产出（town/spring_letter/linche_theme 等 ogg 直入 public/assets/audio/music/）。
-
-## 项目阶段（2026-08-09 制作人定调）
-- **Alpha 后期 → 可展示版本阶段**（非"做功能 Demo"）：核心指标从"有没有系统"转向"玩家第一次打开，会不会相信这是一个完整游戏"。
-- 新优先级：P0 = 收口提交 → 完整回归 → 打包 TapTap 版本 → 剪实机 PV；P1 = 剧情对白压缩/美术风格统一治理/包体优化；P2 = 后续章节。
-- 宣传链顺序翻转：以前"AI 图 → 玩家想象游戏"，现在"游戏实机 → 玩家相信游戏存在 + AI 图 → 提升情绪"。
-- 收口审查报告：`tmp/收口审查报告-2026-08-09.md`（5 个工作流分批清单，含村长→镇长批）；坏引用 `refs/heads/feat/mobile-farm-target` 待提交收口+备份后由写权限方清理。
-- **收口执行脚本**：`tmp/commit-plan-2026-08-09.sh`（制作人拍板 6 commit 序列 + 可选 chore .workbuddy ignore，精确路径防 docs 污染）；`.gitignore` 已加 `.workbuddy/memory/`；build 预检通过（tsc+vite ✅）。git 写操作统一由 opencode/制作人执行（AGENTS.md 红线）。
+## 文本护栏体系（08-10，制作人拍板）
+- D-017 文风标准 v1.1（角色指纹/不连续漂亮/四层过滤/禁 AI 替代角色思考）｜D-018 自主表达审查流程（四层：角色→权限→表达→留白）｜**D-019 米哈游对白学习样本库 v0.1**（金句准入五问）
+- **金句准入五问**（漂亮句五问全过才准入，非删除）：①资格（经历过/付过代价）②伤口 or 观点③行动支撑④不完整人话（"算了。"）⑤只有他能说（遮名可猜）+ 大词配额制（核心词全岛仅 1-2 个合法持有者）+ 删句测试补充（呼吸句不能当主题句删）
+- **A1 老周**：已定稿（描述动作不总结规律，"东西都带来了"）**施工冻结**；"有人开始修就有人愿意留下"移入镇长候选池（资格决定台词成立与否）
+- 学习库 v0.1 台词凭记忆转述，正式引用需核对原文

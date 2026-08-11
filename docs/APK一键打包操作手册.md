@@ -194,13 +194,17 @@ build_apk.py 失败
 ├─ 退出码 10/11（前端编译失败）
 │   → 修 TypeScript 错误（npx tsc --noEmit 定位）
 │   → 不要跳过 build 直接 cap sync
-├─ 退出码 20/21（cap sync 失败）
-│   → npm install 补依赖
+├─ 退出码 20/21（cap sync 失败 / index.html 缺失）
+│   → 先核对 android/app/src/main/assets/public/index.html 时间戳（vs dist/）
+│   → 缺失或过旧 → 本地 @capacitor/cli 静默失败（exit 0 无输出）→ 见 Q7
+│   → npx --yes @capacitor/cli sync android 绕过 + npm install @capacitor/cli 重装根治
 ├─ 退出码 30/31（Gradle 失败）
+│   → 先确认上述 index.html 已同步（cap sync 静默失败会让 Gradle 连锁失败）
 │   → 看 stderr 末尾 40 行
 │   → "SDK not found" → 检查 ANDROID_SDK_ROOT
 │   → "class file version" → Java 版本不对（需 17/21）
 │   → "Connection timed out" → 代理问题，加 GRADLE_OPTS
+│   → AccessDeniedException（last-build.bin / *.lock）→ 残留 daemon 锁，杀进程后重跑（见 Q8）
 │   → 不要无脑重试同一命令
 └─ 退出码 43（APK 校验失败）
     → 产物已损坏（ZIP 坏 / 缺关键条目 / <4MB）
@@ -247,6 +251,40 @@ build_apk.py 失败
 ### Q6: 之前能打包，现在突然不行
 
 → 检查是否在**不同的终端**里跑（环境变量可能不同）。最稳的做法：写 `tools/local.env.ps1` 统一环境
+
+### Q7: cap sync "成功"但没复制文件（⭐ 头号元凶，2026-08-11 事故）
+
+**现象**：`build_apk.py` 在 cap sync 校验步失败（退出码 20/21 提示 `index.html` 缺失）；但单独跑 `npx cap sync android` 显示 **exit 0、无任何输出、不复制文件**——没有报错，看起来像"成功了"，实际啥也没干。
+
+**根因**：本地 `node_modules/@capacitor/cli` 被破坏（例如 IDE/WorkBuddy 更新时损坏依赖）→ sync 命令静默失败。exit 0 + 无输出 + `android/app/src/main/assets/public/` 里文件没更新 = 静默失败铁证。
+
+**验证方法**：
+```powershell
+# 看 assets 里 index.html 的时间戳，是否与前端产物一致
+ls android/app/src/main/assets/public/index.html
+# 与 dist/index.html 对比，如果 android 侧是旧的/缺失 → 静默失败
+```
+
+**修复（两步）**：
+```powershell
+# 1. 绕过本地坏 cli 强制重同步（用 npm 缓存/远程包，立即可用）
+npx --yes @capacitor/cli sync android
+# 2. 根治：干净重装本地 cli（版本与 package.json 对齐）
+npm install @capacitor/cli@^8.5.0 --save-dev
+```
+
+### Q8: Gradle 步骤偶发失败（退出码 30，cap sync 后残留锁）
+
+**现象**：`build_apk.py` 在 Gradle 步失败（退出码 30），但单独重跑 `gradlew :app:assembleRelease` 却能 **BUILD SUCCESSFUL**。
+
+**根因**：cap sync 刚写完 `android/` 后残留的文件锁/daemon 句柄未释放，Gradle 初始化时 `AccessDeniedException`（常见于 `last-build.bin` / `native-platform.dll.lock` / `zip.lck`）。
+
+**处置**：
+- 确认没有其他 gradle daemon 占用（`Get-Process java`，有则 `taskkill /F /PID <id>`）
+- **直接重跑** `build_apk.py` 一次（偶发，重跑即过）
+- 仍失败才深入：用干净环境变量 + 全新 `GRADLE_USER_HOME`（项目内目录）跑 `java -classpath gradle-launcher.jar org.gradle.launcher.GradleMain :app:assembleRelease`，可绕开 `~/.gradle` 下的路径级拦截
+
+**排障顺序铁律**：遇到打包失败，**先核对 `android/app/src/main/assets/public/index.html` 是否真的同步了**（时间戳 vs `dist/`），再进 Gradle 层排障。这次事故大量时间耗在 Gradle 锁/shim 排查上，而真正元凶是 cap sync 静默失败——index.html 缺失会让后续所有步骤连锁失败。
 
 ---
 
