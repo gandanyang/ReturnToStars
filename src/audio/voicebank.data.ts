@@ -176,7 +176,7 @@ export const VOICE_ENTRIES: VoiceEntry[] = [
   { file: 'gardener/garden_07.wav', speaker: '花匠小梅', text: '（笑）你也感觉到了？' },
   { file: 'linche/garden_answer_01.wav', speaker: '林澈', text: '托给谁？' },
   { file: 'linche/garden_reflect_01.wav', speaker: '林澈', text: '……这座岛上的事情，好像都是"总有一天"。' },
-  { file: 'adventurer/adv_01.wav', speaker: '阿风', text: '嘿！你就是新搬来的林澈吧？我叫阿风，这座岛的每个角落我都跑遍了。' },
+  { file: 'adventurer/adv_01.wav', speaker: '阿风', text: '嘿！还记得我不？小时候后山那一圈，就是我带你跑熟的。' },
   { file: 'adventurer/adv_02.wav', speaker: '阿风', text: '告诉你个秘密——后山深处有东西在发光，镇长神神秘秘的不肯说。' },
   { file: 'adventurer/adv_03.wav', speaker: '阿风', text: '想去探险的话，记得备足体力。后山可比看上去大得多！' },
   // 2026-08-11 按制作人拍板（E1 压缩报告）删除 adv_04：与 adv_02 文案重复，语音条目同步清理（NPCSystem ADVENTURER_DIALOGUES 已删对应行）。
