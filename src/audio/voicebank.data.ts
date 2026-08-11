@@ -179,7 +179,7 @@ export const VOICE_ENTRIES: VoiceEntry[] = [
   { file: 'adventurer/adv_01.wav', speaker: '阿风', text: '嘿！你就是新搬来的林澈吧？我叫阿风，这座岛的每个角落我都跑遍了。' },
   { file: 'adventurer/adv_02.wav', speaker: '阿风', text: '告诉你个秘密——后山深处有东西在发光，镇长神神秘秘的不肯说。' },
   { file: 'adventurer/adv_03.wav', speaker: '阿风', text: '想去探险的话，记得备足体力。后山可比看上去大得多！' },
-  { file: 'adventurer/adv_04.wav', speaker: '阿风', text: '后山深处……有些东西，最好别惊醒。' },
+  // 2026-08-11 按制作人拍板（E1 压缩报告）删除 adv_04：与 adv_02 文案重复，语音条目同步清理（NPCSystem ADVENTURER_DIALOGUES 已删对应行）。
   { file: 'adventurer/adv_05.wav', speaker: '阿风', text: '嘿！你这小子，胆子不小啊！' },
   { file: 'adventurer/adv_06.wav', speaker: '阿风', text: '说得对。有空来后山，我带你转转。' },
   { file: 'adventurer/adv_07.wav', speaker: '阿风', text: '嘿！你回来了！' },

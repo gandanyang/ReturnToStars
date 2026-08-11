@@ -69,7 +69,7 @@ import { showChapterBanner } from '../ui/ChapterBanner';
 import { TouchControls, setActionButtonLabel, setWaitHandler } from '../systems/TouchControls';
 import { showMemoryMoment } from '../ui/MemoryMoment';
 import { playMemoryFlashback } from '../ui/MemoryFlashback';
-import { getShardFlashback, SHARD_PROGRESS_LINES, XIYA_LAMP_FLASHBACK, XIYA_GARDEN_FLASHBACK, ELDER_STAR_FLASHBACK, XIYA_PHOTO_FLASHBACK, PLUM_BLOOM_FLASHBACK, SHOP_CROP_ENTRY_DIALOGUE, SHOP_CROP_NEED_DIALOGUE, SHOP_CROP_DONE_DIALOGUE, SHOP_CROP_FLASHBACK } from '../data/MemoryFlashbacks';
+import { getShardFlashback, SHARD_PROGRESS_LINES, XIYA_LAMP_FLASHBACK, XIYA_GARDEN_FLASHBACK, ELDER_STAR_FLASHBACK, XIYA_PHOTO_FLASHBACK, PLUM_BLOOM_FLASHBACK, SHOP_CROP_ENTRY_DIALOGUE, SHOP_CROP_NEED_DIALOGUE, SHOP_CROP_DONE_DIALOGUE, SHOP_CROP_FLASHBACK, GARDENER_FIELD_FLASHBACK } from '../data/MemoryFlashbacks';
 import { ShopPanel } from '../ui/ShopPanel';
 import { BackpackPanel } from '../ui/BackpackPanel';
 import { GiftPanel } from '../ui/GiftPanel';
@@ -100,6 +100,7 @@ import {
   XIYA_PHOTO_ENTRY_DIALOGUE, XIYA_PHOTO_DONE_DIALOGUE,
   MINER_LAMP_ENTRY_DIALOGUE, MINER_LAMP_NEED_DIALOGUE, MINER_LAMP_DONE_DIALOGUE,
   GARDENER_PLUM_ENTRY_DIALOGUE, GARDENER_PLUM_DONE_DIALOGUE,
+  GARDENER_FIELD_ENTRY_DIALOGUE, GARDENER_FIELD_DONE_DIALOGUE,
   FIRST_HARVEST_DIALOGUE,
   OLD_ROBOT_DIALOGUE,
   XIYA_LETTER_OPEN_DIALOGUE, XIYA_LETTER_FLOWER_DIALOGUE, XIYA_LETTER_RECORD_DIALOGUE, XIYA_LETTER_FINAL_DIALOGUE,
@@ -159,6 +160,9 @@ export interface MapSceneFlags {
   /** T3 小梅「小梅花」：小镇花圃种花（环境变化，一次性入档） */
   sideGardenerPlumAsked?: boolean;
   sideGardenerPlumDone?: boolean;
+  /** 花田支线：帮小梅开垦花田（farm 左上角花田，交付木材×3 → 盛开，一次性入档） */
+  sideGardenerFieldAsked?: boolean;
+  sideGardenerFieldDone?: boolean;
   /** T3.5 商店老板「镇子热闹了」：首次卖出作物后，白天对话触发（一次性入档） */
   sideShopCropAsked?: boolean;
   sideShopCropDone?: boolean;
@@ -448,6 +452,12 @@ export class MapScene extends Phaser.Scene {
   private oldRobotFixed = false;
   // v0.5.3 剧情密度 E2：第一次收获反馈（一次性，内存 flag，不进存档）
   private firstHarvestShown = false;
+  // 2026-08-11：day2 清晨演出（tryFirstMorningSequence）进行中标志。演出窗口内玩家抢先首次收获时，
+  // 全屏旁白/对白（showMemoryMoment + FIRST_HARVEST_DIALOGUE）被抑制并延后到演出结束后补播——
+  // 否则两个剧情竞争 StoryDialogue 单实例互相覆盖（「剧情乱了」bug）。
+  private firstMorningActive = false;
+  // 演出窗口内完成的首次收获：演出结束后补播 FIRST_HARVEST_DIALOGUE（内存标志，不进存档）
+  private pendingFirstHarvest = false;
   // v1.0 生活仪式感：第一次锄地/播种/浇水（一次性，mapFlags 入档，读档不重复）
   private firstHoe = false;
   private firstPlant = false;
@@ -478,6 +488,9 @@ export class MapScene extends Phaser.Scene {
   private sideMinerLampDone = false;
   private sideGardenerPlumAsked = false;
   private sideGardenerPlumDone = false;
+  // 花田支线：帮小梅开垦花田（farm 左上角花田，交付木材×3 → 盛开，一次性入档）
+  private sideGardenerFieldAsked = false;
+  private sideGardenerFieldDone = false;
   // T3.5 商店老板「镇子热闹了」flags（随 mapFlags 存档，读档不重复触发）
   private sideShopCropAsked = false;
   private sideShopCropDone = false;
@@ -491,6 +504,9 @@ export class MapScene extends Phaser.Scene {
   private xiyaPhotoMark: Phaser.GameObjects.Text | null = null;
   private minerLampGroup: Phaser.GameObjects.Container | null = null;
   private plumMark: Phaser.GameObjects.Text | null = null;
+  // 花田支线：花田视觉（荒废态容器 / 提示标记；盛开态直接 build 无需存引用，场景 shutdown 自动销毁）
+  private gardenerFieldRuin: Phaser.GameObjects.Container | null = null;
+  private gardenerFieldMark: Phaser.GameObjects.Text | null = null;
   // D-011 夏雅《春深有信·一》剧情专线场景级对象（花田边剧情夏雅 + 花苗/记录交互点；destroy 时清理）
   private letterXiya: Phaser.GameObjects.Sprite | null = null;
   private letterXiyaLabel: Phaser.GameObjects.Text | null = null;
@@ -597,6 +613,8 @@ export class MapScene extends Phaser.Scene {
       sideMinerLampDone: inst.sideMinerLampDone,
       sideGardenerPlumAsked: inst.sideGardenerPlumAsked,
       sideGardenerPlumDone: inst.sideGardenerPlumDone,
+      sideGardenerFieldAsked: inst.sideGardenerFieldAsked,
+      sideGardenerFieldDone: inst.sideGardenerFieldDone,
       sideShopCropAsked: inst.sideShopCropAsked,
       sideShopCropDone: inst.sideShopCropDone,
       xiyaLetterAsked: inst.xiyaLetterAsked,
@@ -644,6 +662,8 @@ export class MapScene extends Phaser.Scene {
       this.sideMinerLampDone = saved.sideMinerLampDone ?? false;
       this.sideGardenerPlumAsked = saved.sideGardenerPlumAsked ?? false;
       this.sideGardenerPlumDone = saved.sideGardenerPlumDone ?? false;
+      this.sideGardenerFieldAsked = saved.sideGardenerFieldAsked ?? false;
+      this.sideGardenerFieldDone = saved.sideGardenerFieldDone ?? false;
       this.sideShopCropAsked = saved.sideShopCropAsked ?? false;
       this.sideShopCropDone = saved.sideShopCropDone ?? false;
       this.xiyaLetterAsked = saved.xiyaLetterAsked ?? false;
@@ -1022,8 +1042,8 @@ export class MapScene extends Phaser.Scene {
     // M1-2 农场动态氛围（方案 B：水塘涟漪 / 花草摆动 / 暖色光斑，零资源纯代码）
     if (this.mapKey === 'farm') {
       this.setupFarmAmbience();
-      // 西侧海湾（2026-08-10 制作人方案：灯塔岛在农场西边，右上角海角远景撤除）
-      this.setupFarmWestCoast();
+      // 西侧海湾已撤除（2026-08-11 制作人反馈"灯塔影子效果不好"）：石墙堵回，灯塔不可见；
+      // 未来开放时恢复海湾+灯塔远景（见 docs/design/灯塔未来内容预埋方案-v1.0.md 恢复点）
     }
 
     // 镇长家室内氛围（暖炉辉光/浮尘/门口柔光，零资源纯代码）
@@ -1079,6 +1099,8 @@ export class MapScene extends Phaser.Scene {
     // P2 农场复兴视觉化（菜园层次/工具区/树荫/碎石小路，荒废→复兴两态，与 FEATURE-037 联动）
     if (this.mapKey === 'farm') {
       this.setupFarmDecorations();
+      // 花田支线：farm 左上角花田（荒废/盛开两态，读档恢复）
+      this.setupGardenerField();
     }
 
     // day2 清晨「岛屿的第一声回应」：睡醒后切场景/重进 farm 时尝试触发（trySleep 挂钩点在睡觉时）
@@ -1237,6 +1259,8 @@ export class MapScene extends Phaser.Scene {
         sideMinerLampDone: this.sideMinerLampDone,
         sideGardenerPlumAsked: this.sideGardenerPlumAsked,
         sideGardenerPlumDone: this.sideGardenerPlumDone,
+        sideGardenerFieldAsked: this.sideGardenerFieldAsked,
+        sideGardenerFieldDone: this.sideGardenerFieldDone,
         sideShopCropAsked: this.sideShopCropAsked,
         sideShopCropDone: this.sideShopCropDone,
         xiyaLetterAsked: this.xiyaLetterAsked,
@@ -1598,9 +1622,6 @@ export class MapScene extends Phaser.Scene {
 
     // P1 未开放区域边界提示：靠近世界边界（非出口）轻提示一次；出口排除由方法内处理
     this.updateBoundaryTip();
-
-    // P3-01 灯塔"黑"阶段：靠近西侧海湾（locked 出口）一次性提示——"海那边有一座熄灭的灯塔"
-    this.checkLighthouseSeaHint();
 
     // FEATURE-038 需求板引导：首次靠近需求板时提示（会话级一次性，不入档）
     if (this.mapKey === 'town' && this.residentBoardMark && !this.residentBoardHintShown) {
@@ -2275,6 +2296,8 @@ export class MapScene extends Phaser.Scene {
     if (this.firstMorningDone) return;
     this.firstMorningDone = true;
     triggerOnce('first_morning_response', () => {
+      // 2026-08-11：演出窗口开始（到对白结束为止），窗口内首次收获的情绪对白被抑制并延后补播
+      this.firstMorningActive = true;
       // ① 睡醒演出：窗外阳光旁白（鸟叫/风由 farm 白天 ambience 自动播放）
       // 林澈个人曲（2026-08-09 制作人归档《The Waiting Shore》）：主角清晨独处的内心时刻
       // v0.11（P0.5）：剧情覆盖走 playStory，结束恢复统一 playSceneBgm（剧情>我的歌>地图默认）
@@ -2299,7 +2322,11 @@ export class MapScene extends Phaser.Scene {
         MusicSystem.endStory();
         MusicSystem.playSceneBgm('farm', h);
         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        this.storyDialogue.play(FIRST_MORNING_RESPONSE_DIALOGUE, () => {
+        // 2026-08-11 守卫：玩家手速快在演出触发前（trySleep 挂钩 1800ms 窗口内）抢先首次收获时，
+        // 首次收获对白此刻正在播放——等它播完再播清晨对白，防止两个剧情竞争 StoryDialogue 单实例互相覆盖。
+        //（演出窗口内收割走 pendingFirstHarvest 补播链；本守卫覆盖「演出触发前已收割」的另一条真实路径。）
+        const playMorningDialogue = (): void => {
+          this.storyDialogue!.play(FIRST_MORNING_RESPONSE_DIALOGUE, () => {
           // ④ 对白结束：注入复兴引导任务（收获/种植/清理）→ 刷新面板/HUD → 存档（含 triggerOnce 状态）
           injectRevivalQuests();
           this.createDailyQuestPanel();
@@ -2311,7 +2338,24 @@ export class MapScene extends Phaser.Scene {
             scene: this.mapKey, facing: this.player.facing,
             dailyQuest: getDailyQuestSaveData(),
           } as any);
-        });
+          // 2026-08-11：演出窗口结束；窗口内玩家抢先完成的首次收获对白在此补播
+          //（防两个剧情互相覆盖：先完整播完清晨回应，再播首次收获情绪）
+          this.firstMorningActive = false;
+          if (this.pendingFirstHarvest) {
+            this.pendingFirstHarvest = false;
+            this.time.delayedCall(200, () => this.playFirstHarvestDialogue());
+          }
+          });
+        };
+        // 轮询等当前对白（首次收获情绪瞬间）播完再播清晨回应；20s 兜底防死等
+        const waitForCurrentDialogue = (tries = 0): void => {
+          if (this.storyDialogue!.isOpen() && tries < 100) {
+            this.time.delayedCall(200, () => waitForCurrentDialogue(tries + 1));
+            return;
+          }
+          playMorningDialogue();
+        };
+        waitForCurrentDialogue();
       });
     });
   }
@@ -2980,105 +3024,14 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 农场西侧海湾（2026-08-10 制作人方案：灯塔岛在农场西边，右上角海角远景撤除）
-   * 农场左侧中部（cols 0-2, rows 10-13）石墙打通为海湾缺口：玩家看到西边是海，
-   * 但出口 locked（未来内容预埋）不可进入——灯塔内容统一在 lighthouse 场景呈现。
-   * 纯 Graphics 零资源；不触碰碰撞/存档/出口玩法（出口锁定由 exits.ts locked 控制）。
-   * 未来：城市复兴 → 执灯人归来 → 灯塔重新点灯 → 移除 locked，玩家从海湾走向灯塔岛。
+   * 农场西侧海湾（2026-08-10 制作人方案：灯塔岛在农场西边）已撤除（2026-08-11 制作人反馈"灯塔影子效果不好"）。
+   * 现状：farm.json Walls 层 rows 10-13 / col0 石墙已补回，西侧缺口完全堵住，灯塔远景不再可见；
+   *      locked 出口（exits.ts）保留，未来开放时移除 locked + 打通石墙 + 重建海湾视觉。
+   * 未来恢复点（见 docs/design/灯塔未来内容预埋方案-v1.0.md）：
+   *   1. farm.json Walls 层 rows 10-13 / col0 恢复 0（打通缺口）
+   *   2. 重建本方法（海面/浪花/沙滩/灯塔剪影/碰撞墙/夜星月光）——灯室点亮用 night ? 0.75 : 0 + 呼吸 + 光束
+   *   3. exits.ts farm 西侧海湾出口移除 locked → 玩家可走进灯塔
    */
-  private setupFarmWestCoast(): void {
-    const night = getTime().hour >= 18 || getTime().hour < 6;
-
-    // 1) 海面：西侧海湾（x 0-40, y 144-224），覆盖缺口 + 向左延伸（海从岛西边来）
-    const sea = this.add.graphics();
-    const deep = night ? 0x0a1a2a : 0x2a5a7a;
-    const shore = night ? 0x12283c : 0x3a6a8c;
-    sea.fillStyle(deep, night ? 0.95 : 0.92);
-    sea.fillRect(0, 144, 40, 80);
-    sea.fillStyle(shore, night ? 0.55 : 0.5);
-    sea.fillRect(0, 144, 10, 80);
-    // 波光（白天白点闪烁）
-    if (!night) {
-      sea.fillStyle(0x9ec8e8, 0.55);
-      for (const [bx, by] of [[8, 156], [20, 170], [30, 150], [6, 190], [26, 205], [14, 216]]) sea.fillRect(bx, by, 2, 2);
-    }
-    sea.setDepth(2);
-
-    // 2) 浪花（海陆交界白沫，潮汐呼吸）
-    const surf = this.add.graphics();
-    surf.fillStyle(0xcfeeff, 0.6);
-    for (const [sx, sy, sw] of [[36, 150, 7], [34, 170, 6], [37, 192, 8], [34, 210, 6], [37, 218, 5]]) {
-      surf.fillRect(sx, sy, sw, 3);
-    }
-    surf.setDepth(2.4);
-    this.tweens.add({ targets: surf, alpha: { from: 0.35, to: 0.85 }, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-
-    // 3) 沙滩过渡（缺口边缘草地→沙色，营造"海边"感；不覆盖草地可通行）
-    const sand = this.add.graphics();
-    sand.fillStyle(0xd8c9a0, 0.4);
-    for (const [dx, dy, dw, dh] of [[40, 150, 26, 8], [36, 166, 32, 6], [42, 184, 24, 7], [38, 202, 30, 6], [44, 216, 22, 6]]) {
-      sand.fillRect(dx, dy, dw, dh);
-    }
-    sand.fillStyle(0x9a8a6a, 0.3);
-    for (const [px, py] of [[46, 160], [56, 176], [50, 196], [60, 210]]) sand.fillRect(px, py, 3, 2);
-    sand.setDepth(2);
-
-    // 3.5) 灯塔远景剪影（2026-08-10 制作人反馈"去灯塔早期被堵住、没有提示"）：
-    //      P3-01 灯塔"黑"阶段：海湾深处立一座熄灭的灯塔——玩家"看得见"海那边有座塔（制造牵挂），
-    //      而不是面对一片空海。纯 Graphics 零资源；不触碰碰撞/存档/出口玩法（出口锁定仍由 exits.ts 控制）。
-    const lh = this.add.graphics();
-    const lhCol = night ? 0x0c141e : 0x2e3c4e; // 塔身：夜晚近黑剪影 / 白天深蓝灰
-    // 礁石基座（塔基下两侧，模拟海上礁石岛）
-    lh.fillStyle(night ? 0x0a111a : 0x26313e, 0.9);
-    lh.fillRect(2, 198, 10, 14);
-    lh.fillRect(26, 196, 10, 16);
-    // 塔身
-    lh.fillStyle(lhCol, 0.92);
-    lh.fillRect(11, 152, 14, 48);
-    // 塔身横纹（风化层次）
-    lh.lineStyle(1, night ? 0x000000 : 0x1c2632, 0.5);
-    for (const yy of [160, 168, 176, 184, 192]) {
-      lh.beginPath(); lh.moveTo(11, yy); lh.lineTo(25, yy); lh.strokePath();
-    }
-    // 塔基台阶线
-    lh.lineStyle(1, night ? 0x000000 : 0x1c2632, 0.6);
-    lh.beginPath(); lh.moveTo(9, 198); lh.lineTo(27, 198); lh.strokePath();
-    // 灯室（熄灭：全黑剪影 + 窗棂，无光——灯塔"黑"阶段，不画任何光）
-    lh.fillStyle(night ? 0x060a10 : 0x1a2430, 0.95);
-    lh.fillRect(13, 140, 10, 12);
-    lh.lineStyle(1, night ? 0x000000 : 0x10161e, 0.6);
-    lh.beginPath(); lh.moveTo(18, 140); lh.lineTo(18, 152); lh.strokePath(); // 窗棂
-    lh.beginPath(); lh.moveTo(13, 146); lh.lineTo(23, 146); lh.strokePath();
-    // 塔顶护栏（灯室上方细横条）
-    lh.fillStyle(lhCol, 0.95);
-    lh.fillRect(10, 136, 16, 4);
-    lh.setDepth(2.2);
-    // 海雾呼吸（远景若有若无，营造"海那边"的牵挂感）
-    lh.setAlpha(0.55);
-    this.tweens.add({ targets: lh, alpha: { from: 0.4, to: 0.7 }, duration: 3400, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-
-    // 4) 海面碰撞墙（挡玩家进入海区 x<40；玩家贴海边站立看海）
-    const wall = this.add.rectangle(20, 184, 40, 80, 0x000000, 0);
-    wall.setDepth(4);
-    this.physics.add.existing(wall, true);
-    this.physics.add.collider(this.player, wall);
-
-    // 5) 夜晚氛围：星点（海湾上空）+ 月光银带（海面反光）
-    if (night) {
-      const stars = this.add.graphics();
-      stars.fillStyle(0xffffff, 0.7);
-      let seed = 13;
-      const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-      for (let i = 0; i < 14; i++) stars.fillRect(rnd() * 40, 120 + rnd() * 24, 1, 1);
-      stars.setDepth(2.8);
-      this.tweens.add({ targets: stars, alpha: { from: 0.4, to: 1 }, duration: 2800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-      const moon = this.add.graphics();
-      moon.fillStyle(0xa9c4ff, 0.25);
-      moon.fillRect(6, 150, 4, 70);
-      moon.setDepth(2.8);
-      this.tweens.add({ targets: moon, alpha: { from: 0.1, to: 0.35 }, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-    }
-  }
 
   /**
    * 镇长家室内氛围（视觉升级，零资源纯代码）
@@ -4550,27 +4503,6 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 灯塔海角提示（2026-08-10 制作人反馈"去灯塔早期直接被堵住、没有提示"）：
-   * 玩家走到农场西侧海湾（灯塔 locked 出口触发区）时，一次性轻提示——
-   * 让玩家知道海那边立着一座熄灭的灯塔（制造牵挂，不破坏神秘感），而不是"莫名其妙被堵住"。
-   * 触发区：exits.ts farm 西侧海湾 locked 出口 (36,160,28,48)；海面碰撞墙挡 x<40，
-   * 玩家贴海站立中心必落在区内。一次性入档（lighthouseSeaHintShown），读档不重复。
-   * 教程未完成不提示（与 updateBoundaryTip 一致，避免抢占教程引导注意力）。
-   */
-  private checkLighthouseSeaHint(): void {
-    if (this.mapKey !== 'farm') return;
-    if (this.lighthouseSeaHintShown) return;
-    if (!isTutorialDone()) return;
-    const x = this.player.x;
-    const y = this.player.y;
-    // locked 出口触发区外扩 8px（玩家贴海站立 x≈46-64，保证命中）
-    if (x >= 36 - 8 && x <= 64 + 8 && y >= 160 - 8 && y <= 208 + 8) {
-      this.lighthouseSeaHintShown = true;
-      this.showDialogueText('西边的海雾里立着一座灯塔。塔灯灭了很多年——也许有一天，会有人重新把它点亮。');
-    }
-  }
-
-  /**
    * 显示自定义文字对话框（3 秒后自动消失）
    * 用于任务对话/采集提示等非 NPC 固定台词
    * PC：玩家头顶跟随（不变）
@@ -4908,12 +4840,15 @@ export class MapScene extends Phaser.Scene {
     }
     // 2026-08-11 制作人拍板（商人回镇 + 商店剧情化）：镇子商店状态剧情（关闭 → 带作物开店 → 营业）
     // 优先级最高：触发时完全替代默认欢迎词（避免「店门关着还欢迎光临」的矛盾）
-    const stateLines = this.buildShopStateDialogue();
+    // BUG 修复（2026-08-11）：三个商店 build 必须守卫 npc.id === 'shopkeeper'——
+    // 此前无守卫，任何 NPC（神秘女/阿风等）对话都会命中商店剧情，台词被覆盖成商店老板的。
+    const isShop = npc.id === 'shopkeeper';
+    const stateLines = isShop ? this.buildShopStateDialogue() : null;
     // T3.5 商店老板「镇子热闹了」：首次卖出作物后，白天对话触发（一次性）
     // 在欢迎剧本前注入入口对白（asked）或交付链（done），不抢走 shopkeeper 打开商店流程
-    const shopSide = this.buildShopSideDialogue();
+    const shopSide = isShop ? this.buildShopSideDialogue() : null;
     // SHOP-01 商店复兴：老板「复兴度观察者」三阶段台词（档位推进才播，优先级低于 T3.5 事件链）
-    const revivalLines = this.buildShopRevivalDialogue();
+    const revivalLines = isShop ? this.buildShopRevivalDialogue() : null;
     const finalLines = stateLines
       ? stateLines
       : shopSide
@@ -5359,6 +5294,11 @@ export class MapScene extends Phaser.Scene {
     // D-011 夏雅《春深有信·一》：剧情专线（花田边，下午/傍晚时段；独立于 E9 傍晚闲聊）
     if (this.mapKey === 'farm' && isTutorialDone()) {
       if (this.tryXiyaLetterInteract()) return;
+    }
+
+    // 花田支线：帮小梅开垦花田（farm 左上角花田 (3,7)，交付木材×3 → 盛开 + 记忆卡，一次性入档）
+    if (this.mapKey === 'farm') {
+      if (this.trySideGardenerField()) return;
     }
 
     // FEATURE-037 后山道路修复（未恢复时靠近按 E：资源交付一次完成）
@@ -7628,10 +7568,10 @@ export class MapScene extends Phaser.Scene {
     return 5;
   }
 
-  /** 树荫区域·荒废态：树下枯草圈 ×3（(3,7)/(14,21)/(37,6)） */
+  /** 树荫区域·荒废态：树下枯草圈 ×2（(14,21)/(37,6)；（3,7）已改为花田支线区域，见 setupGardenerField） */
   private buildTreeShadeRuined(): number {
     const T = TILE_SIZE;
-    const spots: Array<[number, number]> = [[3, 7], [14, 21], [37, 6]];
+    const spots: Array<[number, number]> = [[14, 21], [37, 6]];
     for (const [c, r] of spots) {
       const g = this.add.graphics();
       g.fillStyle(0xb8a060, 0.7);
@@ -7643,7 +7583,7 @@ export class MapScene extends Phaser.Scene {
     return spots.length;
   }
 
-  /** 树荫区域·复兴态：树下蘑菇圈/花丛/白花丛 ×3 */
+  /** 树荫区域·复兴态：树下蘑菇圈/花丛/白花丛 ×2（(14,21)/(37,6)；（3,7）已改为花田支线区域） */
   private buildTreeShadeRestored(): number {
     const T = TILE_SIZE;
     const flower = (fx: number, fy: number, color: number): void => {
@@ -7656,26 +7596,13 @@ export class MapScene extends Phaser.Scene {
       f.fillRect(-1, 1.5, 2, 3);
       f.setPosition(fx, fy).setDepth(3);
     };
-    // 蘑菇圈：(3,7) 双蘑菇
-    const mushroom = (mx: number, my: number, color: number): void => {
-      const m = this.add.graphics();
-      m.fillStyle(0xe8d8c8, 1);
-      m.fillRect(-1.5, 0, 3, 4);
-      m.fillStyle(color, 1);
-      m.fillCircle(0, -1, 3);
-      m.fillStyle(0xffffff, 0.9);
-      m.fillCircle(-1, -2, 0.8);
-      m.setPosition(mx, my).setDepth(3);
-    };
-    mushroom(3 * T + T / 2 - 4, 7 * T + T / 2, 0xd46a3c);
-    mushroom(3 * T + T / 2 + 3, 7 * T + T / 2 - 1, 0xc0392b);
     // 花丛：(14,21) 双花
     flower(14 * T + T / 2 - 4, 21 * T + T / 2, 0xff9e80);
     flower(14 * T + T / 2 + 3, 21 * T + T / 2 + 1, 0xe8b64a);
     // 白花丛：(37,6) 双花
     flower(37 * T + T / 2 - 3, 6 * T + T / 2, 0xf0f0f0);
     flower(37 * T + T / 2 + 3, 6 * T + T / 2 - 1, 0xe8b64a);
-    return 3;
+    return 2;
   }
 
   /** 碎石小路·荒废态：门前往农田的土路裂缝 ×4 */
@@ -8387,6 +8314,161 @@ export class MapScene extends Phaser.Scene {
       });
     });
     return true;
+  }
+
+  /**
+   * 花田支线：帮小梅开垦花田视觉。
+   * 未开垦：荒废花田（干土 + 枯草圈）+ 提示标记；已开垦：盛开花田（多色花簇）。
+   * 读档恢复：sideGardenerFieldDone 为 true 时直接显示盛开态。
+   * 位置：farm 左上角花田 (3,7)（原树荫装饰区，2026-08-11 制作人拍板改为花田）。
+   */
+  private setupGardenerField(): void {
+    if (this.mapKey !== 'farm') return;
+    if (this.sideGardenerFieldDone) {
+      this.buildGardenerFieldBlooming();
+      return;
+    }
+    this.buildGardenerFieldRuined();
+    const T = TILE_SIZE;
+    const px = 3 * T + T / 2;
+    const py = 7 * T + T / 2;
+    const mark = this.add.text(px, py - 16, this.sideGardenerFieldAsked ? '花田' : '？', {
+      fontFamily: 'Arial', fontSize: '10px', color: this.sideGardenerFieldAsked ? '#e8d8a8' : '#c8d8a8',
+    }).setOrigin(0.5).setDepth(4);
+    this.gardenerFieldMark = mark;
+  }
+
+  /** 花田·荒废态：干裂土块 + 枯草圈（零资源 Graphics） */
+  private buildGardenerFieldRuined(): void {
+    const T = TILE_SIZE;
+    const c = 3 * T + T / 2;
+    const r = 7 * T + T / 2;
+    const g = this.add.container(c, r).setDepth(2);
+    // 干土：暗褐圆形土块
+    const soil = this.add.graphics();
+    soil.fillStyle(0x8a7a5a, 1);
+    soil.fillCircle(0, 0, 9);
+    soil.fillStyle(0x6e5a3a, 1);
+    soil.fillCircle(-3, -2, 4);
+    soil.fillCircle(3, 2, 3);
+    // 干裂纹
+    soil.lineStyle(1, 0x5a4a30, 0.9);
+    soil.lineBetween(-5, 0, -1, 2);
+    soil.lineBetween(1, -2, 4, 1);
+    soil.setDepth(2);
+    g.add(soil);
+    // 枯草圈（沿用原树荫枯草样式）
+    const grass = this.add.graphics();
+    grass.fillStyle(0xb8a060, 0.7);
+    for (let i = 0; i < 6; i++) {
+      grass.fillRect(-7 + i * 3, -2, 1.5, 4 + (i % 3) * 2);
+    }
+    grass.setDepth(3);
+    g.add(grass);
+    this.gardenerFieldRuin = g;
+  }
+
+  /** 花田·盛开态：多色花簇（花瓣 + 花心 + 绿叶，零资源 Graphics） */
+  private buildGardenerFieldBlooming(): void {
+    const T = TILE_SIZE;
+    const c = 3 * T + T / 2;
+    const r = 7 * T + T / 2;
+    const flower = (fx: number, fy: number, color: number): void => {
+      const f = this.add.graphics();
+      f.fillStyle(color, 1);
+      f.fillCircle(0, 0, 2);
+      f.fillStyle(0xffd166, 1);
+      f.fillCircle(0, 0, 1);
+      f.fillStyle(0x3c8a33, 1);
+      f.fillRect(-1, 1.5, 2, 3);
+      f.setPosition(fx, fy).setDepth(3);
+    };
+    // 主花丛（中心）
+    flower(c, r, 0xff9e80);
+    flower(c - 6, r - 4, 0xe8b64a);
+    flower(c + 6, r - 3, 0xf0f0f0);
+    flower(c - 4, r + 5, 0xffb3a0);
+    flower(c + 4, r + 5, 0xe8b64a);
+    flower(c, r - 9, 0xff9e80);
+    // 边缘小花
+    flower(c - 11, r + 1, 0xf0f0f0);
+    flower(c + 11, r + 2, 0xff9e80);
+    flower(c - 9, r - 8, 0xffb3a0);
+    flower(c + 9, r - 7, 0xe8b64a);
+  }
+
+  /**
+   * 花田支线：帮小梅开垦花田（farm 左上角花田 (3,7)）。
+   * 流程：靠近花田按 E → 入口对白（asked）→ 再次靠近交付木材×3 → 完成（花田盛开 + 完成对白 + 记忆卡，一次性入档）。
+   * 锚点：(3,7) 花田中心；纯生活事件，不触碰碰撞/主线；木材不足可重复触发提示（复用 offerQuickBuy 一键补齐）。
+   */
+  private trySideGardenerField(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (this.sideGardenerFieldDone) return false;
+    // 让位：小梅在花田旁（07:00-14:00），玩家贴近小梅时优先触发 NPC 对话（每日「花匠私语」不被花田事件抢走）
+    const gardener = this.npcList.find((n) => n.id === 'gardener' && n.sprite && n.sprite.visible);
+    if (gardener && gardener.sprite) {
+      const ndx = this.player.x - gardener.sprite.x;
+      const ndy = this.player.y - gardener.sprite.y;
+      if (ndx * ndx + ndy * ndy < 24 * 24) return false;
+    }
+    const T = TILE_SIZE;
+    const gx = 3 * T + T / 2;
+    const gy = 7 * T + T / 2;
+    const dx = this.player.x - gx;
+    const dy = this.player.y - gy;
+    if (dx * dx + dy * dy > 44 * 44) return false;
+
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    if (!this.sideGardenerFieldAsked) {
+      this.sideGardenerFieldAsked = true;
+      this.storyDialogue.play(GARDENER_FIELD_ENTRY_DIALOGUE, () => this.updateHUD());
+      save({
+        x: this.player.x, y: this.player.y,
+        scene: this.mapKey, facing: this.player.facing,
+        dailyQuest: getDailyQuestSaveData(),
+      } as any);
+      return true;
+    }
+
+    const wood = getItemCount('wood');
+    if (wood < 3) {
+      // 资源快速置换：木材×3 按商店价补齐（8G/根），金币不足补齐全部 → 维持原提示
+      const needWood = 3 - wood;
+      const cost = needWood * WOOD_BUY_PRICE;
+      this.offerQuickBuy({
+        shortfallText: '花田还差几根木材，得先立一圈篱笆。你要是有空，从庄园里砍几根来？',
+        cost: getCoins() >= cost ? cost : null,
+        onBuy: () => {
+          addItem('wood', needWood);
+          this.trySideGardenerFieldComplete();
+        },
+      });
+      return true;
+    }
+    this.trySideGardenerFieldComplete();
+    return true;
+  }
+
+  /** 花田交付完成逻辑（木材已足够/一键补齐后） */
+  private trySideGardenerFieldComplete(): void {
+    addItem('wood', -3);
+    this.sideGardenerFieldDone = true;
+    if (this.gardenerFieldRuin) { this.gardenerFieldRuin.destroy(); this.gardenerFieldRuin = null; }
+    if (this.gardenerFieldMark) { this.gardenerFieldMark.destroy(); this.gardenerFieldMark = null; }
+    this.buildGardenerFieldBlooming();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(GARDENER_FIELD_DONE_DIALOGUE, () => {
+      playMemoryFlashback(GARDENER_FIELD_FLASHBACK, () => {
+        showMemoryMoment('花田里，开出了第一片花。');
+        this.updateHUD();
+        save({
+          x: this.player.x, y: this.player.y,
+          scene: this.mapKey, facing: this.player.facing,
+          dailyQuest: getDailyQuestSaveData(),
+        } as any);
+      });
+    });
   }
 
   /**
@@ -9540,20 +9622,30 @@ export class MapScene extends Phaser.Scene {
         duration: 130, yoyo: true, ease: 'Sine.out',
         onComplete: () => this.player.setScale(baseScale, baseScale),
       });
-      showMemoryMoment('小时候爷爷告诉我，土地不会辜负认真照料它的人。');
-      // ④ 320ms 轻停顿后再弹夏雅对白（"角色看了看手里的东西"的节奏，不打断玩家操作）
-      this.time.delayedCall(320, () => {
-        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        this.storyDialogue.play(FIRST_HARVEST_DIALOGUE, () => {
-          // T2-1 Day1 引导链：收获 → 出售 → 修复（底部提示条，3 秒自动消失，不打断）
-          this.showDialogueText(this.hintText(
-            '收获的作物可以拿到青禾镇的商店卖掉换金币！这些收成，是镇上老房子的建材费。',
-            '收获的作物可以拿到青禾镇的商店卖掉换金币！这些收成，是镇上老房子的建材费。'));
-          this.updateHUD();
-        });
-      });
+      if (this.firstMorningActive) {
+        // 2026-08-11：day2 清晨演出窗口内，首次收获的全屏旁白/对白抑制并延后——
+        // 否则与清晨演出（StoryDialogue 单实例 + showMemoryMoment）互相覆盖导致「剧情乱了」。
+        // 收获本身（+1 物品/音效/飘字/作物镜头/停顿表现）不受影响。
+        this.pendingFirstHarvest = true;
+      } else {
+        showMemoryMoment('小时候爷爷告诉我，土地不会辜负认真照料它的人。');
+        // ④ 320ms 轻停顿后再弹夏雅对白（"角色看了看手里的东西"的节奏，不打断玩家操作）
+        this.time.delayedCall(320, () => this.playFirstHarvestDialogue());
+      }
     }
     return cropType;
+  }
+
+  /** 首次收获「情绪瞬间」对白（含 T2-1 引导提示条）。抽出供正常路径与清晨演出后补播共用 */
+  private playFirstHarvestDialogue(): void {
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(FIRST_HARVEST_DIALOGUE, () => {
+      // T2-1 Day1 引导链：收获 → 出售 → 修复（底部提示条，3 秒自动消失，不打断）
+      this.showDialogueText(this.hintText(
+        '收获的作物可以拿到青禾镇的商店卖掉换金币！这些收成，是镇上老房子的建材费。',
+        '收获的作物可以拿到青禾镇的商店卖掉换金币！这些收成，是镇上老房子的建材费。'));
+      this.updateHUD();
+    });
   }
 
   // ================= Plot 批量操作（种植区域交互优化 v0.1） =================

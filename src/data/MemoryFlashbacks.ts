@@ -314,6 +314,25 @@ export const PLUM_BLOOM_FLASHBACK: DialogueLine[] = [
   },
 ];
 
+/** 花田支线：帮小梅开垦花田记忆闪回（2026-08-11 制作人拍板：土地荒了还有人愿意种） */
+export const GARDENER_FIELD_FLASHBACK: DialogueLine[] = [
+  {
+    speaker: '',
+    color: MEM_COLORS.scene,
+    text: '（记忆里，爷爷蹲在农田边的一小块空地上，把翻松的土拢成一畦一畦。）',
+  },
+  {
+    speaker: '',
+    color: MEM_COLORS.scene,
+    text: '小澈蹲在旁边帮忙，把爷爷递过来的种子一粒一粒按进土里。',
+  },
+  {
+    speaker: '爷爷',
+    color: MEM_COLORS.grandpa,
+    text: '「土地荒了不要紧。只要还有人愿意种，它就还有得盼。」',
+  },
+];
+
 /** T3.5 商店老板「镇子热闹了」：入口对白（首次卖出作物后，白天与老板对话） */
 export const SHOP_CROP_ENTRY_DIALOGUE: DialogueLine[] = [
   {

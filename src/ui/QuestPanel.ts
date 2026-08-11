@@ -37,6 +37,8 @@ export interface QuestFlags {
   sideMinerLampDone?: boolean;
   sideGardenerPlumAsked?: boolean;
   sideGardenerPlumDone?: boolean;
+  sideGardenerFieldAsked?: boolean;
+  sideGardenerFieldDone?: boolean;
   sideShopCropAsked?: boolean;
   sideShopCropDone?: boolean;
   xiyaLetterAsked?: boolean;
@@ -102,6 +104,15 @@ const SIDE_QUESTS: SideQuestDef[] = [
     isUnlocked: (f) => f.sideGardenerPlumAsked === true,
     isAsked: (f) => f.sideGardenerPlumAsked === true,
     isDone: (f) => f.sideGardenerPlumDone === true,
+  },
+  {
+    id: 'gardener_field',
+    title: '开垦花田',
+    lockHint: '在农场花田遇见小梅后解锁',
+    objective: '帮小梅开垦农场角落的花田（交付木材×3）',
+    isUnlocked: (f) => f.sideGardenerFieldAsked === true,
+    isAsked: (f) => f.sideGardenerFieldAsked === true,
+    isDone: (f) => f.sideGardenerFieldDone === true,
   },
   {
     id: 'xiya_letter',

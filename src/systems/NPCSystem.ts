@@ -49,7 +49,7 @@ const SPOTS: { farm: SpotMap; town: SpotMap; forest: SpotMap; mine: SpotMap; eld
     shopkeeper: { x: 35 * T + 8, y: 3 * T + 8 },
     mystery: { x: 34 * T + 8, y: 16 * T + 8 },
     miner: { x: 18 * T + 8, y: 18 * T + 8 },
-    gardener: { x: 3 * T + 8, y: 14 * T + 8 },
+    gardener: { x: 5 * T + 8, y: 7 * T + 8 },
     adventurer: { x: 30 * T + 8, y: 7 * T + 8 },
     carpenter: { x: 12 * T + 8, y: 23 * T + 8 },
   },
@@ -252,10 +252,8 @@ const ADVENTURER_DIALOGUES: DialogueLine[] = [
   { speaker: '阿风', color: '#88b8e8', text: '嘿！你就是新搬来的林澈吧？我叫阿风，这座岛的每个角落我都跑遍了。' },
   { speaker: '阿风', color: '#88b8e8', text: '告诉你个秘密——后山深处有东西在发光，镇长神神秘秘的不肯说。' },
   { speaker: '阿风', color: '#88b8e8', text: '想去探险的话，记得备足体力。后山可比看上去大得多！' },
-  // 后山阿风对话重置（2026-08-10）：v0.5.5 台词润色误删本句，但 voicebank adv_04 映射与 ogg 未删 → 孤儿配音。
-  // 依据：阿风人物圣经 §九「不推倒 adv_01~09 台词」+《追风的人》语言风格（生活化藏诗意，日常 70%/文学 30%）。
-  // 本句=冒险家对后山的神秘敬畏（嘴硬心软：吓唬人却其实在提醒），恢复为与 voicebank 一致的常驻对白。
-  { speaker: '阿风', color: '#88b8e8', text: '后山深处……有些东西，最好别惊醒。' },
+  // 2026-08-11 按制作人拍板（剧情对白压缩评估报告 E1）删除第 4 行：与第 2 行「后山有东西」重复，
+  // voicebank adv_04 条目同步删除（8→7 行，林澈「你越这么说」接第 2 行依然通顺）。
   { speaker: '林澈', color: COLORS.linche, text: '（笑）你越这么说，我越想去看。' },
   { speaker: '阿风', color: '#88b8e8', text: '嘿！你这小子，胆子不小啊！' },
   { speaker: '林澈', color: COLORS.linche, text: '不是胆子大。只是觉得，既然来了这座岛，就该看看它藏着什么。' },

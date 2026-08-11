@@ -560,6 +560,23 @@ export const GARDENER_PLUM_DONE_DIALOGUE: DialogueLine[] = [
   { speaker: '花匠小梅', color: COLORS.gardener, text: '到时候你来看，它会长得很好的。' },
 ];
 
+/** 花田支线：帮小梅开垦花田入口对白（farm 左上角花田，2026-08-11 制作人拍板） */
+export const GARDENER_FIELD_ENTRY_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（农场角落的花田荒了挺久，小梅正蹲在旁边翻土。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '这片地空着怪可惜的……我想把它收拾出来，种上花。' },
+  { speaker: '林澈', color: COLORS.linche, text: '要我帮忙吗？' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '嗯！先得立一圈篱笆，把地圈起来。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '你要是能弄来几根木材，这块花田就能开工了。' },
+];
+
+/** 花田支线：交付完成对白（花田盛开，环境变化） */
+export const GARDENER_FIELD_DONE_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（篱笆立好，小梅把翻松的土拢成一畦一畦，撒下花种。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '你看，一畦向阳，一畦靠树。过些日子，这里会开出一小片花。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '爷爷以前说过，土地荒了，只要还有人愿意种，它就还有得盼。' },
+  { speaker: '林澈', color: COLORS.linche, text: '……嗯。' },
+];
+
 // ============ 支线试点（2026-08-06 制作人拍板方案 A） ============
 // 夏雅「院子有人照顾」：花园恢复后，旧藤架修复事件（交付木材×3 → 记忆卡收尾）
 /** 支线入口：夏雅请林澈一起修旧藤架 */

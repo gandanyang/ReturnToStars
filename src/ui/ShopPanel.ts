@@ -631,13 +631,13 @@ function refresh(): void {
   const titleEl = panelEl.querySelector('#shop-title') as HTMLElement | null;
   if (titleEl) titleEl.textContent = machine ? '自动售货机' : '星辰杂货店';
   const subEl = panelEl.querySelector('#shop-subtitle') as HTMLElement | null;
-  if (subEl) subEl.textContent = machine ? '夜间补给 · 基础物资（出售请白天找老板）' : '青禾镇 · 王叔的铺子';
+  if (subEl) subEl.textContent = machine ? '夜间补给 · 基础物资（作物/矿石也可出售）' : '青禾镇 · 王叔的铺子';
   const iconEl = panelEl.querySelector('#shop-icon') as HTMLElement | null;
   if (iconEl) iconEl.textContent = machine ? '🛒' : '🏪';
 
-  // 售货机模式：隐藏出售栏与特殊商店栏（只卖基础补给，不收购、无稀有商品）
+  // 售货机模式：保留出售栏（2026-08-11 制作人拍板：老板下班也能卖货），只隐藏特殊商店栏
   const sellCol = panelEl.querySelector('#shop-sell-col') as HTMLElement | null;
-  if (sellCol) sellCol.style.display = machine ? 'none' : 'block';
+  if (sellCol) sellCol.style.display = 'block';
   const specialCol = panelEl.querySelector('#shop-special-col') as HTMLElement | null;
   if (specialCol) specialCol.style.display = machine ? 'none' : 'block';
 
