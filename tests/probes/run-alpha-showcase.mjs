@@ -26,7 +26,7 @@ import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROBES_DIR = __dirname;
-const DEV_URL = 'http://localhost:5175/'; // 临时 5175（5173 被占用），验证后改回
+const DEV_URL = 'http://localhost:5173/';
 
 // 被编排的 probe 列表（顺序 = 发版前回归优先级）
 // 顺序原则：快速失败。Dialogue 基础契约先跑（10s），挂了就不浪费 180s 跑主线。
@@ -44,7 +44,8 @@ const PROBES = [
     name: 'full-story-run',
     file: 'probe-full-story-run.mjs',
     desc: '真实玩家完整主线（新档→观星夜→结算）',
-    timeoutMs: 180_000,
+    // 实测完整跑通需 ~203s（2026-08-11 计时：45/3），180s 会中途误杀 → 260s 留余量
+    timeoutMs: 260_000,
     // probe-full-story-run 输出格式：`========== 结果: ✅ X 通过 / ❌ Y 失败 ==========`
     parse: (out) => parseResultLine(out, /结果:\s*✅\s*(\d+)\s*通过\s*\/\s*❌\s*(\d+)\s*失败/),
     viewport: '844×390 横屏 + Android UA ✅',

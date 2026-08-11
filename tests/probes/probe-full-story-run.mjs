@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SHOT_DIR = join(__dirname, 'test-screenshots', 'full-run');
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const GAME_URL = 'http://localhost:5175/?reset=1'; // 临时 5175（5173 被占用），验证后改回
+const GAME_URL = 'http://localhost:5173/?reset=1';
 
 mkdirSync(SHOT_DIR, { recursive: true });
 
@@ -368,7 +368,8 @@ async function run() {
     });
     result('使用钥匙', keyClicked);
     const gateLines = await walkDialogue(page);
-    result('开门对白播放', gateLines.length >= 11, `行数=${gateLines.length}`);
+    // 08-09 制作人拍板「开场 180 秒优化」：GATE_OPENED_DIALOGUE 11 → 8 句（StorySystem.ts:90 注释为据）
+    result('开门对白播放', gateLines.length >= 8, `行数=${gateLines.length}`);
     info = await sceneInfo(page);
     result('开门后 step=clear_land', info.step === 'clear_land', `step=${info.step}`);
     await shot(page, '04-gate-opened');

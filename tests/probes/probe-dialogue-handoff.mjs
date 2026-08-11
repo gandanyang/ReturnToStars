@@ -35,7 +35,7 @@
 import puppeteer from 'puppeteer-core';
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const GAME_URL = 'http://localhost:5175/?reset=1'; // 临时 5175（5173 被占用），验证后改回
+const GAME_URL = 'http://localhost:5173/?reset=1';
 
 const results = [];
 function result(step, passed, detail = '') {
@@ -47,27 +47,55 @@ function result(step, passed, detail = '') {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/** evaluate 带超时保护：页面主线程死循环/挂起时抛错而不是无限等待（P0 回归阻塞修复） */
+async function evalTimeout(page, fn, ms = 5000, ...args) {
+  let timer;
+  const timeoutP = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`evaluate 超时 ${ms}ms（页面主线程可能繁忙/死锁）`)), ms); });
+  try {
+    return await Promise.race([page.evaluate(fn, ...args), timeoutP]);
+  } finally { clearTimeout(timer); }
+}
+
+/** 点击并关闭覆盖屏幕中心的一个 zIndex>=600 层（无则快速返回）。返回是否点击了某层。 */
+async function dismissOneLayer(page) {
+  const clicked = await evalTimeout(page, () => {
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    const layers = [...document.querySelectorAll('div')].filter(d =>
+      Number(d.style?.zIndex) >= 600 && d.style?.display !== 'none'
+      && d.id !== 'intro-skip-btn');
+    const el = layers.find(d => {
+      const r = d.getBoundingClientRect();
+      return cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
+    });
+    if (!el) return false;
+    el.click();
+    return true;
+  }, 5000);
+  if (clicked) {
+    await sleep(700);
+    return true;
+  }
+  return false;
+}
+
 /**
- * 排空全屏 DOM 层（Chapter Banner / 音量提示 / 手机通知 / 列车声遮罩）。
- * 与 probe-full-story-run.dismissOverlays 同语义：zIndex >= 600 的可见 div 点中心关闭/翻页。
- * 独立实现避免跨 probe 耦合。
+ * 排空全屏 DOM 层（Chapter Banner / 音量提示 / 手机通知）。
+ * 策略：在 zIndex>=600 的层里找覆盖屏幕中心的元素，用原生 el.click() 关闭
+ * （banner(9998) 会 cancelChapterBanner，音量提示(650)/手机通知(600) 是 DOM click 关闭）。
+ * 注意：dispatchEvent(new MouseEvent('click')) 实测关不掉音量提示，el.click() 原生方法可靠。
+ * skip 按钮(9999) 不点（skipIntro 直接跳 playable 不播对白）。每步带超时保护。
+ * 注：intro 阶段各层出现有时序差（音量提示 Enter 后 ~6.8s 才出现），
+ *     单次调用可能提前退出——调用方（等对白循环）会重复调用直到对话打开。
  */
 async function dismissOverlays(page) {
-  for (let round = 0; round < 5; round++) {
+  for (let round = 0; round < 3; round++) {
     let closedAny = false;
     for (let i = 0; i < 25; i++) {
-      const hit = await page.evaluate(() => {
-        const layers = [...document.querySelectorAll('div')].filter(d =>
-          Number(d.style?.zIndex) >= 600 && d.style?.display !== 'none');
-        if (layers.length === 0) return 'none';
-        return { w: window.innerWidth / 2, h: window.innerHeight / 2 };
-      });
-      if (hit === 'none') break;
-      await page.mouse.click(hit.w, hit.h);
-      await sleep(700);
+      if (!(await dismissOneLayer(page))) break;
       closedAny = true;
     }
     if (!closedAny) break;
+    console.log(`  [dismissOverlays] round ${round} 仍有 zIndex>=600 层，继续清`);
   }
   await sleep(600);
 }
@@ -136,6 +164,7 @@ async function run() {
     args: ['--no-sandbox'],
   });
   const page = await browser.newPage();
+  page.setDefaultTimeout(10000);
   page.on('pageerror', e => console.log(`  [pageerror] ${e.message}`));
   page.on('console', msg => {
     if (msg.type() === 'error') console.log(`  [err] ${msg.text().substring(0, 160)}`);
@@ -144,7 +173,8 @@ async function run() {
   try {
     // 移动端横屏 + Android UA（与 probe-full-story-run 一致，符合横屏红线）
     await page.setUserAgent('Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36');
-    await page.goto(GAME_URL, { waitUntil: 'networkidle2' });
+    // SPA + Vite：HMR websocket 常驻，networkidle2 永不满足；改 DOM 就绪 + 硬超时（P0 回归阻塞修复）
+    await page.goto(GAME_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await sleep(2500);
 
     // 标题画面按 Enter 进入车站（与 probe-full-story-run 一致）
@@ -164,11 +194,13 @@ async function run() {
     result('游戏场景就绪（storyDialogue 可用）', sceneReady, sceneReady ? '' : '20 次轮询未拿到 storyDialogue');
     if (!sceneReady) return;
 
-    // 排空 Chapter Banner / 音量提示 / 手机通知（它们会阻塞开场对白时序）
-    await dismissOverlays(page);
-    // 08-09 P0 修订：通知关闭后 delayedCall(1000ms) 才播林澈情绪句独白 → 等 storyDialogue 打开
+    // 排空 Chapter Banner / 音量提示 / 手机通知，直到开场对白打开。
+    // 音量提示(650) 在 Enter 后 ~6.8s 才出现，dismissOverlays 单独跑会提前退出，
+    // 必须把「清层 + 等对白」放进同一循环，z650 一出现就 el.click() 关掉。
+    // skip 不点（skipIntro 直接跳 playable 不播对白），intro 完整播放 → 给足 24s
     let dialogueOpen = false;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 60; i++) {
+      await dismissOneLayer(page);
       const open = await page.evaluate(() => {
         const s = window.__game.scene.getScenes(true)[0];
         return s?.storyDialogue?.isOpen?.() ?? false;
@@ -176,8 +208,23 @@ async function run() {
       if (open) { dialogueOpen = true; break; }
       await sleep(400);
     }
-    result('车站开场对白打开', dialogueOpen, dialogueOpen ? '' : '12s 内未等到开场对白');
-    if (!dialogueOpen) return;
+    result('车站开场对白打开', dialogueOpen, dialogueOpen ? '' : '24s 内未等到开场对白');
+    if (!dialogueOpen) {
+      const diag = await page.evaluate(() => {
+        const s = window.__game?.scene?.getScenes(true)?.[0];
+        return {
+          scene: s?.scene?.key,
+          storyStep: s?.getStoryStep?.(),
+          canMove: s?.canMove,
+          hasStory: !!s?.storyDialogue,
+          layers: [...document.querySelectorAll('div')].filter(d =>
+            Number(d.style?.zIndex) >= 600 && d.style?.display !== 'none').slice(0, 5)
+            .map(d => `#${d.id} .${(d.className||'').toString().slice(0,20)} z=${d.style.zIndex}`),
+        };
+      });
+      console.log(`  [diag] 等待开场对白失败时状态: ${JSON.stringify(diag)}`);
+      return;
+    }
 
     // 关闭现有对话（reset 不触发 onComplete，避免污染注入场景）
     await page.evaluate(() => {
