@@ -448,7 +448,7 @@ async function run() {
     result('进入小镇', info.scene === 'town', `scene=${info.scene}`);
     const townLines = await walkDialogue(page);
     result('小镇首次入场对话', townLines.length >= 5, `行数=${townLines.length}`);
-    await teleport(page, 'town', 216, 184, 'up'); // 镇长 (216,168)
+    await teleport(page, 'town', 376, 312, 'up'); // 镇长 (216,168)
     await pressInteract(page);
     if (!(await waitDialogueOpen(page, 2500))) {
       await page.keyboard.press('KeyE'); // 触屏交互键未命中时按键盘 E（等价玩家交互）
@@ -507,7 +507,7 @@ async function run() {
     await sleep(1200);
     info = await sceneInfo(page);
     result('返回小镇', info.scene === 'town', `scene=${info.scene}`);
-    await teleport(page, 'town', 216, 184, 'up');
+    await teleport(page, 'town', 376, 312, 'up');
     await pressInteract(page);
     if (!(await waitDialogueOpen(page, 2500))) {
       await page.keyboard.press('KeyE');

@@ -416,7 +416,7 @@ async function run() {
     // 前往小镇（直接切场景）
     // 次日 06:00 镇长在镇长家；设 10:00 让镇长在镇上办公（真实玩家也常白天来镇上）
     await page.evaluate(() => window.debug?.setTime?.(10, 0));
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     await sleep(1500);
     info = await sceneInfo(page);
     console.log(`  抵达场景=${info.scene} 步骤=${info.step}`);
@@ -429,7 +429,7 @@ async function run() {
 
     // 镇长接任务（等 ch1 剧情 intro 播放完）
     await walkDialogue(page, 'town-intro-dialogue');
-    await teleport(page, 'town', 216, 184, 'up');
+    await teleport(page, 'town', 376, 312, 'up');
     await pressE(page);
     await walkDialogue(page, 'elder-quest');
     await shot(page, '04c-town-after-elder');
@@ -463,12 +463,12 @@ async function run() {
     // ============ 6. 交付 ============
     console.log('\n--- 节点 6: 交付碎片 ---');
     await page.evaluate(() => window.debug?.setTime?.(12, 0));
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     info = await sceneInfo(page);
     console.log(`  抵达场景=${info.scene}`);
     // 清掉可能已自动触发的每日事件对白（30% 概率，避免挡住镇长交付）
     await walkDialogue(page, 'daily-event-maybe');
-    await teleport(page, 'town', 216, 184, 'up');
+    await teleport(page, 'town', 376, 312, 'up');
     await pressE(page);
     await walkDialogue(page, 'shard-deliver');
     await shot(page, '06-town-after-deliver');

@@ -161,7 +161,7 @@ async function run() {
     result('E1c. 对话后夏雅消失（当天不再出现）', dawnAfter.dawnGone);
 
     // 离开再回来（同一天）→ 不再出现
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     await sleep(600);
     await gotoScene(page, 'farm', { x: 200, y: 300 });
     await sleep(600);

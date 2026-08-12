@@ -144,7 +144,7 @@ async function run() {
     console.log('\n【Day1 上午】去小镇逛逛……');
     await page.evaluate(() => window.debug.setTime(10, 0));
     await sleep(400);
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     await sleep(800);
     si = await sceneInfo(page);
     check('进入小镇场景', si.scene === 'town', `实际=${si.scene}`);
