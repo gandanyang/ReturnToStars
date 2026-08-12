@@ -1,0 +1,59 @@
+{
+  "suite": "gameplay",
+  "timestamp": "2026-08-12T01:12:51.873Z",
+  "git": {
+    "hash": "2fa6905",
+    "branch": "main"
+  },
+  "duration": 9313,
+  "summary": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0,
+    "allPassed": true
+  },
+  "results": [
+    {
+      "name": "进入农场场景",
+      "ok": true,
+      "detail": "scene=farm",
+      "ts": 7290
+    },
+    {
+      "name": "锄地: empty → tilled",
+      "ok": true,
+      "detail": "state=tilled",
+      "ts": 7707
+    },
+    {
+      "name": "播种: tilled → seeded",
+      "ok": true,
+      "detail": "state=seeded",
+      "ts": 7920
+    },
+    {
+      "name": "浇水: seeded → watered",
+      "ok": true,
+      "detail": "state=watered",
+      "ts": 8137
+    },
+    {
+      "name": "推进天数后状态变化",
+      "ok": true,
+      "detail": "state=grown",
+      "ts": 8644
+    },
+    {
+      "name": "收获: 回到 empty",
+      "ok": true,
+      "detail": "state=empty",
+      "ts": 9018
+    },
+    {
+      "name": "农田状态已存档",
+      "ok": true,
+      "detail": "save exists",
+      "ts": 9021
+    }
+  ]
+}

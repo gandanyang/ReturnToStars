@@ -39,6 +39,7 @@ import { getStoryStep, setStoryStep, isCh1TownIntroDone, markCh1TownIntroDone, S
 import { getQuestState, setQuestState, type QuestState } from '../systems/QuestSystem';
 import { getDailyQuestSaveData, restoreDailyQuests, type DailyQuestSaveData } from '../systems/DailyQuestSystem';
 import { getGameEventSaveData, restoreGameEventSaveData, type GameEventSaveData } from './EventManager';
+import { getChapterSaveData, restoreChapterSaveData } from './ChapterSystem';
 import { MapScene, setPendingMapFlags } from '../scenes/MapScene';
 import type { MapSceneFlags } from '../scenes/MapScene';
 
@@ -102,6 +103,8 @@ export interface SaveData {
   album?: string[];
   /** 一次性事件状态（可选，旧档无此字段视为空；统一"只触发一次"机制，2026-08-06） */
   gameState?: GameEventSaveData;
+  /** 章节（可选，旧档无该字段 → 默认 CHAPTER_0 归星；观星夜完成后升为 CHAPTER_1 复苏，2026-08-12） */
+  chapter?: number;
 }
 
 /** 上一次加载时遇到的不匹配版本号（用于 UI 提示） */
@@ -165,6 +168,7 @@ export function save(player: {
     album: getAlbumSaveData(),
     mapFlags: MapScene.getCurrentFlags() ?? undefined,
     gameState: getGameEventSaveData(),
+    chapter: getChapterSaveData(),
   };
 
   try {
@@ -344,6 +348,8 @@ export function apply(data: SaveData): void {
   restoreAlbumSaveData(data.album ?? []);
   // 一次性事件状态：恢复已触发事件（旧档无 gameState 字段默认空）
   restoreGameEventSaveData(data.gameState);
+  // 章节：恢复当前章节（旧档无 chapter 字段 → 默认 CHAPTER_0，restore 内部兜底）
+  restoreChapterSaveData(data.chapter);
   // 玩家位置（由 MapScene 读取后设置 spawn）
 }
 
