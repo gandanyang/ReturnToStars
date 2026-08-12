@@ -2,9 +2,7 @@
 """
 音频资产压缩工具 — 归星物语
 规则：
-  - 普通 BGM（title/farm_day/stargaze_night）：128kbps ogg，目标单曲 <3MB
-  - 重要剧情音乐（stargaze_final）：160kbps ogg
-  - 备用曲（stargaze_v3_spare）：保持原样（已低码率）
+  - BGM：96kbps ogg（2026-08-12 瘦身：原 128-160kbps 统一降为 96kbps，包体省 ~38%）
   - 保留原 mp3 作为 fallback
   - 不改变音高、速度、循环完整性
 """
@@ -20,10 +18,10 @@ OUTPUT_DIR = Path(__file__).parent.parent / 'public' / 'assets' / 'audio' / 'mus
 
 # 压缩规则：文件名 → 目标 ogg 码率 (kbps)
 RULES = {
-    'title.mp3': 128,           # BGM
-    'farm_day.mp3': 128,        # 环境音乐
-    'stargaze_night.mp3': 128,  # 环境音乐
-    'stargaze_final.mp3': 160,  # 重要剧情音乐
+    'title.mp3': 96,           # BGM
+    'farm_day.mp3': 96,        # 环境音乐
+    'stargaze_night.mp3': 96,  # 环境音乐
+    'stargaze_final.mp3': 96,  # 重要剧情音乐
     # stargaze_v3_spare.mp3 不压缩（已低码率，备用）
 }
 

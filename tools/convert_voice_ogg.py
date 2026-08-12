@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-P0 资产瘦身：voice_normalized wav → ogg（q5，Web Audio 可解码），保留 wav 源到 art_source。
+P0 资产瘦身：voice_normalized wav → ogg（64kbps 单声道，Web Audio 可解码），保留 wav 源到 art_source。
+2026-08-12 瘦身：由 -q:a 5（≈160kbps 立体声）改为 64kbps 单声道（人声对白足够，包体省 ~40%）。
 
 用法：
   python tools/convert_voice_ogg.py            # 转换全部 wav 为 ogg，wav 移到 art_source
@@ -28,7 +29,7 @@ def convert(keep: bool) -> list[tuple[str, int, int]]:
         if ogg.exists():
             continue
         subprocess.run(
-            [FFMPEG, "-y", "-i", str(wav), "-c:a", "libvorbis", "-q:a", "5", str(ogg)],
+            [FFMPEG, "-y", "-i", str(wav), "-c:a", "libvorbis", "-b:a", "64k", "-ac", "1", "-ar", "44100", str(ogg)],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

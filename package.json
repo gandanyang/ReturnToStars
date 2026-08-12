@@ -9,7 +9,11 @@
     "preview": "vite preview",
     "tts": "node tools/tts.mjs",
     "minimax": "node tools/minimax_tts.ts",
-    "showcase": "node tests/probes/run-alpha-showcase.mjs"
+    "showcase": "node tests/probes/run-alpha-showcase.mjs",
+    "test": "node tests/harness/runner.mjs all",
+    "test:smoke": "node tests/harness/runner.mjs smoke",
+    "test:save": "node tests/harness/runner.mjs save",
+    "test:gameplay": "node tests/harness/runner.mjs gameplay"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
