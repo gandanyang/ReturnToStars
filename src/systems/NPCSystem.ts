@@ -21,7 +21,7 @@
 
 import { NPC, ScheduleEntry } from '../entities/NPC';
 import { getTime } from '../data/TimeSystem';
-import { getRevivalLevel } from '../data/FarmRestore';
+import { getRevivalLevel, isRestored } from '../data/FarmRestore';
 import { hasTriggered } from './EventManager';
 import { COLORS, type DialogueLine } from './StorySystem';
 import { isMobileLayout } from '../config';
@@ -348,6 +348,38 @@ const NPC_DAILY_LINES: Record<string, DialogueLine[]> = {
   ],
 };
 
+// ============ 第一章 P2-2：集市恢复后 NPC 生活台词分支 ============
+// 设计（Sprint 3，2026-08-12 制作人拍板）：marketSquare 是玩家第一次亲手修复的公共区域，
+// 恢复后让 NPC 对"集市重新有了生活"做出可感知的反馈（P2-2：同一 NPC 恢复前后台词不同）。
+// 触发：isRestored('marketSquare')（仅 chapter>=1 解锁后可达，故无需重复判 chapter）。
+// 用法：getDailyNpcLine 在恢复后用本池替换日常池，seed 规则不变（当天固定一句，读档不跳变）。
+const MARKET_RESTORED_LINES: Record<string, DialogueLine[]> = {
+  elder: [
+    { speaker: '镇长', color: '#c8b898', text: '集市重新开起来，我远远看着，心里踏实多了。' },
+    { speaker: '镇长', color: '#c8b898', text: '以前我就想，要是哪天镇上能再热闹一次就好了。' },
+  ],
+  shopkeeper: [
+    { speaker: '商店老板', color: '#8ac8a0', text: '集市那边搭起来了？好家伙，我这小店总算有了伴。' },
+    { speaker: '商店老板', color: '#8ac8a0', text: '摊子支起来了，往后镇上的人有地方逛了。' },
+  ],
+  miner: [
+    { speaker: '矿工老张', color: '#d8a050', text: '广场上那些破摊子，是你收拾的？干得利索。' },
+    { speaker: '矿工老张', color: '#d8a050', text: '有了集市，挖回来的石头也有人要了。' },
+  ],
+  gardener: [
+    { speaker: '花匠小梅', color: '#a0d888', text: '集市的花，我摆了几盆过去。你整理的那片地，正好放得下。' },
+    { speaker: '花匠小梅', color: '#a0d888', text: '集市活过来了，我那些花也总算有人看了。' },
+  ],
+  adventurer: [
+    { speaker: '阿风', color: '#88b8e8', text: '集市一开张，镇上的人一下子多了。这才像个镇子嘛！' },
+    { speaker: '阿风', color: '#88b8e8', text: '以前路过广场全是破布烂木头，现在可亮堂了。' },
+  ],
+  carpenter: [
+    { speaker: '木匠老周', color: '#c89860', text: '集市的摊子，木料结实。往后要修，喊我。' },
+    { speaker: '木匠老周', color: '#c89860', text: '有人愿意把地方收拾起来，就有活干。' },
+  ],
+};
+
 /** 简单字符串 hash（用于 seed，避免依赖天数之外的状态） */
 function hashCode(s: string): number {
   let h = 0;
@@ -364,7 +396,8 @@ function hashCode(s: string): number {
  * @returns 台词数组（1 条）；该 NPC 没有随机池时返回 null
  */
 export function getDailyNpcLine(npcId: string, day: number): DialogueLine[] | null {
-  const pool = NPC_DAILY_LINES[npcId];
+  // 第一章 P2-2：集市恢复后，NPC 生活台词切到"集市热闹"分支（恢复前/后可感知不同）
+  const pool = isRestored('marketSquare') ? MARKET_RESTORED_LINES[npcId] : NPC_DAILY_LINES[npcId];
   if (!pool || pool.length === 0) return null;
   const idx = (hashCode(npcId) + day) % pool.length;
   return [pool[idx]];

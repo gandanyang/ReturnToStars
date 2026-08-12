@@ -442,6 +442,19 @@ export class MapScene extends Phaser.Scene {
     /** 交互基准点（木屋右侧空地像素坐标） */
     pos: { x: number; y: number };
   } | null = null;
+  // 第一章 P2-1 集市广场恢复（town 中央偏北，制作人 2026-08-12 Sprint 3）：
+  // 村长来访（ch1_elder_visit）后解锁，一次资源交付完成；恢复前荒地/恢复后摊位灯光（Graphics）
+  private marketSquareRestore: {
+    restored: boolean;
+    debris: Phaser.GameObjects.Graphics[];
+    mark: Phaser.GameObjects.Text | null;
+    pos: { x: number; y: number };
+  } | null = null;
+  // 第一章 P3 春日集（克制版，2026-08-12）：集市恢复后的夜晚进 town，镇上重新聚起人——
+  // 灯火呼吸 + 人群剪影 + 人群低语 + 一句独白 + 第2章钩子（远处灯塔一点动静）。
+  // 一次性（ch1_spring_fair），规模 ≤ 观星夜 40%（无镜头切换/无星空/无分支）。
+  private inSpringFairCutscene = false;
+  private springFairFX: Phaser.GameObjects.Graphics[] = [];
   // FEATURE-037 后山道路修复（forest 底部 farm 入口上方的空地通道）
   private forestRoadRestore: {
     /** 是否已恢复 */
@@ -1095,6 +1108,10 @@ export class MapScene extends Phaser.Scene {
       this.setupResidentBoard();
       // 镇子商店门面（老板搬回镇上：关闭/营业两态视觉，入口=对话 shopkeeper）
       this.setupTownShop();
+      // 第一章 P2-1 集市广场恢复（村长来访后解锁；荒废→摊位两态，见 setupMarketSquare）
+      this.setupMarketSquare();
+      // 第一章 P3 春日集：集市恢复后的夜晚进 town，镇上重新聚起人（克制版，见 trySpringFairSequence）
+      this.time.delayedCall(1000, () => this.trySpringFairSequence());
     }
 
     // gate 庄园大门美术升级（生活杂物/小动物/夜间门灯，零资源纯代码；教程逻辑零触碰）
@@ -5560,6 +5577,11 @@ export class MapScene extends Phaser.Scene {
       if (this.trySideGardenerPlum()) return;
     }
 
+    // 第一章 P2-1 集市广场恢复（未恢复时靠近按 E：资源交付 → 摊位灯光 → 存档）
+    if (this.mapKey === 'town' && this.marketSquareRestore && !this.marketSquareRestore.restored) {
+      if (this.tryMarketSquareInteract()) return;
+    }
+
     // 2026-08-11 镇子商店门口自动售货机（制作人拍板：衰落中维持最低限度运转）
     // 独立交互锚点：全天可用、只卖基础补给；老板在场也不受影响（机器不抢老板存在感）
     // 必须优先于需求板：售货机实际位置 (352,156)（mx=x-40=352）距需求板 (360,136) 仅 ~21.5px，
@@ -7677,6 +7699,307 @@ export class MapScene extends Phaser.Scene {
     this.storyDialogue.play(OLD_HOUSE_RESTORED_DIALOGUE, () => {
       setTimeout(() => showMemoryMoment('风吹过修补好的屋瓦——这座岛，开始像家了。'), 1600);
     });
+  }
+
+  // ============ 第一章 P2-1 集市广场恢复（town 中央偏北，Sprint 3） ============
+
+  /**
+   * 集市广场恢复点（town 中央偏北 cols 18-32 / rows 2-7，制作人 2026-08-12 Sprint 3 拍板）。
+   * 叙事定位：集市=玩家第一次亲手让青禾镇恢复生活的证明（村长来访 ch1_elder_visit 后解锁）。
+   * 解锁条件：chapter >= 1 && hasTriggered('ch1_elder_visit')（村长邀请过 → 玩家知道"为什么修"）。
+   * 恢复模式：一次资源交付（木材×25 + 石头×15 + 金币×80，FarmRestore RESTORE_PROJECTS.marketSquare）
+   * 三通道反馈：地图（荒地→摊位+灯光）→ NPC 对白变化 → 存档（worldRestore.marketSquare）。
+   * 零新系统：复用 FarmRestore / EventManager / 演出范式；纯 Graphics 零新素材。
+   */
+  private setupMarketSquare(): void {
+    if (this.mapKey !== 'town') return;
+    const T = TILE_SIZE;
+    // 集市解锁：村长来访后（未解锁时完全不出现，避免"任务提前投放"）
+    const unlocked = isChapterAtLeast(CHAPTER_1) && hasTriggered('ch1_elder_visit');
+    const restored = isRestored('marketSquare');
+    if (!unlocked && !restored) {
+      this.marketSquareRestore = null;
+      return;
+    }
+    this.marketSquareRestore = {
+      restored,
+      debris: [],
+      mark: null,
+      // 区域中心（col 25, row 4.5）：中央偏北空白区，避开 NPC/商店/需求板/出口
+      pos: { x: 25 * T + T / 2, y: 4.5 * T + T / 2 },
+    };
+    if (restored) {
+      this.buildMarketSquareRestored();
+    } else {
+      this.buildMarketSquareRuined();
+    }
+  }
+
+  /** 恢复前视觉：荒废广场（杂草碎石 + 破旧摊位残骸）+ 交互提示标记 */
+  private buildMarketSquareRuined(): void {
+    const g = this.marketSquareRestore;
+    if (!g) return;
+    const T = TILE_SIZE;
+    // 荒土（gid 2）铺底：cols 18-32, rows 2-7（当前全草地 gid1）
+    for (let r = 2; r <= 7; r++) {
+      for (let c = 18; c <= 32; c++) {
+        this.groundLayer.putTileAt(2, c, r);
+      }
+    }
+    // 组1 碎石堆：灰圆点 ×5（广场中心乱石）
+    const rocks = this.add.graphics();
+    rocks.fillStyle(0x8a8a92, 1);
+    rocks.fillCircle(-16, 0, 3);
+    rocks.fillCircle(8, 4, 2.5);
+    rocks.fillCircle(22, -2, 3.5);
+    rocks.fillCircle(-4, -8, 2);
+    rocks.fillCircle(16, 8, 2.5);
+    rocks.setPosition(g.pos.x, g.pos.y);
+    rocks.setDepth(3);
+    // 组2 破旧摊位残骸：歪斜木架 + 断布（左一摊）
+    const stall = this.add.graphics();
+    stall.fillStyle(0x8d6e4a, 1);
+    stall.fillRect(-2, -10, 2, 16);   // 立杆
+    stall.fillRect(10, -8, 2, 14);    // 立杆
+    stall.fillRect(-2, -10, 14, 2);   // 横梁
+    stall.fillStyle(0x9a8a7a, 0.7);
+    stall.fillRect(-2, -9, 12, 2);    // 破布垂下
+    stall.setPosition(g.pos.x - 14 * T, g.pos.y + 2 * T);
+    stall.setRotation(0.18);
+    stall.setDepth(3);
+    // 组3 荒草：绿色短线 ×6（摊位周围）
+    const weeds = this.add.graphics();
+    weeds.fillStyle(0x7a9a4a, 1);
+    for (let i = 0; i < 6; i++) {
+      weeds.fillRect(-20 + i * 8, 4, 1, 3 + (i % 3) * 2);
+    }
+    weeds.setPosition(g.pos.x + 6 * T, g.pos.y + 3 * T);
+    weeds.setDepth(3);
+    g.debris = [rocks, stall, weeds];
+    // 交互提示标记
+    g.mark = this.add.text(g.pos.x, g.pos.y - 12, '集市广场', {
+      fontFamily: 'Arial', fontSize: '10px', color: '#e8d8a8',
+    }).setOrigin(0.5).setDepth(4);
+  }
+
+  /** 恢复后视觉：摊位 + 灯光 + 空地清理（集市=生活重新出现） */
+  private buildMarketSquareRestored(): void {
+    const g = this.marketSquareRestore;
+    if (!g) return;
+    const T = TILE_SIZE;
+    // 荒地 → 草地（gid 1）：cols 18-32, rows 2-7
+    for (let r = 2; r <= 7; r++) {
+      for (let c = 18; c <= 32; c++) {
+        this.groundLayer.putTileAt(1, c, r);
+      }
+    }
+    // 摊位 ×3（红白条纹顶棚 + 木台）：集市开张的生活感
+    const stallColors = [0xd04030, 0x4a7ab0, 0xd09030];
+    for (let i = 0; i < 3; i++) {
+      const s = this.add.graphics();
+      const sx = g.pos.x + (i - 1) * 6 * T;
+      const sy = g.pos.y + (i % 2) * 2.5 * T;
+      s.fillStyle(0x8d6e4a, 1);
+      s.fillRect(sx - 10, sy - 8, 2, 18);   // 立杆 L
+      s.fillRect(sx + 8, sy - 8, 2, 18);    // 立杆 R
+      s.fillStyle(0xc0a888, 1);
+      s.fillRect(sx - 12, sy + 8, 24, 4);   // 木台面
+      s.fillStyle(stallColors[i], 1);
+      s.fillRect(sx - 12, sy - 10, 24, 3);  // 顶棚
+      s.fillStyle(0xf0ead8, 1);
+      s.fillRect(sx - 12, sy - 7, 24, 2);   // 顶棚白条
+      s.setDepth(3);
+      g.debris.push(s);
+    }
+    // 灯光：两盏暖黄挂灯（摊位上方，傍晚/夜间亮起效果）
+    const lamp1 = this.add.graphics();
+    lamp1.fillStyle(0xffd98a, 0.9);
+    lamp1.fillCircle(g.pos.x - 6 * T, g.pos.y - 3 * T, 1.5);
+    lamp1.fillStyle(0xffd98a, 0.2);
+    lamp1.fillCircle(g.pos.x - 6 * T, g.pos.y - 3 * T, 5);
+    lamp1.setDepth(3);
+    const lamp2 = this.add.graphics();
+    lamp2.fillStyle(0xffd98a, 0.9);
+    lamp2.fillCircle(g.pos.x + 6 * T, g.pos.y - 1 * T, 1.5);
+    lamp2.fillStyle(0xffd98a, 0.2);
+    lamp2.fillCircle(g.pos.x + 6 * T, g.pos.y - 1 * T, 5);
+    lamp2.setDepth(3);
+    g.debris.push(lamp1, lamp2);
+    // 集市恢复成功 → 归星记录
+    triggerTag('restore_market');
+  }
+
+  /** 集市广场交互（未恢复时靠近按 E：检查资源 → 交付 → 恢复） */
+  private tryMarketSquareInteract(): boolean {
+    const g = this.marketSquareRestore;
+    if (!g || g.restored) return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    if (dx * dx + dy * dy > 48 * 48) return false;
+    this.inputManager.clearAction();
+
+    const missing = getProjectShortfall('marketSquare', {
+      wood: getItemCount('wood'),
+      stone: getItemCount('stone'),
+      gold: getCoins(),
+    });
+    if (missing.length > 0) {
+      const cost = getQuickBuyCost('marketSquare', {
+        wood: getItemCount('wood'),
+        stone: getItemCount('stone'),
+        gold: getCoins(),
+      });
+      this.offerQuickBuy({
+        shortfallText: `集市广场还缺：${missing.join('、')}。`,
+        cost,
+        onBuy: () => {
+          const needWood = 25 - getItemCount('wood');
+          if (needWood > 0) addItem('wood', needWood);
+          const needStone = 15 - getItemCount('stone');
+          if (needStone > 0) addItem('stone', needStone);
+          this.tryMarketSquareComplete();
+        },
+      });
+      return true;
+    }
+    this.tryMarketSquareComplete();
+    return true;
+  }
+
+  /** 集市广场恢复完成逻辑（资源已足够/一键补齐后） */
+  private tryMarketSquareComplete(): void {
+    addItem('wood', -25);
+    addItem('stone', -15);
+    spendCoins(80);
+    markRestored('marketSquare');
+    const g = this.marketSquareRestore;
+    if (g) g.restored = true;
+    // 恢复反馈：破旧清理 + 摊位出现
+    if (g) {
+      for (const d of g.debris) d.destroy();
+      g.debris = [];
+      g.mark?.destroy();
+      g.mark = null;
+      this.buildMarketSquareRestored();
+    }
+    play('repair_complete');
+    // 里程碑入档：完成后立即保存（刷新/重进保持恢复态）
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    this.updateHUD();
+    // 恢复反馈台词（行动型：展示生活回来，不宣言）
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(
+      [
+        { speaker: '', color: '#aaaaaa', text: '（摊位搭起来，灯也亮了。空了很久的广场，第一次有了市集的样子。）' },
+        { speaker: '镇长', color: '#c8b898', text: '以前这里，就是全镇人碰面的地方。……谢谢你，林澈。' },
+        { speaker: '商店老板', color: '#8ac8a0', text: '哈，看来我这小店，以后不愁没客人了。' },
+      ],
+      () => {
+        setTimeout(() => showMemoryMoment('集市重新开起来的那天，青禾镇有了声音。'), 1600);
+      },
+    );
+  }
+
+  // ============ 第一章 P3 春日集（克制版，Sprint 3 收尾） ============
+
+  /**
+   * 春日集触发判定（进 town 场景 create 后延迟 1s 调用）：
+   *   门禁：town → 章节≥1 → 集市已恢复（isRestored('marketSquare')）→ 夜晚（hour>=20 或凌晨）
+   *   → 一次性（triggerOnce('ch1_spring_fair')，时序纪律：返回后再 save）。
+   * 克制版（≤ 观星夜 40%）：灯火呼吸 + 人群剪影 + 人群低语 + 一句独白 + 第2章钩子（远处灯塔一点动静）。
+   */
+  private trySpringFairSequence(): void {
+    if (this.mapKey !== 'town') return;
+    if (this.inStargazeCutscene || this.inSpringFairCutscene) return;
+    if (this.firstMorningActive) return; // 与其他自动演出互斥（同村长来访范式）
+    if (!isChapterAtLeast(CHAPTER_1)) return;
+    if (!isRestored('marketSquare')) return;
+    if (hasTriggered('ch1_spring_fair')) return;
+    const t = getTime();
+    if (t.hour < 20 && t.hour >= 6) return; // 仅夜晚（"热闹的晚上"）
+    this.startSpringFair();
+  }
+
+  /** 春日集演出主体：触发记录 + 灯火/剪影/人声 + 独白 + 钩子 */
+  private startSpringFair(): void {
+    this.inSpringFairCutscene = true;
+    const ok = triggerOnce('ch1_spring_fair', () => {
+      play('crowd'); // 人群低语（程序合成，零资产）
+      this.buildSpringFairFX(); // 灯火呼吸 + 人群剪影
+      showMemoryMoment('集市灯火亮起来，老远就能听见有人说话。');
+      setTimeout(() => {
+        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+        this.storyDialogue.play(
+          [
+            { speaker: '', color: '#aaaaaa', text: '（人群里有笑声，有人在喊价钱，有人蹲在摊子前挑东西。）' },
+            { speaker: '镇长', color: '#c8b898', text: '上次这么热闹，还是你爷爷在的时候。……你回来得正是时候。' },
+            { speaker: '', color: '#aaaaaa', text: '（远处的灯塔方向，海面上好像亮了一下。……很快又暗下去。）' },
+          ],
+          () => this.endSpringFair(),
+        );
+      }, 1800);
+    });
+    if (!ok) {
+      this.inSpringFairCutscene = false;
+      return;
+    }
+    // ★ triggerOnce 已返回：ch1_spring_fair 此刻已标记 → 存档（EventSystem.md 时序纪律）
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+  }
+
+  /** 春日集视觉：摊位灯火呼吸（3 盏暖黄灯）+ 人群剪影 ×3（头圆+身，轻晃动） */
+  private buildSpringFairFX(): void {
+    const g = this.marketSquareRestore;
+    if (!g) return;
+    const T = TILE_SIZE;
+    const bx = g.pos.x;
+    const by = g.pos.y;
+    // 灯火呼吸：3 盏暖黄光点（摊位上方），alpha yoyo——"热闹的晚上"
+    const lampSpots: [number, number][] = [
+      [bx - 6 * T, by - 3 * T],
+      [bx, by - 2 * T],
+      [bx + 6 * T, by - 1 * T],
+    ];
+    for (const [lx, ly] of lampSpots) {
+      const lamp = this.add.graphics();
+      lamp.fillStyle(0xffd98a, 0.95);
+      lamp.fillCircle(lx, ly, 1.5);
+      lamp.fillStyle(0xffd98a, 0.25);
+      lamp.fillCircle(lx, ly, 5);
+      lamp.setDepth(3);
+      this.tweens.add({ targets: lamp, alpha: 0.55, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      this.springFairFX.push(lamp);
+    }
+    // 人群剪影 ×3：头圆 + 身矩形，站在摊位前空地，轻晃动（人群走动感）
+    const spots: [number, number][] = [
+      [bx - 4 * T, by + 3.5 * T],
+      [bx + 2 * T, by + 4 * T],
+      [bx + 5 * T, by + 3 * T],
+    ];
+    for (let i = 0; i < spots.length; i++) {
+      const [px, py] = spots[i];
+      const p = this.add.graphics();
+      p.fillStyle(0x3a3240, 0.85);
+      p.fillCircle(px, py - 5, 3.5);                // 头
+      p.fillRoundedRect(px - 3.5, py - 2, 7, 9, 2); // 身
+      p.setDepth(3);
+      this.tweens.add({
+        targets: p, y: py - 1.5, duration: 900 + i * 300,
+        yoyo: true, repeat: -1, ease: 'Sine.inOut', delay: i * 250,
+      });
+      this.springFairFX.push(p);
+    }
+  }
+
+  /** 春日集收尾：剪影/灯火移除，解除互斥（常驻灯火由恢复态摊位挂灯继续承担） */
+  private endSpringFair(): void {
+    for (const fx of this.springFairFX) fx.destroy();
+    this.springFairFX = [];
+    this.inSpringFairCutscene = false;
   }
 
   // ============ P2 农场复兴视觉化（菜园层次/工具区/树荫/碎石小路） ============

@@ -29,6 +29,7 @@ export type GuiXingTag =
   | 'first_decor'    // SHOP-01 商店复兴：第一次购买装饰品（小灯笼/木牌）
   | 'restore_garden'
   | 'restore_oldhouse'
+  | 'restore_market'  // 第一章 P2-1：集市广场恢复
   | 'help_resident'
   | 'stargaze_night'
   | 'obtain_manor_key'

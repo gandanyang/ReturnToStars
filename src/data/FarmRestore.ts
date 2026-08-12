@@ -1,11 +1,14 @@
 /**
- * 归星岛复兴：建设点/恢复点状态（M1-3 + FEATURE-037）
+ * 归星岛复兴：建设点/恢复点状态（M1-3 + FEATURE-037 + 第一章 P2-1）
  *
  * 玩家通过交互完成建设/恢复，环境变化后持久化到存档。
  * FEATURE-037（制作人 2026-08-06 拍板）将原"单一恢复点"指令扩展为 3 个建设点：
  *   garden    —— 爷爷旧花园（清理三阶段，M1-3 既有流程，无资源需求）
  *   oldHouse  —— 老屋修复（木材+石头+金币）
  *   forestRoad—— 后山道路修复（石头+金币）
+ * 第一章 P2-1（2026-08-12 Sprint 3 拍板）新增第 4 个恢复点：
+ *   marketSquare—— 集市广场（木材+石头+金币；村长来访 ch1_elder_visit 后解锁，
+ *                   集市=玩家第一次亲手让小镇恢复生活的证明）
  *
  * 状态：已恢复（restored）↔ 未记录（默认未恢复）
  * 存档序列化：getRestoreEntries / restoreRestoreEntries
@@ -20,7 +23,7 @@
 import { WOOD_BUY_PRICE, STONE_BUY_PRICE } from './Economy';
 
 /** 恢复点/建设点 key 集合 */
-export const RESTORE_KEYS = ['garden', 'oldHouse', 'forestRoad'] as const;
+export const RESTORE_KEYS = ['garden', 'oldHouse', 'forestRoad', 'marketSquare'] as const;
 
 /** 恢复点 key 类型 */
 export type RestoreKey = (typeof RESTORE_KEYS)[number];
@@ -39,6 +42,7 @@ export const RESTORE_PROJECTS: Record<RestoreKey, RestoreProject> = {
   garden: { id: 'garden', name: '爷爷旧花园' },
   oldHouse: { id: 'oldHouse', name: '老屋', requirements: { wood: 30, stone: 20, gold: 100 } },
   forestRoad: { id: 'forestRoad', name: '后山道路', requirements: { stone: 50, gold: 200 } },
+  marketSquare: { id: 'marketSquare', name: '集市广场', requirements: { wood: 25, stone: 15, gold: 80 } },
 };
 
 /**
