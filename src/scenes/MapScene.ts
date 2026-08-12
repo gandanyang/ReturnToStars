@@ -100,6 +100,7 @@ import {
   XIYA_GARDEN_TRELLIS_DIALOGUE, XIYA_GARDEN_TRELLIS_DONE_DIALOGUE,
   ELDER_TEA_QUEST_DIALOGUE, ELDER_STAR_SITE_DIALOGUE,
   XIYA_PHOTO_ENTRY_DIALOGUE, XIYA_PHOTO_DONE_DIALOGUE,
+  XIYA_OLD_SHADOW_ENTRY_DIALOGUE, XIYA_OLD_SHADOW_DELIVER_DIALOGUE,
   MINER_LAMP_ENTRY_DIALOGUE, MINER_LAMP_NEED_DIALOGUE, MINER_LAMP_DONE_DIALOGUE,
   GARDENER_PLUM_ENTRY_DIALOGUE, GARDENER_PLUM_DONE_DIALOGUE,
   GARDENER_FIELD_ENTRY_DIALOGUE, GARDENER_FIELD_DONE_DIALOGUE,
@@ -160,6 +161,9 @@ export interface MapSceneFlags {
   /** T3 夏雅「整理旧照片」：老屋修复后，老屋门口事件（一次性入档） */
   sideXiyaPhotoAsked?: boolean;
   sideXiyaPhotoDone?: boolean;
+  /** P1-3 夏雅《旧日留影》：老屋整理完成后翻柜子 → farm 老屋门口交付（一次性入档） */
+  sideXiyaOldShadowAsked?: boolean;
+  sideXiyaOldShadowDone?: boolean;
   /** T3 老张「矿灯」：矿洞独立点灯点（铜矿×2，一次性入档） */
   sideMinerLampAsked?: boolean;
   sideMinerLampDone?: boolean;
@@ -519,6 +523,10 @@ export class MapScene extends Phaser.Scene {
   // T3 NPC 生活事件 flags（随 mapFlags 存档，读档不重复触发）
   private sideXiyaPhotoAsked = false;
   private sideXiyaPhotoDone = false;
+  // P1-3 夏雅《旧日留影》（第一章性格铺垫，剧情大纲 v0.3 §八）：老屋整理完成后翻柜子→找夏雅
+  private sideXiyaOldShadowAsked = false;
+  private sideXiyaOldShadowDone = false;
+  private xiyaOldShadowMark: Phaser.GameObjects.Text | null = null;
   private sideMinerLampAsked = false;
   private sideMinerLampDone = false;
   private sideGardenerPlumAsked = false;
@@ -644,6 +652,8 @@ export class MapScene extends Phaser.Scene {
       sideElderStarDone: inst.sideElderStarDone,
       sideXiyaPhotoAsked: inst.sideXiyaPhotoAsked,
       sideXiyaPhotoDone: inst.sideXiyaPhotoDone,
+      sideXiyaOldShadowAsked: inst.sideXiyaOldShadowAsked,
+      sideXiyaOldShadowDone: inst.sideXiyaOldShadowDone,
       sideMinerLampAsked: inst.sideMinerLampAsked,
       sideMinerLampDone: inst.sideMinerLampDone,
       sideGardenerPlumAsked: inst.sideGardenerPlumAsked,
@@ -695,6 +705,8 @@ export class MapScene extends Phaser.Scene {
       this.sideElderStarDone = saved.sideElderStarDone ?? false;
       this.sideXiyaPhotoAsked = saved.sideXiyaPhotoAsked ?? false;
       this.sideXiyaPhotoDone = saved.sideXiyaPhotoDone ?? false;
+      this.sideXiyaOldShadowAsked = saved.sideXiyaOldShadowAsked ?? false;
+      this.sideXiyaOldShadowDone = saved.sideXiyaOldShadowDone ?? false;
       this.sideMinerLampAsked = saved.sideMinerLampAsked ?? false;
       this.sideMinerLampDone = saved.sideMinerLampDone ?? false;
       this.sideGardenerPlumAsked = saved.sideGardenerPlumAsked ?? false;
@@ -1134,6 +1146,8 @@ export class MapScene extends Phaser.Scene {
       this.setupHouseTidy();
       // 第一章 P1-2 村长来访：老屋整理完成后的下一晚，进老屋触发（见 tryElderVisitSequence）
       this.tryElderVisitSequence();
+      // 第一章 P1-3 夏雅《旧日留影》：老屋整理完成后，柜子位置出现翻柜子标记（见 trySideXiyaOldShadow）
+      this.setupXiyaOldShadow();
     }
 
     // M1-3 爷爷旧花园恢复点（玩家清理荒废角落 → 环境变化 + 存档持久化）
@@ -1307,6 +1321,8 @@ export class MapScene extends Phaser.Scene {
         sideElderStarDone: this.sideElderStarDone,
         sideXiyaPhotoAsked: this.sideXiyaPhotoAsked,
         sideXiyaPhotoDone: this.sideXiyaPhotoDone,
+        sideXiyaOldShadowAsked: this.sideXiyaOldShadowAsked,
+        sideXiyaOldShadowDone: this.sideXiyaOldShadowDone,
         sideMinerLampAsked: this.sideMinerLampAsked,
         sideMinerLampDone: this.sideMinerLampDone,
         sideGardenerPlumAsked: this.sideGardenerPlumAsked,
@@ -5481,6 +5497,8 @@ export class MapScene extends Phaser.Scene {
     //    bed 整理点 (2.5T,2.5T) 与床铺睡觉格重叠，必须先判断整理（未整理 → 整理；已整理 → 放行睡觉）
     if (this.mapKey === 'house') {
       if (this.tryHouseTidyInteract()) return;
+      // P1-3 夏雅《旧日留影》：老屋整理完成后，柜子翻出旧相框（靠近按 E，一次性）
+      if (this.trySideXiyaOldShadow()) return;
     }
 
     // 1. 睡觉点检测：
@@ -5626,6 +5644,11 @@ export class MapScene extends Phaser.Scene {
     // FEATURE-037 老屋修复（未恢复时靠近按 E：资源交付一次完成）
     if (this.mapKey === 'farm' && this.oldHouseRestore && !this.oldHouseRestore.restored) {
       if (this.tryOldHouseRestoreInteract()) return;
+    }
+
+    // P1-3 夏雅《旧日留影》交付：翻出旧相框后，老屋门口找夏雅擦净（§八，需先翻柜子；排在 T3 之前避免冲突）
+    if (this.mapKey === 'farm' && isRestored('oldHouse') && this.sideXiyaOldShadowAsked && !this.sideXiyaOldShadowDone) {
+      if (this.tryXiyaOldShadowDeliver()) return;
     }
 
     // T3 夏雅「整理旧照片」（老屋修复后，老屋门口事件）
@@ -8687,6 +8710,88 @@ export class MapScene extends Phaser.Scene {
           dailyQuest: getDailyQuestSaveData(),
         } as any);
       });
+    });
+    return true;
+  }
+
+  // ============ P1-3 夏雅《旧日留影》（第一章性格铺垫，剧情大纲 v0.3 §八） ============
+  // 老屋整理完成后 house 翻柜子 → 翻出旧相框 → farm 老屋门口找夏雅 → 她擦干净
+  // 复用 trySideXiyaPhoto 范式：实例字段 sideXiyaOldShadowAsked/Done + StoryDialogue + save。
+  // 目标：引出夏雅"保存小镇记忆"性格（她在保存可能性，不是等待），不展开《春深有信》。
+
+  /**
+   * 翻柜子标记（house 场景）：老屋整理 4 点全完成后，柜子位置出现交互标记。
+   * 柜子坐标：书桌左侧 (10*T, 5*T)，避开 4 个整理点（bed/lamp/desk/radio）。
+   */
+  private setupXiyaOldShadow(): void {
+    if (this.mapKey !== 'house') return;
+    if (this.sideXiyaOldShadowDone) return;
+    if (this.sideXiyaOldShadowAsked) return; // 已翻出，等交付（标记移到 farm 老屋门口）
+    if (!isHouseTidyComplete()) return;
+    const T = TILE_SIZE;
+    const mark = this.add.text(10 * T, 5 * T, '？', {
+      fontFamily: 'Arial', fontSize: '10px', color: '#c8d8a8',
+    }).setOrigin(0.5).setDepth(4);
+    this.xiyaOldShadowMark = mark;
+  }
+
+  /**
+   * 翻柜子交互（house）：靠近按 E → 翻出旧相框 → 入口对白 → Asked=true → 存档。
+   * 完成后标记消失，玩家去 farm 老屋门口找夏雅交付（tryXiyaOldShadowDeliver）。
+   */
+  private trySideXiyaOldShadow(): boolean {
+    if (this.mapKey !== 'house') return false;
+    if (this.sideXiyaOldShadowDone) return false;
+    if (this.sideXiyaOldShadowAsked) return false;
+    if (!isHouseTidyComplete()) return false;
+    if (!this.xiyaOldShadowMark) return false;
+    const dx = this.player.x - this.xiyaOldShadowMark.x;
+    const dy = this.player.y - this.xiyaOldShadowMark.y;
+    if (dx * dx + dy * dy > 48 * 48) return false;
+
+    this.inputManager.clearAction();
+    this.sideXiyaOldShadowAsked = true;
+    if (this.xiyaOldShadowMark) { this.xiyaOldShadowMark.destroy(); this.xiyaOldShadowMark = null; }
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(XIYA_OLD_SHADOW_ENTRY_DIALOGUE, () => {
+      showMemoryMoment('也许夏雅认识这个。');
+      this.updateHUD();
+      save({
+        x: this.player.x, y: this.player.y,
+        scene: this.mapKey, facing: this.player.facing,
+        dailyQuest: getDailyQuestSaveData(),
+      } as any);
+    });
+    return true;
+  }
+
+  /**
+   * 交付旧物件（farm 老屋门口）：翻出旧相框后，靠近老屋门口按 E → 夏雅接过擦干净 → §八 对白。
+   * 调度在 trySideXiyaPhoto 之前（条件更严格：需 sideXiyaOldShadowAsked），不与 T3 冲突：
+   *   未翻柜子 → 本函数条件不满足 → T3 触发；翻过柜子未交付 → 本函数触发；已交付 → T3 触发。
+   */
+  private tryXiyaOldShadowDeliver(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (this.sideXiyaOldShadowDone) return false;
+    if (!this.sideXiyaOldShadowAsked) return false;
+    if (!isRestored('oldHouse')) return false; // 夏雅在老屋修复后才在老屋门口
+    const g = this.oldHouseRestore;
+    if (!g) return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    if (dx * dx + dy * dy > 48 * 48) return false;
+
+    this.inputManager.clearAction();
+    this.sideXiyaOldShadowDone = true;
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(XIYA_OLD_SHADOW_DELIVER_DIALOGUE, () => {
+      showMemoryMoment('她留着的不是旧物，是它们还可能被用上的那天。');
+      this.updateHUD();
+      save({
+        x: this.player.x, y: this.player.y,
+        scene: this.mapKey, facing: this.player.facing,
+        dailyQuest: getDailyQuestSaveData(),
+      } as any);
     });
     return true;
   }

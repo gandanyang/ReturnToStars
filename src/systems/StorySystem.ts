@@ -445,6 +445,27 @@ export const XIYA_PHOTO_DONE_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, text: '（看了看手里的照片，没说话）' },
 ];
 
+// ============ P1-3 夏雅《旧日留影》（第一章性格铺垫，剧情大纲 v0.3 §八） ============
+// 触发：老屋整理完成后 house 翻柜子 → 翻出旧相框 → farm 老屋门口找夏雅 → 她擦干净
+// 台词逐字取自剧情大纲 v0.3 §八（拍板基线）；目标：引出夏雅"保存小镇记忆"性格，不展开《春深有信》。
+// 复用 trySideXiyaPhoto 范式：MapScene 实例字段 sideXiyaOldShadowAsked/Done + StoryDialogue + save。
+
+/** P1-3 翻出旧物件：house 整理完成后，翻柜子入口对白 */
+export const XIYA_OLD_SHADOW_ENTRY_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（整理好的屋子里，柜子最底下还压着一个旧物件。）' },
+  { speaker: '', color: COLORS.system, text: '（一个褪了色的旧相框，边角磨得发亮。林澈把它拿出来，擦了擦灰。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '……这个，也许夏雅认识。' },
+];
+
+/** P1-3 交付旧物件：farm 老屋门口找夏雅，她接过擦干净（§八 台词） */
+export const XIYA_OLD_SHADOW_DELIVER_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（夏雅接过相框，看了好一会儿。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '这个啊……以前大家搬家的时候，都舍不得丢。' },
+  { speaker: '', color: COLORS.system, text: '（她从口袋里拿出一块软布，小心地把相框擦干净。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '你为什么一直留着这些？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '因为我觉得，有一天它们可能会派上用场。' },
+];
+
 // ============ 夏雅《春深有信·一》Demo Cut（D-011，对话逐字取自设计文档第一章定稿） ============
 // 4 段：开场（触发）→ 互动一（花苗）→ 互动二（旧花种记录）→ 收尾（春祭/烟花埋伏笔）
 
