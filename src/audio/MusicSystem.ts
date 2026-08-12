@@ -31,6 +31,8 @@ const TRACKS: Record<string, string> = {
   follow_wind: 'assets/audio/music/follow_wind.ogg',
   roads_wind: 'assets/audio/music/roads_wind.ogg',
   chasing_wind: 'assets/audio/music/chasing_wind.ogg',
+  // 第一章主题曲《Returning Home》（2026-08-12 制作人归档 no-watermark）：功能分配待拍板
+  returning_home: 'assets/audio/music/returning_home.ogg',
 };
 
 /**
@@ -64,6 +66,8 @@ export const MUSIC_CATALOG: MusicTrackMeta[] = [
   { key: 'follow_wind', title: '随风而行', en: 'Follow the Wind', desc: '风之旋律 · 候选' },
   { key: 'roads_wind', title: '风之路', en: 'Roads of the Wind', desc: '风之旋律 · 候选' },
   { key: 'chasing_wind', title: '逐风', en: 'Chasing the Wind', desc: '风之旋律 · 候选' },
+  // 第一章主题曲（2026-08-12 制作人归档 no-watermark）：功能分配待拍板
+  { key: 'returning_home', title: '归途', en: 'Returning Home', desc: '第一章主题曲' },
 ];
 
 /** 根据浏览器支持选择最佳格式 */

@@ -32,6 +32,7 @@ import {
   type FarmPlotId,
 } from '../data/FarmPlot';
 import { getProjectShortfall, getQuickBuyCost, isRestored, markRestored, getRevivalLevel } from '../data/FarmRestore';
+import { isHouseTidyComplete } from '../data/HouseTidy';
 import { addItem, getItemCount, itemIconHtml } from '../data/Inventory';
 import { formatTime, getTime, nextDay as timeNextDay, setTime, setTimeFull, tick as timeTick } from '../data/TimeSystem';
 import { getCoins, spendCoins, addCoins, WOOD_BUY_PRICE } from '../data/Economy';
@@ -62,7 +63,8 @@ import {
 import { InputManager } from '../systems/InputManager';
 import * as AmbienceSystem from '../systems/AmbienceSystem';
 import { triggerTag } from '../systems/GuiXingRecordSystem';
-import { triggerOnce, hasTriggered } from '../systems/EventManager';
+import { triggerOnce, triggerOnceIf, hasTriggered } from '../systems/EventManager';
+import { CHAPTER_1, setChapter, isChapterAtLeast } from '../systems/ChapterSystem';
 import { unlockPhoto, isPhotoUnlocked, PHOTO_DATABASE } from '../data/PhotoAlbum';
 import { MusicBoxPanel } from '../ui/MusicBoxPanel';
 import { showChapterBanner } from '../ui/ChapterBanner';
@@ -151,6 +153,10 @@ export interface MapSceneFlags {
   /** E1/E9 每日偶遇：当天是否已触发（持久化，刷新不重复；存档审查 2026-08-06） */
   dawnXiyaDay?: number;
   eveningXiyaDay?: number;
+  /** P1-2 村长来访：老屋整理完成时的天数（"下一晚"判断用；读档保持） */
+  ch1ElderVisitDay?: number;
+  /** P1-2 村长来访态度：'help' 愿意帮忙 / 'unsure' 还没想好（集市恢复前置；读档保持） */
+  ch1ElderChoice?: 'help' | 'unsure';
   /** T3 夏雅「整理旧照片」：老屋修复后，老屋门口事件（一次性入档） */
   sideXiyaPhotoAsked?: boolean;
   sideXiyaPhotoDone?: boolean;
@@ -345,6 +351,15 @@ export class MapScene extends Phaser.Scene {
   private grandpaGiftPanel: GiftPanel | null = null;
   /** 爷爷包裹交互基准坐标（house 木箱 L1-4 装饰位置中心） */
   private grandpaGiftPos: { x: number; y: number } = { x: 0, y: 0 };
+  // 第一章 P1-1 老屋整理（2026-08-12 垂直切片）：4 个整理交互点（旧床/灯/书桌/收音机）
+  // 零数值、零新资产、零新增存档字段：状态 = EventManager.triggerOnce('ch1_*_done')，随存档持久化。
+  // 每次进入 house 由 setupHouseTidy() 重建：已完成点画"整理后"视觉（done），未完成点挂交互标记（mark）。
+  private houseTidy: Array<{
+    key: 'bed' | 'lamp' | 'desk' | 'radio';
+    pos: { x: number; y: number };
+    mark: Phaser.GameObjects.Container | null;
+    done: Phaser.GameObjects.Graphics | null;
+  }> = [];
   /** 需求板引导（首次靠近提示，会话级，不入档） */
   private residentBoardHintShown = false;
   // 教程：大门墙壁（物理矩形，钥匙使用后销毁）
@@ -367,6 +382,13 @@ export class MapScene extends Phaser.Scene {
   private dawnXiya: Phaser.GameObjects.Sprite | null = null;
   private dawnXiyaLabel: Phaser.GameObjects.Text | null = null;
   private dawnXiyaDay = 0;
+  // P1-2 村长来访（第一章）：老屋门口出现的村长（自动触发，一次性，triggerOnceIf 判重）
+  private elderVisitSprite: Phaser.GameObjects.Sprite | null = null;
+  private elderVisitLabel: Phaser.GameObjects.Text | null = null;
+  private ch1ElderVisitDay = 0;
+  private elderVisitDone = false;
+  /** P1-2 村长来访态度：'help' 愿意帮忙 / 'unsure' 还没想好（随 flags 入档，集市恢复消费） */
+  private ch1ElderChoice: 'help' | 'unsure' | undefined = undefined;
   // day2 清晨「岛屿的第一声回应」：老屋门口看农田的夏雅（自动触发，一次性，triggerOnce 判重）
   private morningXiya: Phaser.GameObjects.Sprite | null = null;
   private morningXiyaLabel: Phaser.GameObjects.Text | null = null;
@@ -622,6 +644,8 @@ export class MapScene extends Phaser.Scene {
       xiyaLetterStage: inst.xiyaLetterStage,
       dawnXiyaDay: inst.dawnXiyaDay,
       eveningXiyaDay: inst.eveningXiyaDay,
+      ch1ElderVisitDay: inst.ch1ElderVisitDay,
+      ch1ElderChoice: inst.ch1ElderChoice,
     };
   }
 
@@ -671,6 +695,8 @@ export class MapScene extends Phaser.Scene {
       this.xiyaLetterStage = saved.xiyaLetterStage ?? 0;
       this.dawnXiyaDay = saved.dawnXiyaDay ?? 0;
       this.eveningXiyaDay = saved.eveningXiyaDay ?? 0;
+      this.ch1ElderVisitDay = saved.ch1ElderVisitDay ?? 0;
+      this.ch1ElderChoice = saved.ch1ElderChoice;
     }
   }
 
@@ -700,6 +726,8 @@ export class MapScene extends Phaser.Scene {
     this.clearEveningXiya();
     // day2 清晨演出夏雅清理（场景切换时销毁，防止残留；BUG-071）
     this.clearMorningXiya();
+    // P1-2 村长来访演出精灵清理（场景切换时销毁，防止残留）
+    this.clearElderVisit();
     // D-011 《春深有信·一》剧情专线精灵/交互点清理（场景切换时销毁，防止残留）
     this.clearLetterXiya();
     // 相簿解锁 toast 清理（DOM，防跨场景残留）
@@ -1082,6 +1110,13 @@ export class MapScene extends Phaser.Scene {
     // P0 爷爷的归星包裹：老屋（house）旧木箱交互物（第一次进屋出现，一次性领取，见 setupGrandpaGift）
     if (this.mapKey === 'house' && !hasTriggered('grandpa_gift_opened')) {
       this.setupGrandpaGift();
+    }
+
+    // 第一章 P1-1 老屋整理：4 个整理交互点（章节门禁 chapter ≥ 1，见 setupHouseTidy）
+    if (this.mapKey === 'house') {
+      this.setupHouseTidy();
+      // 第一章 P1-2 村长来访：老屋整理完成后的下一晚，进老屋触发（见 tryElderVisitSequence）
+      this.tryElderVisitSequence();
     }
 
     // M1-3 爷爷旧花园恢复点（玩家清理荒废角落 → 环境变化 + 存档持久化）
@@ -1777,7 +1812,8 @@ export class MapScene extends Phaser.Scene {
     if (elderInTown) return; // 镇长在镇上，不显示提示
 
     // 镇长不在镇上，显示提示物品
-    const elderSpot = { x: 13 * TILE_SIZE + TILE_SIZE / 2, y: 10 * TILE_SIZE + TILE_SIZE / 2 };
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，坐标随内容平移 dx=10T dy=8T（13→23, 10→18）
+    const elderSpot = { x: 23 * TILE_SIZE + TILE_SIZE / 2, y: 18 * TILE_SIZE + TILE_SIZE / 2 };
     
     // 创建交互物品（像素木牌 + 小房子图标，替换 v0.10 前 emoji 🏠；Alpha 审查 P0 #2）
     const hintContainer = this.add.container(elderSpot.x, elderSpot.y).setDepth(4);
@@ -1845,14 +1881,15 @@ export class MapScene extends Phaser.Scene {
 
   /**
    * FEATURE-038 居民需求板：小镇广场右侧信息板交互物。
-   * 位置 (22,8)：已验证 Walls 层 gid=0 可走，距所有 NPC 站位 >48px，无交互冲突。
+   * 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，坐标随内容平移 dx=10T dy=8T（22→32, 8→16）
+   * 位置 (32,16)：已验证 Walls 层 gid=0 可走，距所有 NPC 站位 >48px，无交互冲突。
    * 视觉：木牌 + 📌 顶钉 + 下方「需求板」标签 + 呼吸动画（参照 setupElderHouseHint 模式）。
    */
   private setupResidentBoard(): void {
     if (this.mapKey !== 'town') return;
     const T = TILE_SIZE;
-    const bx = 22 * T + T / 2;
-    const by = 8 * T + T / 2;
+    const bx = 32 * T + T / 2;
+    const by = 16 * T + T / 2;
     const board = this.add.container(bx, by).setDepth(4);
 
     // 木牌主体（深棕木板 + 浅色板面 + 顶钉 + 两条腿）
@@ -2043,6 +2080,192 @@ export class MapScene extends Phaser.Scene {
       this.showDialogueText('（你收好了爷爷留下的东西。信纸很旧，字迹很稳。）');
       save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing });
     });
+  }
+
+  /**
+   * 第一章 P1-1 老屋整理（2026-08-12 垂直切片，章节门禁 chapter ≥ 1）：
+   * 4 个整理交互点（旧床/灯/书桌/收音机），程序绘制、零新资产、零新增存档字段。
+   * 状态由 EventManager.triggerOnce('ch1_*_done') 持久化（随存档的 triggeredEvents）：
+   *   - 已完成（hasTriggered）→ 画"整理后"视觉（drawTidyDone），不挂交互提示
+   *   - 未完成 → 呼吸光晕 + 文字标签（参照 setupMusicBox 范式），靠近按 E 整理
+   * 4 点位置已核验两两间距 > 48px（交互判定不重叠，且均不在床睡觉判定邻近格内）。
+   */
+  private setupHouseTidy(): void {
+    if (this.mapKey !== 'house' || !isChapterAtLeast(CHAPTER_1)) return;
+    const T = TILE_SIZE;
+    const points: Array<{ key: 'bed' | 'lamp' | 'desk' | 'radio'; x: number; y: number }> = [
+      { key: 'bed', x: 2.5 * T, y: 2.5 * T },   // 旧床（叠被子）：床铺 (2,2)-(3,3) 中心
+      { key: 'lamp', x: 5.5 * T, y: 3.5 * T },  // 灯（点亮暖光）：床右侧，避让睡觉判定格
+      { key: 'desk', x: 13.5 * T, y: 4.5 * T }, // 书桌（左爷爷旧物+右电脑）：右上角墙下
+      { key: 'radio', x: 16.5 * T, y: 54 },     // 收音机（擦亮+生活声）：L1-5 装饰中心 (264,54)
+    ];
+    this.houseTidy = [];
+    for (const p of points) {
+      const key = `ch1_${p.key}_done`;
+      if (hasTriggered(key)) {
+        const g = this.add.graphics().setDepth(2);
+        this.drawTidyDone(p.key, g);
+        this.houseTidy.push({ key: p.key, pos: { x: p.x, y: p.y }, mark: null, done: g });
+      } else {
+        // 交互标记（呼吸光晕 + 文字标签）
+        const labelText = p.key === 'bed' ? '整理床' : p.key === 'lamp' ? '整理灯' : p.key === 'desk' ? '整理书桌' : '整理收音机';
+        const mark = this.add.container(p.x, p.y).setDepth(4);
+        const glow = this.add.ellipse(0, 0, 26, 20, 0xffd98a, 0.16);
+        mark.add(glow);
+        this.tweens.add({
+          targets: glow,
+          alpha: { from: 0.12, to: 0.3 },
+          duration: 1200,
+          yoyo: true,
+          repeat: -1,
+        });
+        const label = this.add.text(0, -14, labelText, {
+          fontSize: '10px',
+          color: '#e8d8a8',
+          stroke: '#000000',
+          strokeThickness: 2,
+        }).setOrigin(0.5);
+        mark.add(label);
+        this.houseTidy.push({ key: p.key, pos: { x: p.x, y: p.y }, mark, done: null });
+      }
+    }
+    console.log(`[MapScene:house] 老屋整理点 ${this.houseTidy.filter((t) => t.mark).length} 个待整理`);
+  }
+
+  /** 绘制单个整理点的"整理后"视觉（程序 Graphics，零新资产；g 已 setDepth(2)） */
+  private drawTidyDone(key: 'bed' | 'lamp' | 'desk' | 'radio', g: Phaser.GameObjects.Graphics): void {
+    const T = TILE_SIZE;
+    switch (key) {
+      case 'bed': {
+        // 叠好的被子：盖住 setupHouseBed 的铺开红被，露出床垫，被叠成方块放床尾——"终于像一个可以生活的地方"
+        const x = 2 * T, y = 2 * T, w = 2 * T, h = 2 * T;
+        g.fillStyle(0xf0ead8, 1);
+        g.fillRoundedRect(x + 2, y + 15, w - 4, h - 17, 3); // 床垫（盖住原被子）
+        g.lineStyle(1, 0xd8d0c0, 0.8);
+        g.lineBetween(x + 2, y + 20, x + w - 2, y + 20);   // 床垫缝线
+        g.fillStyle(0xd03020, 1);
+        g.fillRoundedRect(x + w - 14, y + 18, 11, 10, 2);  // 叠好的方块被
+        g.lineStyle(1, 0xa02018, 0.9);
+        g.lineBetween(x + w - 14, y + 22, x + w - 3, y + 22);
+        g.lineStyle(1.5, 0xf0ead8, 0.9);
+        g.lineBetween(x + w - 6, y + 18, x + w - 6, y + 28); // 白棱线（叠角）
+        break;
+      }
+      case 'lamp': {
+        // 点亮的灯：暖黄灯罩 + 光晕——"光，就是有人住的样子"
+        const x = 5.5 * T, y = 3.5 * T;
+        g.fillStyle(0xffd98a, 0.22);
+        g.fillCircle(x, y - 2, 13);                 // 暖光晕
+        g.fillStyle(0x4a3018, 1);
+        g.fillRoundedRect(x - 4, y + 3, 8, 4, 1);   // 底座
+        g.fillRect(x - 1, y - 3, 2, 8);             // 灯柱
+        g.fillStyle(0xe8b84a, 1);
+        g.fillTriangle(x - 6, y - 3, x + 6, y - 3, x, y - 12); // 灯罩（暖黄）
+        g.fillStyle(0xfff0c8, 0.85);
+        g.fillCircle(x, y - 1, 1.6);                // 灯芯亮点
+        break;
+      }
+      case 'desk': {
+        // 书桌：左=爷爷旧物（旧书+旧相框），右=林澈电脑（屏幕蓝白光）——"过去和现在，都在这一张桌上"
+        const x = 13 * T, y = 4 * T;
+        g.fillStyle(0x5a3a20, 1);
+        g.fillRoundedRect(x, y, 2 * T, T, 2);       // 桌面
+        g.fillStyle(0x4a3018, 1);
+        g.fillRect(x + 2, y + T, 3, 8);             // 桌腿
+        g.fillRect(x + 2 * T - 5, y + T, 3, 8);
+        // 左：爷爷旧物
+        g.fillStyle(0x8a6a42, 1);
+        g.fillRect(x + 3, y + 4, 7, 6);             // 旧书 A
+        g.fillRect(x + 6, y + 3, 6, 5);             // 旧书 B（斜叠）
+        g.fillStyle(0xb8a888, 1);
+        g.fillRect(x + 3, y + 11, 8, 4);            // 旧相框
+        g.lineStyle(1, 0x8a6a42, 1);
+        g.strokeRect(x + 4, y + 11.5, 6, 3.5);
+        // 右：林澈电脑
+        g.fillStyle(0x30343c, 1);
+        g.fillRect(x + 2 * T - 15, y + 1, 12, 9);   // 屏幕
+        g.fillStyle(0x3a4a6a, 0.9);
+        g.fillRect(x + 2 * T - 14, y + 2, 10, 7);   // 屏幕蓝光
+        g.fillStyle(0x9ab8e8, 0.5);
+        g.fillRect(x + 2 * T - 13, y + 3, 8, 1.5);  // 屏幕亮线
+        g.fillStyle(0x4a3018, 1);
+        g.fillRect(x + 2 * T - 6, y + 10, 8, 2);    // 键盘底座
+        break;
+      }
+      case 'radio': {
+        // 擦亮的收音机：侧棱高光 + 暖色频道灯（叠在 L1-5 装饰之上）——"像很久以前的午后"
+        const x = 16 * T, y = 3 * T;
+        g.fillStyle(0xfff0c8, 0.35);
+        g.fillRect(x + 1, y + 1, 2, 10);            // 擦亮高光
+        g.fillStyle(0xffd98a, 0.9);
+        g.fillCircle(x + 12, y + 3, 1.2);           // 频道灯
+        g.fillStyle(0xffd98a, 0.25);
+        g.fillCircle(x + 12, y + 3, 3);
+        break;
+      }
+    }
+  }
+
+  /**
+   * 第一章 P1-1 老屋整理交互（靠近按 E）：
+   * 条件事件完整链路 —— ChapterSystem（章节门禁）→ EventCondition（{ chapter: CHAPTER_1 }）
+   * → triggerOnceIf（一次性 + 幂等）→ 视觉两态 + 反馈 → save()（triggeredEvents 随存档持久化）。
+   * 注意时序：triggerOnce 先执行 fn 再标记状态，因此"存档 + 全部完成判断"必须放在
+   * triggerOnceIf 返回之后（此时当前 key 已标记），否则会漏存当前 key、漏判全完成。
+   */
+  private tryHouseTidyInteract(): boolean {
+    if (this.mapKey !== 'house') return false;
+    for (const item of this.houseTidy) {
+      if (!item.mark) continue; // 已完成（无交互标记）
+      const dx = this.player.x - item.pos.x;
+      const dy = this.player.y - item.pos.y;
+      if (dx * dx + dy * dy > 48 * 48) continue;
+      this.inputManager.clearAction();
+      const ok = triggerOnceIf(`ch1_${item.key}_done`, { chapter: CHAPTER_1 }, () => {
+        this.onTidyItemDone(item);
+      });
+      if (!ok) continue;
+      // triggerOnceIf 已返回：当前 key 已标记。此时存档（确保 ch1_*_done 入档）+
+      // 4 点全部完成 → 人生节点（仅一次，showMemoryMoment 不冻结操作）
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing });
+      // 4 点全部完成 → 聚合事件 ch1_house_tidy_done（仅一次）+ 人生节点
+      // （showMemoryMoment 不冻结操作；聚合事件标记后需再次存档，见上方时序纪律）
+      if (isHouseTidyComplete()) {
+        triggerOnce('ch1_house_tidy_done', () => {
+          // P1-2 村长来访前置：记录整理完成的天数（"下一晚"判断：整理完成当天不触发，隔天夜晚才来）
+          this.ch1ElderVisitDay = getTime().day;
+          this.time.delayedCall(1200, () => {
+            showMemoryMoment('这间屋子，开始是我的了。');
+          });
+        });
+        save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing });
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** 单个整理点完成（视觉 + 反馈台词，基线 §7.2 语义；存档与全完成判断由 tryHouseTidyInteract 在 triggerOnceIf 返回后执行） */
+  private onTidyItemDone(item: { key: 'bed' | 'lamp' | 'desk' | 'radio'; mark: Phaser.GameObjects.Container | null; done: Phaser.GameObjects.Graphics | null }): void {
+    if (item.mark) {
+      item.mark.destroy();
+      item.mark = null;
+    }
+    const g = this.add.graphics().setDepth(2);
+    this.drawTidyDone(item.key, g);
+    item.done = g;
+    const lines: Record<string, string> = {
+      // 情绪曲线（制作人 2026-08-12 拍板）：第一件（床）=生活；中间两件（灯/书桌）不强调"家"；
+      // 四件全完成的归属感由 tryHouseTidyInteract 的完成句「这间屋子，开始是我的了。」承载。
+      bed: '被褥叠好了。这张床……终于像一个可以生活的地方了。',
+      lamp: '灯亮了，昏黄的暖光铺满屋子。晚上回来，不用摸黑了。',
+      desk: '桌子摆好了。左边是爷爷的旧物，右边是我的电脑。过去和现在，都在这一张桌上。',
+      radio: '收音机擦亮了。拧开旋钮，传来模糊的电流声……像很久以前的午后。',
+    };
+    this.showDialogueText(lines[item.key]);
+    if (item.key === 'radio') {
+      play('radio_life'); // 收音机"过去的声音"（程序合成生活声，设计基线 §7.3）
+    }
   }
 
   /**
@@ -2358,6 +2581,89 @@ export class MapScene extends Phaser.Scene {
         waitForCurrentDialogue();
       });
     });
+  }
+
+  /**
+   * 第一章 P1-2 村长来访（Sprint 2 Vertical Slice，制作人 2026-08-12 拍板）
+   *
+   * 叙事定位：老屋整理完成后的"连接点"——玩家从"我开始在这里生活了"过渡到
+   * "为什么我要帮助这个镇？"（青禾镇正在尝试重新开始）。
+   * 触发条件（EventCondition 不扩展，时间/进度条件在调用层组合）：
+   *   chapter >= 1（ChapterSystem）
+   *   && isHouseTidyComplete()（老屋整理完成，HouseTidy 派生）
+   *   && 已过一天（当前 day > 整理完成日 ch1ElderVisitDay，"下一晚"语义）
+   *   && 夜晚（hour >= 20）
+   *   && 未触发过（triggerOnceIf 幂等）
+   * 表现：老屋（house 场景）门口，村长出现 → 敲门声 → 对白（"灯亮着"→ 灯是小镇复苏的隐喻）
+   *   → 选项 A/B（愿意帮忙 / 还没想好）→ 记录态度（ch1ElderChoice：'help' | 'unsure'，随 flags 入档）
+   *   → 村长离开（清理精灵）→ 存档。
+   * 对白内联（StorySystem 冻结区单写者制，只读导入，不新增剧情数据）。
+   * 参照：tryFirstMorningSequence / tryCarpenterReturn 演出范式。
+   */
+  private tryElderVisitSequence(): void {
+    if (this.mapKey !== 'house') return;
+    if (!isChapterAtLeast(CHAPTER_1)) return;
+    if (!isHouseTidyComplete()) return;
+    if (hasTriggered('ch1_elder_visit')) return;
+    if (this.elderVisitDone) return;
+    // "下一晚"：整理完成当天不触发（ch1ElderVisitDay=完成日；隔天夜晚才来）
+    const t = getTime();
+    if (t.hour < 20 || t.day <= this.ch1ElderVisitDay) return;
+    this.elderVisitDone = true;
+    triggerOnceIf('ch1_elder_visit', { chapter: CHAPTER_1 }, () => {
+      // ① 敲门声（程序合成，低音量；零资产）
+      play('knock');
+      // ② 村长出现在老屋门口（底部门内侧空地；避开整理点/家具/出口触发区）
+      const T = TILE_SIZE;
+      const ex = 9.5 * T + T / 2;
+      const ey = 13 * T + T / 2;
+      this.elderVisitSprite = this.add.sprite(ex, ey, 'npc_elder');
+      this.elderVisitSprite.setScale(0.5).setDepth(5);
+      this.elderVisitLabel = this.add.text(ex, ey - 14, '镇长', {
+        fontSize: '13px', color: '#c8b898',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(6);
+      // ③ 敲门声后 1.2s 自动播对白
+      this.time.delayedCall(1200, () => {
+        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+        // 收尾（幂等）：村长离开 → 存档（含 ch1_elder_visit / ch1ElderChoice，时序纪律见 docs/dev/EventSystem.md）。
+        // 注意：StoryDialogue 选项行被点击后只回调 onChoice、不回调 onComplete（观星夜同范式），
+        // 因此清理+存档必须在 onChoice 内也执行，否则村长精灵残留、选择不入档、读档重复触发。
+        let ended = false;
+        const endVisit = (): void => {
+          if (ended) return;
+          ended = true;
+          this.clearElderVisit();
+          save({
+            x: this.player.x, y: this.player.y,
+            scene: this.mapKey, facing: this.player.facing,
+          } as any);
+        };
+        this.storyDialogue!.play(
+          [
+            { speaker: '镇长', color: '#c8b898', text: '今晚路过，看见你屋里的灯亮着。' },
+            { speaker: '林澈', color: '#7eb8da', text: '……镇长？这么晚了，怎么过来了？' },
+            { speaker: '镇长', color: '#c8b898', text: '以前镇上的灯，也是这样一点一点亮起来的。' },
+            { speaker: '镇长', color: '#c8b898', text: '最近有人开始问，集市还能不能重新开起来。' },
+            { speaker: '', color: '#aaaaaa', text: '', options: ['如果能帮上忙，我愿意试试。', '我还没想好。'] },
+          ],
+          () => endVisit(), // Skip 路径
+          (index: number) => {
+            // ⑤ 记录态度：'help' 愿意帮忙 / 'unsure' 还没想好（随 flags 入档，集市恢复时消费）
+            this.ch1ElderChoice = index === 0 ? 'help' : 'unsure';
+            endVisit();     // 正常选项路径：选项行不回调 onComplete，须在此收尾
+          },
+        );
+      });
+    });
+  }
+
+  /** 村长来访演出清理：移除精灵/标签，恢复玩家操作 */
+  private clearElderVisit(): void {
+    this.elderVisitSprite?.destroy();
+    this.elderVisitSprite = null;
+    this.elderVisitLabel?.destroy();
+    this.elderVisitLabel = null;
   }
 
   /**
@@ -3107,11 +3413,12 @@ export class MapScene extends Phaser.Scene {
     this.ensureWhiteTexture();
 
     // 1) 炊烟：4 栋民居屋顶缓缓升烟（灰白低透明度，NORMAL 混合不发光）
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，坐标随内容平移 dx=10T dy=8T
     const chimneys: Array<[number, number]> = [
-      [6 * T, 2.5 * T],   // 左上屋
-      [22 * T, 2.5 * T],  // 右上屋
-      [6 * T, 11.5 * T],  // 左下屋
-      [22 * T, 11.5 * T], // 右下屋
+      [16 * T, 10.5 * T],   // 左上屋
+      [32 * T, 10.5 * T],   // 右上屋
+      [16 * T, 19.5 * T],   // 左下屋
+      [32 * T, 19.5 * T],   // 右下屋
     ];
     chimneys.forEach(([x, y]) => {
       const p = this.add.particles(x, y, '__WHITE', {
@@ -3132,10 +3439,10 @@ export class MapScene extends Phaser.Scene {
     const t = getTime();
     if (t.hour >= 18 || t.hour < 6) {
       const windows: Array<[number, number]> = [
-        [5 * T + 8, 6 * T + 8],  [8 * T + 8, 6 * T + 8],   // 左上屋
-        [21 * T + 8, 6 * T + 8], [24 * T + 8, 6 * T + 8],  // 右上屋
-        [5 * T + 8, 15 * T + 8], [8 * T + 8, 15 * T + 8],  // 左下屋
-        [21 * T + 8, 15 * T + 8], [24 * T + 8, 15 * T + 8], // 右下屋
+        [15 * T + 8, 14 * T + 8],  [18 * T + 8, 14 * T + 8],   // 左上屋
+        [31 * T + 8, 14 * T + 8], [34 * T + 8, 14 * T + 8],  // 右上屋
+        [15 * T + 8, 23 * T + 8], [18 * T + 8, 23 * T + 8],  // 左下屋
+        [31 * T + 8, 23 * T + 8], [34 * T + 8, 23 * T + 8], // 右下屋
       ];
       windows.forEach(([x, y]) => {
         const w = this.add.ellipse(x, y, 18, 18, 0xffcc88, 0.14);
@@ -3154,9 +3461,10 @@ export class MapScene extends Phaser.Scene {
     }
 
     // 3) 落叶：道路上方两棵行道树（Walls gid16）飘落绿叶（旋转 + 飘移）
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，坐标随内容平移 dx=10T dy=8T
     const trees: Array<[number, number]> = [
-      [11 * T + 8, 3 * T + 8],
-      [18 * T + 8, 3 * T + 8],
+      [21 * T + 8, 11 * T + 8],
+      [28 * T + 8, 11 * T + 8],
     ];
     trees.forEach(([x, y]) => {
       const p = this.add.particles(x, y, '__WHITE', {
@@ -3324,17 +3632,18 @@ export class MapScene extends Phaser.Scene {
       this.townLife.decor++;
     };
 
-    woodpile(2, 4); woodpile(26, 4);          // 木柴堆：左上屋左侧 / 右上屋右侧
-    pot(10, 7, 0xf0d080); pot(26, 7, 0xe8a0a0); pot(3, 13, 0xc0a0e8); // 花盆 ×3
-    bucket(2, 5); bucket(27, 5);              // 水桶
-    crate(11, 4); crate(27, 13);              // 木箱
-    cart(28, 4);                              // 小推车
-    clothesline(3, 8);                        // 晾衣架
-    stool(23, 8);                             // 石凳（右上屋南侧广场边）
-    broom(26, 14);                            // 扫帚（右下屋旁）
-    stone(5, 9, 2.5); stone(22, 9, 2); stone(29, 6, 2.5); stone(4, 17, 2); // 路边石 ×4
-    grass(1, 10, 0x4a8a30); grass(11, 9, 0x5a9a3a); grass(17, 9, 0x4a8a30);
-    grass(7, 18, 0x5a9a3a); grass(13, 19, 0x4a8a30); grass(25, 18, 0x5a9a3a); // 草丛 ×6
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，装饰坐标随内容平移 dx=10列 dy=8行
+    woodpile(12, 12); woodpile(36, 12);          // 木柴堆：左上屋左侧 / 右上屋右侧
+    pot(20, 15, 0xf0d080); pot(36, 15, 0xe8a0a0); pot(13, 21, 0xc0a0e8); // 花盆 ×3
+    bucket(12, 13); bucket(37, 13);              // 水桶
+    crate(21, 12); crate(37, 21);              // 木箱
+    cart(38, 12);                              // 小推车
+    clothesline(13, 16);                        // 晾衣架
+    stool(33, 16);                             // 石凳（右上屋南侧广场边）
+    broom(36, 22);                            // 扫帚（右下屋旁）
+    stone(15, 17, 2.5); stone(32, 17, 2); stone(39, 14, 2.5); stone(14, 25, 2); // 路边石 ×4
+    grass(11, 18, 0x4a8a30); grass(21, 17, 0x5a9a3a); grass(27, 17, 0x4a8a30);
+    grass(17, 26, 0x5a9a3a); grass(23, 27, 0x4a8a30); grass(35, 26, 0x5a9a3a); // 草丛 ×6
 
     // ---- 2) 小动物（2026-08-07 GPT 诊断落地 P1-3：一次性事件 > 持续低频动画）----
     // 鸟：从树冠飞起 → 落到屋顶（一次性飞落，进图即发生，比无限 hover 更易被注意到）
@@ -3364,9 +3673,9 @@ export class MapScene extends Phaser.Scene {
       });
       this.townLife.wildlife++;
     };
-    // 顶部树 → 左上屋顶；广场南树 → 左下屋顶
-    birdFly(12 * T + 8, 3 * T + 8, 6 * T + 8, 2.5 * T + 8, 0);
-    birdFly(16 * T + 8, 3 * T + 8, 22 * T + 8, 2.5 * T + 8, 900);
+    // 顶部树 → 左上屋顶；广场南树 → 左下屋顶（2026-08-12 平移 dx=10T dy=8T）
+    birdFly(22 * T + 8, 11 * T + 8, 16 * T + 8, 10.5 * T + 8, 0);
+    birdFly(26 * T + 8, 11 * T + 8, 32 * T + 8, 10.5 * T + 8, 900);
 
     // 猫：屋角静坐，玩家靠近（≤40px）触发尾巴摆动 + 起身（一次性事件，幂等）
     const cat = (c: number, r: number, key: string): void => {
@@ -3394,8 +3703,8 @@ export class MapScene extends Phaser.Scene {
       (c2 as unknown as { _catKey: string })._catKey = key;
       this.townCats.push(c2 as unknown as Phaser.GameObjects.Container & { _catKey: string });
     };
-    cat(7, 6, 'c1');   // 左上屋墙角
-    cat(25, 14, 'c2'); // 右下屋墙角
+    cat(17, 14, 'c1');   // 左上屋墙角（2026-08-12 平移 dx=10 dy=8）
+    cat(35, 22, 'c2'); // 右下屋墙角
 
     // ---- 2.5) 前景遮挡层（2026-08-07 GPT 诊断落地 P0-2）----
     // 前景草丛/杂物盖住角色脚部，制造"被环境包围"的遮挡感（depth 6 > 角色 5）。
@@ -3421,15 +3730,16 @@ export class MapScene extends Phaser.Scene {
       g.setDepth(6);
       this.townLife.decor++;
     };
-    // 放置：道路两侧 + 出口附近的遮挡（避开 NPC 站位与交互点）
-    fgGrass(3, 12, 0x3a7a28); fgGrass(20, 12, 0x4a8a30);
-    fgGrass(10, 13, 0x3a7a28); fgGrass(24, 6, 0x4a8a30);
-    fgGrass(1, 11, 0x3a7a28); fgGrass(27, 15, 0x4a8a30); // 出口附近
-    fgRock(4, 11, 2.5); fgRock(25, 12, 2);
+    // 放置：道路两侧 + 出口附近的遮挡（避开 NPC 站位与交互点）（2026-08-12 平移 dx=10列 dy=8行）
+    fgGrass(13, 20, 0x3a7a28); fgGrass(30, 20, 0x4a8a30);
+    fgGrass(20, 21, 0x3a7a28); fgGrass(34, 14, 0x4a8a30);
+    fgGrass(11, 19, 0x3a7a28); fgGrass(37, 23, 0x4a8a30); // 出口附近
+    fgRock(14, 19, 2.5); fgRock(35, 20, 2);
 
     // ---- 3) 晨雾（06-09 时）：低透明度雾带缓慢横移，白天零创建 ----
     if (t.hour >= 6 && t.hour < 9) {
-      const fogSpots: Array<[number, number]> = [[6, 3], [15, 3], [24, 3]];
+      // 2026-08-12 平移 dx=10列 dy=8行
+      const fogSpots: Array<[number, number]> = [[16, 11], [25, 11], [34, 11]];
       fogSpots.forEach(([c, r], i) => {
         const f = this.add.ellipse(c * T + T / 2, r * T + T / 2, 260, 64, 0xffffff, 0.05 + i * 0.005);
         f.setDepth(2);
@@ -3444,7 +3754,8 @@ export class MapScene extends Phaser.Scene {
 
     // ---- 4) 夜间萤火虫（≥18 时或 <6 时）：复用 forest 参数，白天零创建 ----
     if (t.hour >= 18 || t.hour < 6) {
-      const glowSpots: Array<[number, number]> = [[12, 4], [17, 4], [7, 10]];
+      // 2026-08-12 平移 dx=10列 dy=8行
+      const glowSpots: Array<[number, number]> = [[22, 12], [27, 12], [17, 18]];
       glowSpots.forEach(([c, r]) => {
         const p = this.add.particles(c * T + T / 2, r * T + T / 2, '__WHITE', {
           lifespan: 2600,
@@ -5149,6 +5460,12 @@ export class MapScene extends Phaser.Scene {
    *   2. 否则 → 农田交互（锄地/播种/浇水/收获）
    */
   private tryInteract(): void {
+    // 0. 第一章 P1-1 老屋整理（house 场景，优先于睡觉判定）：
+    //    bed 整理点 (2.5T,2.5T) 与床铺睡觉格重叠，必须先判断整理（未整理 → 整理；已整理 → 放行睡觉）
+    if (this.mapKey === 'house') {
+      if (this.tryHouseTidyInteract()) return;
+    }
+
     // 1. 睡觉点检测：
     //    house → 真实床铺（Ground gid 9）；farm → 木屋地板（Walls gid 6）
     //    判定：站在床格上，或站在床格相邻 1 格内即可（触屏操作精度宽容，无需精确面向）
@@ -5195,6 +5512,9 @@ export class MapScene extends Phaser.Scene {
     if (this.mapKey === 'house' && this.grandpaGiftMark) {
       if (this.tryGrandpaGiftInteract()) return;
     }
+
+    // 第一章 P1-1 老屋整理（4 个整理交互点，章节门禁 + triggerOnceIf 链路）
+    // 注：house 场景已在 tryInteract 最前判断（优先于睡觉判定），此处为 farm 兜底不适用——已移除重复调用
 
     // 1.5 Demo 结尾：观星点（主线完成 + 夜晚 + 靠近观星点按 E）
     if (this.tryStargaze()) return;
@@ -5614,22 +5934,17 @@ export class MapScene extends Phaser.Scene {
     this.stargazeMoon = null;
     this.stargazeTownLights = null;
     this.starField = null;
-    const wb = this.physics.world.bounds;
-    const W = wb.width;
-    const H = wb.height;
-    // 观星夜居中修复（2026-08-11）：星空底/星点需覆盖观星夜相机最大视野，否则宽屏下
-    // 视野右侧露出地图外的深灰背景（GAME_CONFIG.backgroundColor=#2d2d2d），观感为
-    // "星空特效不在屏幕正中间"。观星点(504,232) 居中时：
-    //   mobile 844x390 → logical 1298x600 → 视野 649x300，scroll=(179.5,82) → 右边界 828.5
-    //   desktop 1280x720 → logical 1067x600 → 视野 533.5x300 → 右边界 770.8
-    // 实际演出段 zoomCameraAt 后 zoom≈2.15（比上面推导的 2.0 视野更小），
-    // starW/starH 按最坏（最大）视野覆盖并留余量；星星/银河铺满扩展区（观感统一），小镇灯光仍在地图内。
-    const starW = 920;
-    const starH = 460;
+    // 屏幕坐标系修复（2026-08-12）：starField 从世界坐标(scrollFactor=1)改为屏幕坐标
+    // (scrollFactor=0)，使 (0,0) 永远钉在相机视口左上角，fillRect 精确覆盖可视区域。
+    // scrollFactor(0) 的对象不受 zoom 影响（同 rainOverlay 处理方式），直接用 cam.width/height。
+    // 之前错误地除以 zoom 导致尺寸缩小，幕布无法覆盖全屏。
+    const cam = this.cameras.main;
+    const starW = cam.width + 4;  // +4px 余量防浮点取整缝隙
+    const starH = cam.height + 4;
     // 静态星野底（深蓝渐变 + 散布星点）
     this.starField = this.add.graphics();
     this.starField.setDepth(15); // 高于玩家(10)和作物(2-3)，盖住农田
-    this.starField.setScrollFactor(1);
+    this.starField.setScrollFactor(0); // 屏幕坐标：不随相机 scroll 移动
     // 深蓝夜空渐变（v2 微调：暗部略提亮 0x0a1628→0x0d1a30）
     this.starField.fillGradientStyle(0x0d1a30, 0x0d1a30, 0x1a2a4a, 0x1a2a4a, 1, 1, 1, 1);
     this.starField.fillRect(0, 0, starW, starH);
@@ -5677,11 +5992,13 @@ export class MapScene extends Phaser.Scene {
     this.starField.fillPath();
     // v0.10.4 远景小镇灯光（观星夜远景：地平线一排暖黄光点——"青禾镇还亮着"，纯装饰）
     // 与星空同显同隐（setStarFieldVisible 同步）
+    // 屏幕坐标：灯光铺在屏幕底部 75% 处（地平线位置），横向铺满
     this.stargazeTownLights = this.add.graphics();
+    this.stargazeTownLights.setScrollFactor(0);
     this.stargazeTownLights.fillStyle(0xffddaa, 0.85);
-    const townY = H * 0.62;
+    const townY = starH * 0.75;
     for (let i = 0; i < 9; i++) {
-      const lx = W * (0.30 + 0.44 * (i / 8)) + (rand() - 0.5) * 6;
+      const lx = starW * (0.15 + 0.70 * (i / 8)) + (rand() - 0.5) * 6;
       const ly = townY + (rand() - 0.5) * 4;
       this.stargazeTownLights.fillCircle(lx, ly, 1 + rand() * 0.8);
     }
@@ -5708,6 +6025,7 @@ export class MapScene extends Phaser.Scene {
       const star = this.add.ellipse(0, 0, 2.4, 2.4, 0xffffff, 0.9);
       c.add(star);
       c.setDepth(16);
+      c.setScrollFactor(0); // 屏幕坐标：与 starField 同步
       c.setData('phase', rand() * Math.PI * 2);
       c.setData('speed', 0.5 + rand() * 1.0);
       this.starCross.push(c);
@@ -5720,6 +6038,7 @@ export class MapScene extends Phaser.Scene {
       const tSize = 1 + rand() * 2;
       const star = this.add.ellipse(tx, ty, tSize, tSize, 0xffffff, 0.8);
       star.setDepth(16); // 高于星空底(15)，盖住农田
+      star.setScrollFactor(0); // 屏幕坐标：与 starField 同步
       star.setData('phase', rand() * Math.PI * 2);
       star.setData('speed', 0.5 + rand() * 1.5);
       this.starTwinkle.push(star);
@@ -5937,12 +6256,17 @@ export class MapScene extends Phaser.Scene {
   /** v0.10.4 流星：头亮尾淡的短尾迹，斜向划过 1.2s，一次性销毁（纯 Graphics + tween） */
   private spawnShootingStar(): void {
     if (!this.starFieldVisible) return;
-    const W = 640, H = 400; // farm 世界尺寸（与 createStarField 一致）
-    const sx = W * (0.25 + Math.random() * 0.45);
-    const sy = H * (0.12 + Math.random() * 0.18);
+    // 屏幕坐标：流星在可视区域内随机生成，与 starField 同坐标系
+    // scrollFactor(0) 不受 zoom 影响，直接用 cam.width/height
+    const cam = this.cameras.main;
+    const vw = cam.width;
+    const vh = cam.height;
+    const sx = vw * (0.25 + Math.random() * 0.45);
+    const sy = vh * (0.12 + Math.random() * 0.18);
     const angle = Math.PI / 4 + Math.random() * Math.PI / 8; // 斜向（右上→左下）
     const vx = Math.cos(angle), vy = Math.sin(angle);
     const c = this.add.container(sx, sy).setDepth(16);
+    c.setScrollFactor(0); // 屏幕坐标：与 starField 同步
     const g = this.add.graphics();
     // 头部亮点 + 递减尾迹（3 段，从头部向后 60px）
     g.fillStyle(0xffffff, 0.95);
@@ -6053,6 +6377,9 @@ export class MapScene extends Phaser.Scene {
                 onComplete: () => {
                   veil.destroy();
                   if (!this.endingPanel) this.endingPanel = new EndingPanel();
+                  // 第一章衔接（P0-1，2026-08-12）：观星夜完成 → 进入第一章「复苏」
+                  // 必须在本次存档前设置，使 chapter 随档持久化；D-025 时序红线：观星夜之后才进第1章
+                  setChapter(CHAPTER_1);
                   save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
                   this.inStargazeCutscene = false; // v0.10.4 演出结束，恢复自动演出
                   this.endingPanel.open();
@@ -8281,8 +8608,9 @@ export class MapScene extends Phaser.Scene {
     if (this.mapKey !== 'town') return false;
     if (this.sideGardenerPlumDone) return false;
     const T = TILE_SIZE;
-    const px = 17 * T + T / 2;
-    const py = 9 * T + T / 2;
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，小梅支线坐标平移 dx=10T dy=8T（17→27, 9→17）
+    const px = 27 * T + T / 2;
+    const py = 17 * T + T / 2;
     const dx = this.player.x - px;
     const dy = this.player.y - py;
     if (dx * dx + dy * dy > 48 * 48) return false;
@@ -8558,8 +8886,9 @@ export class MapScene extends Phaser.Scene {
       this.buildPlumBlossom();
     } else {
       const T = TILE_SIZE;
-      const px = 17 * T + T / 2;
-      const py = 9 * T + T / 2;
+      // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，平移 dx=10T dy=8T（17→27, 9→17）
+      const px = 27 * T + T / 2;
+      const py = 17 * T + T / 2;
       const mark = this.add.text(px, py - 14, this.sideGardenerPlumAsked ? '花种' : '？', {
         fontFamily: 'Arial', fontSize: '10px', color: this.sideGardenerPlumAsked ? '#e8d8a8' : '#c8d8a8',
       }).setOrigin(0.5).setDepth(4);
@@ -8570,8 +8899,9 @@ export class MapScene extends Phaser.Scene {
   /** 小梅花视觉：枝干 + 粉白花瓣（零资源 Graphics） */
   private buildPlumBlossom(): void {
     const T = TILE_SIZE;
-    const px = 17 * T + T / 2;
-    const py = 9 * T + T / 2;
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，平移 dx=10T dy=8T（17→27, 9→17）
+    const px = 27 * T + T / 2;
+    const py = 17 * T + T / 2;
     const plum = this.add.container(px, py + 6).setDepth(3);
     const branch = this.add.graphics();
     branch.lineStyle(1.5, 0x7a5a3a, 1);
@@ -8696,11 +9026,10 @@ export class MapScene extends Phaser.Scene {
   private setupTownShop(): void {
     const T = TILE_SIZE;
     // 2026-08-11 挡路修复：门面从中央大道（16.5,8.25）搬到广场东侧空地
-    // 位置 (col24.5, row9.5)：(392,152)；行8 c24-25 为草地、行9-10 c24-25 为广场，
-    // 顶部 y-22=130 不压上右屋（行3-7）、底部 y+22=174 < 中央大道行11 上沿 176，不压路。
-    // 交互安全：与花匠小梅 town 站位 (296,168) 相距 97px（30px 门面圆与 24px NPC 圆不重叠）。
-    const x = 24.5 * T;        // 392，广场东端（避开纵向主路 col14-15、行11 大道与小梅站位）
-    const y = 9.5 * T;         // 152
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，坐标随内容平移 dx=10T dy=8T（24.5→34.5, 9.5→17.5）
+    // 位置 (col34.5, row17.5)：(552,280)；交互安全：与花匠小梅 town 站位 (456,296) 相距 97px
+    const x = 34.5 * T;        // 552，广场东端
+    const y = 17.5 * T;        // 280
     const g = this.add.graphics();
     g.setDepth(3);
     const mark = this.add.text(x, y + 1, '星辰杂货店', {
@@ -8714,9 +9043,9 @@ export class MapScene extends Phaser.Scene {
     this.townShop = { mark, stall: g, pos: { x, y } };
     this.updateTownShopVisual();
     // 自动售货机（2026-08-11 制作人拍板）：门面左侧并排（不再占用任何道路），独立交互（全天基础补给）
-    // 位置 (col22, row9.75)：(352,156)，行9-10 广场无碰撞；距小梅站位 57px > 24px，交互不冲突
-    const mx = x - 40;         // 352
-    const my = y + 4;          // 156
+    // 位置 (col32, row17.75)：(512,284)，行17-18 广场无碰撞
+    const mx = x - 40;         // 512
+    const my = y + 4;          // 284
     const mg = this.add.graphics();
     mg.setDepth(3);
     // 机身（旧金属灰蓝，暗示"镇上残存的旧物"）
@@ -9361,6 +9690,8 @@ export class MapScene extends Phaser.Scene {
     if (!isTouchDevice()) return;
     if (this.mapKey !== 'farm') return;
     if (this.transitioning) return;
+    // 观星夜演出期间完全忽略点击
+    if (this.inStargazeCutscene) return;
     // 面板/对话/种子选择器打开时忽略点击
     if (this.storyDialogue?.isOpen()) return;
     if (this.shopPanel.isOpen()) return;
@@ -9372,9 +9703,8 @@ export class MapScene extends Phaser.Scene {
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const col = Math.floor(world.x / TILE_SIZE);
     const row = Math.floor(world.y / TILE_SIZE);
+    // 非农田区域静默忽略（未来可能加捕虫等玩法，不提示"不能在这里"）
     if (!isInFarmArea(col, row)) {
-      this.flashTileError(col, row);
-      this.showFloatText(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, '不能在这里', '#ff8a80');
       return;
     }
     // 教程完成后 → 点击农田任意位置自动吸附最近 Plot，整个区域批量操作

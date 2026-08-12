@@ -190,12 +190,12 @@ async function run() {
     });
 
     // ---------- 第一章：镇长接任务 ----------
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     await diag(page, 'town-in');
     await waitAndSkipDialogue(page, 5); // TOWN_INTRO_DIALOGUE 5 行
     await diag(page, 'town-after-intro');
 
-    await teleport(page, 'town', 216, 184, 'up'); // 镇长 (216,168)
+    await teleport(page, 'town', 376, 312, 'up'); // 镇长 (216,168)
     await pressE(page);
     await sleep(700);
     const elderText = await dialogueText(page);
@@ -222,9 +222,9 @@ async function run() {
     await sleep(1500); // 等 collectShard + 视觉清理回调链
 
     // ---------- 返回小镇交付 ----------
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     await diag(page, 'town2-in');
-    await teleport(page, 'town', 216, 184, 'up');
+    await teleport(page, 'town', 376, 312, 'up');
     await pressE(page);
     await diag(page, 'town2-after-e');
     await waitAndSkipDialogue(page, 20); // 交付=SHARD_DELIVER(13,v0.10.1扩写) + ELDER_WHY_FARM(7,T2) → completed

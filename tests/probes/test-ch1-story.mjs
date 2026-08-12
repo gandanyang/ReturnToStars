@@ -220,10 +220,10 @@ async function run() {
     });
 
     // ==================== 第一章：镇长接任务 ====================
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     await waitAndSkipDialogue(page, 5); // 小镇开场 5 行
 
-    await teleport(page, 'town', 216, 184, 'up'); // 镇长 (216,168)
+    await teleport(page, 'town', 376, 312, 'up'); // 镇长 (216,168)
     await pressE(page);
     await sleep(700);
     const elderText = await dialogueText(page);
@@ -261,8 +261,8 @@ async function run() {
     ok('7. 采集后里程碑存档（questState=collected）', afterCollect.questInSave === 'collected', afterCollect.questInSave ?? 'null');
 
     // ==================== 第一章：交付 ====================
-    await gotoScene(page, 'town', { x: 200, y: 300 });
-    await teleport(page, 'town', 216, 184, 'up');
+    await gotoScene(page, 'town', { x: 360, y: 428 });
+    await teleport(page, 'town', 376, 312, 'up');
     // 调试：检查 elder NPC 是否存在
     const elderDebug = await page.evaluate(() => {
       const s = window.__game.scene.getScene('town');

@@ -142,14 +142,14 @@ async function run() {
     });
 
     // ---------- day 1：进小镇，第一次见镇长 ----------
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     await skipDialogue(page, 5); // 小镇开场旁白 5 行
 
     const q0 = await page.evaluate(() => window.debug.getQuestState());
     check('B1. 对话前 questState = not_started', q0 === 'not_started', q0);
 
     // 靠近镇长按 E（镇长在 (216,168)）
-    await teleport(page, 'town', 216, 184, 'up');
+    await teleport(page, 'town', 376, 312, 'up');
     await pressE(page);
     const busyLine5 = await advanceUntil(page, '抽不开身');
     check('B2. day1 镇长「暂时有事」台词', busyLine5.includes('抽不开身'), (busyLine5 || '').substring(0, 40));
@@ -175,7 +175,7 @@ async function run() {
     check('B10. 触发标记入档', save1 && save1.triggered.elder_starter_gift === true, JSON.stringify(save1?.triggered ?? {}));
 
     // ---------- day 1：再次对话 → 简短提醒，不重复发礼物 ----------
-    await teleport(page, 'town', 216, 184, 'up');
+    await teleport(page, 'town', 376, 312, 'up');
     await pressE(page);
     const shortText = await advanceUntil(page, '这几天镇上忙着修缮');
     check('C1. 再次对话为简短提醒（无启动物资台词）', shortText.includes('这几天镇上忙着修缮') && !shortText.includes('启动物资'), (shortText || '').substring(0, 40));
@@ -192,7 +192,7 @@ async function run() {
     });
     await sleep(800);
 
-    await teleport(page, 'town', 216, 184, 'up');
+    await teleport(page, 'town', 376, 312, 'up');
     await pressE(page);
     const questLine = await advanceUntil(page, '年轻时候就喜欢晚上坐在');
     check('D1. day2 镇长播放主线委托台词', questLine.includes('年轻时候就喜欢晚上坐在'), (questLine || '').substring(0, 40));

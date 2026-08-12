@@ -89,7 +89,7 @@ await sleep(1500);
 await shot('s6-house');
 
 // 3) 青禾镇
-await goto('town', { x: 220, y: 300 });
+await goto('town', { x: 380, y: 428 });
 await page.evaluate(() => {
   const s = window.__game.scene.getScene('town');
   s.player.x = 14 * 16 + 8; s.player.y = 9 * 16 + 8; s.player.facing = 'up';

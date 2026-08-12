@@ -74,7 +74,7 @@ try {
   result('T4 farm 事件音链 8s 无报错', errAfterFarm === 0, errors.slice(0, 2).join('; '));
 
   // ── T2 青禾镇白天 ──
-  await page.evaluate(() => { window.__game.scene.start('town', { spawn: { x: 200, y: 300 } }); });
+  await page.evaluate(() => { window.__game.scene.start('town', { spawn: { x: 360, y: 428 } }); });
   await waitScene('town');
   await sleep(2500);
   const a2 = await page.evaluate(() => window.debug.ambience());

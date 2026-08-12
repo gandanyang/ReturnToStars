@@ -145,10 +145,12 @@ try {
       hasFollowWind: all.some((t) => t.includes('随风而行') && t.includes('Follow the Wind')),
       hasRoadsWind: all.some((t) => t.includes('风之路') && t.includes('Roads of the Wind')),
       hasChasingWind: all.some((t) => t.includes('逐风') && t.includes('Chasing the Wind')),
+      // 2026-08-12 第一章主题曲《归途 / Returning Home》
+      hasReturningHome: all.some((t) => t.includes('归途') && t.includes('Returning Home')),
     };
   });
-  result('T3 曲目列表 12 首含中文名/英文名', !!listInfo && listInfo.count === 12 && listInfo.firstHasCn && listInfo.firstHasEn && listInfo.hasSpring, JSON.stringify(listInfo));
-  result('T3b 音乐盒扩容（抉择之路补录 + 4 首归档新曲）', !!listInfo && listInfo.hasLinche2 && listInfo.hasIslandWakes && listInfo.hasFollowWind && listInfo.hasRoadsWind && listInfo.hasChasingWind, JSON.stringify(listInfo));
+  result('T3 曲目列表 13 首含中文名/英文名', !!listInfo && listInfo.count === 13 && listInfo.firstHasCn && listInfo.firstHasEn && listInfo.hasSpring, JSON.stringify(listInfo));
+  result('T3b 音乐盒扩容（抉择之路补录 + 5 首归档新曲含第一章主题曲）', !!listInfo && listInfo.hasLinche2 && listInfo.hasIslandWakes && listInfo.hasFollowWind && listInfo.hasRoadsWind && listInfo.hasChasingWind && listInfo.hasReturningHome, JSON.stringify(listInfo));
 
   await page.evaluate(() => {
     const btn = document.querySelector('#music-box-panel [data-action="play"][data-key="title"]');

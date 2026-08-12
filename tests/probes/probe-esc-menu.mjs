@@ -171,7 +171,7 @@ async function run() {
       const g = window.__game;
       const active = g.scene.getScenes(true)[0];
       if (active && active.scene.key !== 'town') g.scene.stop(active.scene.key);
-      g.scene.start('town', { spawn: { x: 200, y: 300 } });
+      g.scene.start('town', { spawn: { x: 360, y: 428 } });
     });
     await sleep(3200); // town-intro delayedCall 600ms + 打字
     let dlgOpen = false;
