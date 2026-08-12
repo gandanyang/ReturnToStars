@@ -213,14 +213,15 @@ async function run() {
 
     // ============ 1. 进入小镇（TOWN_INTRO） ============
     console.log('\n--- 节点 1: 进入小镇 ---');
-    await gotoScene(page, 'town', { x: 200, y: 300 });
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，出生点/镇长坐标随内容平移 dx=10T dy=8T
+    await gotoScene(page, 'town', { x: 360, y: 428 });
     await shot(page, 'town-arrive');
     await walkDialogue(page, 'town-intro');
     await shot(page, 'town-after-intro');
 
     // ============ 2. 镇长接任务（ELDER_QUEST） ============
     console.log('\n--- 节点 2: 镇长接任务 ---');
-    await teleport(page, 'town', 216, 184, 'up');
+    await teleport(page, 'town', 376, 312, 'up');
     await pressE(page);
     await walkDialogue(page, 'elder-quest');
     await shot(page, 'town-after-elder');
@@ -245,8 +246,8 @@ async function run() {
 
     // ============ 4. 交付（SHARD_DELIVER） ============
     console.log('\n--- 节点 4: 交付 ---');
-    await gotoScene(page, 'town', { x: 200, y: 300 });
-    await teleport(page, 'town', 216, 184, 'up');
+    await gotoScene(page, 'town', { x: 360, y: 428 });
+    await teleport(page, 'town', 376, 312, 'up');
     await pressE(page);
     await walkDialogue(page, 'shard-deliver');
     await shot(page, 'town-after-deliver');

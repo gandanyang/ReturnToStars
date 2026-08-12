@@ -46,7 +46,7 @@ export const MAP_EXITS: Record<string, ExitZone[]> = {
   // 出口区域 3x3 格，方便玩家触发
   farm: [
     { x: 14 * T, y: 0,       w: 3 * T, h: 3 * T, target: 'forest', spawn: { x: 15 * T, y: 17 * T } },
-    { x: 37 * T, y: 9 * T,   w: 3 * T, h: 3 * T, target: 'town',   spawn: { x: 3 * T,  y: 10 * T } },
+    { x: 37 * T, y: 9 * T,   w: 3 * T, h: 3 * T, target: 'town',   spawn: { x: 13 * T, y: 18 * T } },
     { x: 5 * T,  y: 18 * T,  w: 3 * T, h: 3 * T, target: 'house',  spawn: { x: 10 * T, y: 12 * T } },
     // 西侧→灯塔岛（2026-08-10 制作人方案：灯塔地图放农场西边，右上角海角远景撤除）
     // ⚠️ locked（未来内容预埋）：当前不可进入；2026-08-11 起西侧缺口已石墙堵回（灯塔不可见），
@@ -62,14 +62,15 @@ export const MAP_EXITS: Record<string, ExitZone[]> = {
     { x: 28 * T, y: 9 * T,   w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 3 * T,  y: 10 * T } },
   ],
   // 小镇：左→农场，顶→矿洞，右下→镇长家
+  // 2026-08-12 Chapter1 P0-0：town 地图 30x20 → 50x35（内容平移 dx=10T dy=8T），出口随内容平移
   town: [
-    { x: 0,      y: 9 * T,   w: 2 * T, h: 2 * T, target: 'farm',   spawn: { x: 27 * T, y: 10 * T } },
-    { x: 14 * T, y: 0,       w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 15 * T, y: 17 * T } },
-    { x: 18 * T, y: 12 * T,  w: 2 * T, h: 2 * T, target: 'elder_house', spawn: { x: 5 * T, y: 8 * T } },
+    { x: 10 * T, y: 17 * T,  w: 2 * T, h: 2 * T, target: 'farm',   spawn: { x: 27 * T, y: 10 * T } },
+    { x: 24 * T, y: 8 * T,   w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 15 * T, y: 17 * T } },
+    { x: 28 * T, y: 20 * T,  w: 2 * T, h: 2 * T, target: 'elder_house', spawn: { x: 5 * T, y: 8 * T } },
   ],
   // 矿洞：底→小镇，左→森林
   mine: [
-    { x: 14 * T, y: 18 * T,  w: 2 * T, h: 2 * T, target: 'town',   spawn: { x: 15 * T, y: 3 * T } },
+    { x: 14 * T, y: 18 * T,  w: 2 * T, h: 2 * T, target: 'town',   spawn: { x: 25 * T, y: 11 * T } },
     { x: 0,      y: 9 * T,   w: 2 * T, h: 2 * T, target: 'forest', spawn: { x: 27 * T, y: 10 * T } },
   ],
   // 室内：底部门→农场
@@ -78,7 +79,7 @@ export const MAP_EXITS: Record<string, ExitZone[]> = {
   ],
   // 镇长家：底部门→小镇
   elder_house: [
-    { x: 5 * T,  y: 9 * T,   w: 2 * T, h: 1 * T, target: 'town',   spawn: { x: 18 * T, y: 11 * T } },
+    { x: 5 * T,  y: 9 * T,   w: 2 * T, h: 1 * T, target: 'town',   spawn: { x: 28 * T, y: 19 * T } },
   ],
   // 灯塔：西侧入口通道（2026-08-10 制作人方案：灯塔岛在 farm 西边）
   // 玩家从 farm 西侧海湾 → lighthouse 左侧通道 → 塔前；出口回 farm 海湾缺口内侧

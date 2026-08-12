@@ -54,13 +54,14 @@ const SPOTS: { farm: SpotMap; town: SpotMap; forest: SpotMap; mine: SpotMap; eld
     carpenter: { x: 12 * T + 8, y: 23 * T + 8 },
   },
   town: {
-    elder: { x: 13 * T + 8, y: 10 * T + 8 },
-    shopkeeper: { x: 16 * T + 8, y: 10 * T + 8 },
-    mystery: { x: 15 * T + 8, y: 8 * T + 8 },
-    miner: { x: 14 * T + 8, y: 12 * T + 8 },
-    gardener: { x: 18 * T + 8, y: 10 * T + 8 },
-    adventurer: { x: 12 * T + 8, y: 12 * T + 8 },
-    carpenter: { x: 10 * T + 8, y: 9 * T + 8 },
+    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，站位随内容平移 dx=10T dy=8T
+    elder: { x: 23 * T + 8, y: 18 * T + 8 },
+    shopkeeper: { x: 26 * T + 8, y: 18 * T + 8 },
+    mystery: { x: 25 * T + 8, y: 16 * T + 8 },
+    miner: { x: 24 * T + 8, y: 20 * T + 8 },
+    gardener: { x: 28 * T + 8, y: 18 * T + 8 },
+    adventurer: { x: 22 * T + 8, y: 20 * T + 8 },
+    carpenter: { x: 20 * T + 8, y: 17 * T + 8 },
   },
   forest: {
     elder: { x: 13 * T + 8, y: 10 * T + 8 },

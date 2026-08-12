@@ -73,7 +73,7 @@ async function run() {
     await page.evaluate((hour) => {
       localStorage.setItem('return_star_save', JSON.stringify({
         version: '0.5', savedAt: 'town-life-probe', timestamp: Date.now(),
-        player: { x: 240, y: 96, scene: 'town', facing: 'down', inventory: {} },
+        player: { x: 400, y: 224, scene: 'town', facing: 'down', inventory: {} },
         world: { day: 1, hour, minute: 0, coins: 100, level: 1, xp: 0, stamina: 100, minedOres: [], questState: 'not_started' },
         farm: { tiles: [], crops: [], trees: [] },
         story: { storyStep: 'done' },
