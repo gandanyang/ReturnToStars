@@ -28,6 +28,7 @@ import { addItem } from '../data/Inventory';
 import { play } from '../systems/AudioSystem';
 import { VoiceBank } from '../audio/VoiceBank';
 import { isMobileLayout } from '../config';
+import { isDevHubEnabled, openDevSeedMenu, applyDevSeed, DEV_BULLETIN_TEXT } from '../dev/DevTestHub';
 
 // 场景宽度：基准 1120（比 4:3 屏幕宽，可滚动）；屏幕适配升级后逻辑宽度随
 // 屏幕比例扩展（main.ts applyAdaptiveLogicalSize），超宽屏下世界同宽延伸，
@@ -63,8 +64,8 @@ export class StationScene extends Phaser.Scene {
   }
 
   create(): void {
-    // 有存档且教程已过车站 → 跳过
-    if (hasSave()) {
+    // 有存档且教程已过车站 → 跳过（dev hub 模式下保留车站，不自动跳转）
+    if (hasSave() && !isDevHubEnabled()) {
       const saveData = load();
       // 注意：此处必须读存档里的 storyStep，而不是 getStoryStep()
       // reload 后模块级 currentStep 仍是初始值 'station_intro'，apply() 前判断会永远跳过恢复
@@ -111,7 +112,20 @@ export class StationScene extends Phaser.Scene {
     this.storyDialogue = new StoryDialogue();
 
     // ---- 开场动画 ----
-    if (getStoryStep() === 'station_intro') {
+    if (isDevHubEnabled()) {
+      // Dev Hub 模式：添加公告栏交互物 + 允许移动 + 跳过开场
+      this.interactables.push({ x: 400, y: 430, text: DEV_BULLETIN_TEXT });
+      // 绘制公告栏视觉标记
+      const board = this.add.graphics();
+      board.fillStyle(0x6a5a3a, 0.8);
+      board.fillRect(384, 415, 32, 20);
+      board.lineStyle(2, 0x4a3a2a, 0.6);
+      board.strokeRect(384, 415, 32, 20);
+      this.add.text(400, 425, '公告', {
+        fontSize: '8px', color: '#d0c090', fontFamily: 'monospace',
+      }).setOrigin(0.5);
+      this.canMove = true;
+    } else if (getStoryStep() === 'station_intro') {
       this.playOpeningSequence();
       // 安全兜底：30 秒后无论如何允许移动
       this.time.delayedCall(30000, () => {
@@ -745,10 +759,27 @@ export class StationScene extends Phaser.Scene {
     }
   }
 
-  /** 触发交互：显示对话 */
+  /** 触发交互：显示对话 / Dev Hub 菜单 */
   private triggerInteract(): void {
     if (!this.nearestInteractable) return;
     if (this.storyDialogue.isOpen()) return;
+
+    // Dev Hub 交互物：打开测试种子档菜单
+    if (this.nearestInteractable.text === DEV_BULLETIN_TEXT) {
+      this.hideInteractHint();
+      openDevSeedMenu((seedId) => {
+        const result = applyDevSeed(seedId);
+        if (result) {
+          this.inputManager.clearAction();
+          this.cameras.main.fadeOut(400, 0, 0, 0);
+          this.cameras.main.once('camerafadeoutcomplete', () => {
+            this.scene.start(result.scene, { spawn: { x: result.spawnX, y: result.spawnY } });
+          });
+        }
+      });
+      return;
+    }
+
     this.storyDialogue.play([
       { speaker: '', color: '#aaaaaa', text: this.nearestInteractable.text },
     ]);
