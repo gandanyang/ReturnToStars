@@ -1,11 +1,11 @@
 {
   "suite": "event",
-  "timestamp": "2026-08-12T01:13:01.731Z",
+  "timestamp": "2026-08-12T23:49:06.546Z",
   "git": {
-    "hash": "2fa6905",
+    "hash": "532b643",
     "branch": "main"
   },
-  "duration": 9855,
+  "duration": 10373,
   "summary": {
     "total": 10,
     "passed": 10,
@@ -17,61 +17,61 @@
       "name": "triggerOnce 首次执行回调",
       "ok": true,
       "detail": "",
-      "ts": 2539
+      "ts": 2906
     },
     {
       "name": "hasTriggered 返回 true",
       "ok": true,
       "detail": "",
-      "ts": 2539
+      "ts": 2906
     },
     {
       "name": "重复调用不执行",
       "ok": true,
       "detail": "",
-      "ts": 2540
+      "ts": 2907
     },
     {
       "name": "markTriggered 标记成功",
       "ok": true,
       "detail": "",
-      "ts": 2540
+      "ts": 2908
     },
     {
       "name": "未触发事件返回 false",
       "ok": true,
       "detail": "",
-      "ts": 2541
+      "ts": 2908
     },
     {
       "name": "存档已写入",
       "ok": true,
       "detail": "day=2",
-      "ts": 5655
+      "ts": 6037
     },
     {
       "name": "事件状态包含 test_event_a",
       "ok": true,
       "detail": "keys=3",
-      "ts": 5655
+      "ts": 6038
     },
     {
       "name": "刷新后 test_event_a 仍已触发",
       "ok": true,
       "detail": "",
-      "ts": 9558
+      "ts": 9956
     },
     {
       "name": "刷新后 test_event_b 仍已触发",
       "ok": true,
       "detail": "",
-      "ts": 9558
+      "ts": 9956
     },
     {
       "name": "刷新后 test_event_never 仍未触发",
       "ok": true,
       "detail": "",
-      "ts": 9558
+      "ts": 9956
     }
   ]
 }

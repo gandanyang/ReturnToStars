@@ -6,6 +6,7 @@
  *   B 互动一：花苗交互 → 整理花苗对白 → 记录标记生成
  *   C 互动二：记录交互 → 旧花种记录对白 + 记忆 moment → 夏雅回来（收尾）
  *   D 收尾：夏雅交互 → 态度变化 + 春祭/烟花伏笔 → done 入档 → 全部清理
+ *   D4/G2 P1 世界反馈（2026-08-13 制作人拍板）：完成后花田旁新花苗生成且重进常驻
  *   E 任务面板：《春深有信·一》显示已完成
  *   F 读档恢复中间态（stage1）：花苗标记恢复、不重复开场、可继续 B
  *   G 完成后重进：不触发不生成
@@ -72,6 +73,7 @@ async function run() {
       xiya: !!s?.letterXiya,
       flower: !!s?.letterFlowerMark,
       record: !!s?.letterRecordMark,
+      flowerbed: !!s?.letterFlowerSprite, // P1 世界反馈（制作人 08-13 拍板）：完成后花田新花苗
     };
   });
   const movePlayer = (x, y) => page.evaluate(([px, py]) => {
@@ -176,11 +178,13 @@ async function run() {
   let d = await advanceUntilSeen(['下周岛上有个小活动', '到时候你就知道了']);
   check('D1 收尾对白 + 春祭/烟花伏笔出现', d.allSeen, JSON.stringify(d.seen));
   check('D2 完成入档（done）', await drainDialogue(async () => (await flags()).xiyaLetterDone === true), JSON.stringify(await flags()));
-  // 等收尾对白完全结束（回调：清理全部交互对象）
+  // 等收尾对白完全结束（回调：清理全部交互对象 + P1 花田新花苗生成）
   check('D3 完成后夏雅与交互点全部清理', await drainDialogue(async () => {
     const s = await sceneState();
     return s.xiya === false && s.flower === false && s.record === false;
   }), JSON.stringify(await sceneState()));
+  // P1 世界反馈（制作人 2026-08-13 拍板纳入）：完成后花田旁出现新花苗视觉
+  check('D4 P1 花苗反馈：完成后花田新花苗已生成', await drainDialogue(async () => (await sceneState()).flowerbed === true), JSON.stringify(await sceneState()));
 
   // ============ E 段：任务面板 ============
   console.log('\n--- E 任务面板（完成态）---');
@@ -213,10 +217,11 @@ async function run() {
   await sleep(800);
   st = await sceneState();
   check('G1 完成后重进：无夏雅/无交互点', st.xiya === false && st.flower === false && st.record === false, JSON.stringify(st));
+  check('G2 P1 花苗反馈：重进后花田新花苗常驻', st.flowerbed === true, JSON.stringify(st));
   await pressE();
   await sleep(500);
   const gBody = await bodyText();
-  check('G2 完成后按 E 不触发春深有信相关对白',
+  check('G3 完成后按 E 不触发春深有信相关对白',
     !gBody.includes('夕阳落在田埂上') && !gBody.includes('下周岛上有个小活动') && !gBody.includes('失败也算种过'), '');
 
   // ============ H 段：运行时错误 ============

@@ -140,19 +140,28 @@ try {
   result('G1b chapter>=1 出现 4 个整理点', st.houseTidyCount === 4 && marksG1 === 4,
     `count=${st.houseTidyCount} marks=${marksG1} level=${st.level}`);
 
-  // ============ G2 逐个整理 → 等级递增 ============
+  // ============ G2 逐个整理 → 等级递增 + B-2 音效接线断言 ============
   const order = ['bed', 'lamp', 'desk', 'radio'];
+  // B-2（2026-08-13 体验债务）：每件整理的专属反馈音效 key
+  const sfxExpect = { bed: 'tidy_bed', lamp: 'tidy_lamp', desk: 'tidy_desk', radio: 'radio_life' };
   let prevLevel = 0;
   let monotonic = true;
+  let sfxOk = true;
+  let sfxDetail = '';
   for (const key of order) {
+    const before = await page.evaluate(() => window.debug.sfxLog().length);
     const r = await tidyPoint(key);
     const after = await tidyState();
     if (after.level !== prevLevel + 1 || !r) monotonic = false;
     prevLevel = after.level;
-    console.log(`  [${key}] 整理 ret=${r} → level=${after.level}`);
+    const played = await page.evaluate(([b, k]) => window.debug.sfxLog().slice(b).includes(k), [before, sfxExpect[key]]);
+    if (!played) { sfxOk = false; sfxDetail += ` [${key}]`; }
+    console.log(`  [${key}] 整理 ret=${r} → level=${after.level} sfx=${played ? sfxExpect[key] : '缺失'}`);
   }
   result('G2 四交互点逐个整理，等级 1→2→3→4 递增', monotonic && prevLevel === 4,
     `finalLevel=${prevLevel}`);
+  result('G2b B-2 每件整理均有专属反馈音效接线（tidy_bed/lamp/desk/radio_life）', sfxOk,
+    sfxDetail || 'ok');
 
   // ============ G3 聚合事件 + 全部完成 ============
   st = await tidyState();

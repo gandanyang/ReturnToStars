@@ -9,7 +9,9 @@ export type ItemType = 'radish' | 'tomato' | 'corn' | 'strawberry' | 'radish_see
   // SHOP-01 青禾镇商店复兴（2026-08-09）：岛屿修复类 + 生活装饰类商品
   | 'flower_seedling' | 'lantern' | 'wood_sign'
   // 爷爷的归星包裹 v0.1（2026-08-11，制作人拍板 P0 序章体验补强）：纪念物，不参与售卖
-  | 'dried_fish' | 'grandpa_letter';
+  | 'dried_fish' | 'grandpa_letter'
+  // 第一章 P2 捕虫玩法 V0.1（2026-08-13）：farm/town 蝴蝶捕捉纪念物，不可售，与 dried_fish 同类
+  | 'butterfly_specimen';
 
 /** 出售优先级标签（FEATURE-039 智能出售） */
 export type SellPriority = 'normal' | 'reserve' | 'forbidden';
@@ -54,6 +56,8 @@ export const ITEM_DEFS: Record<ItemType, ItemDef> = {
   // 爷爷的归星包裹 v0.1（2026-08-11）：爷爷留下的纪念物，不可售
   dried_fish: { id: 'dried_fish', name: '小鱼干', desc: '晒干的小鱼。爷爷的习惯——岛上的日子，得有点咸味。', icon: '🐟', sellPriority: 'forbidden' },
   grandpa_letter: { id: 'grandpa_letter', name: '爷爷的信', desc: '爷爷留在包裹里的信。字迹很稳，落笔很慢。', icon: '✉️', sellPriority: 'forbidden' },
+  // 第一章 P2 捕虫玩法 V0.1（2026-08-13）：花丛里轻轻捉到的一只，纪念物
+  butterfly_specimen: { id: 'butterfly_specimen', name: '蝴蝶标本', desc: '在花丛里轻轻捉到的一只。翅膀薄得能透光。', icon: '🦋', sellPriority: 'forbidden' },
 };
 
 /** 库存数据：物品类型 → 数量 */
@@ -82,6 +86,7 @@ const inventory: Record<ItemType, number> = {
   wood_sign: 0,
   dried_fish: 0,
   grandpa_letter: 0,
+  butterfly_specimen: 0,
 };
 
 /** 读取某物品数量 */

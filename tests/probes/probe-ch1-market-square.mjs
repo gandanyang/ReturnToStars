@@ -64,12 +64,24 @@ async function enterTownWithSave(overrides = {}) {
   await sleep(2200);
   await page.keyboard.press('Enter');
   await sleep(600);
-  for (let i = 0; i < 25; i++) {
+  // 等待 town 场景 player 就绪（getScenes(true)[0] 恒为 title 不可用；仅当 getScene('town').player 存在才视为进入）
+  for (let i = 0; i < 40; i++) {
     await sleep(300);
-    const sc = await page.evaluate(() => window.__game?.scene?.getScenes(true)[0]?.scene?.key ?? 'none');
-    if (sc === 'town') break;
+    const ready = await page.evaluate(() => !!window.__game?.scene?.getScene?.('town')?.player);
+    if (ready) break;
   }
-  await sleep(900);
+  await sleep(1200);
+}
+
+/** 等待集市恢复点出现（带超时，避免 flaky 时序误判） */
+async function waitForMarket(timeoutMs = 8000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const st = await marketState();
+    if (st.exists) return st;
+    await sleep(250);
+  }
+  return marketState();
 }
 
 /** 清空当前打开的剧情对话（首次进镇 TOWN_INTRO 会阻塞 E 输入；advance 打字中按 E 只显示全文，每行需 2 次） */
@@ -103,14 +115,43 @@ async function marketState() {
     return {
       exists: !!g,
       restored: g ? g.restored : undefined,
+      cleared: g ? g.cleared : undefined,
       mark: g ? !!g.mark : false,
       debrisCount: g ? g.debris.length : 0,
-      restoredKey: window.__game?.scene ? (() => {
-        // 通过 debug 无法直接读 isRestored，读存档
-        return undefined;
-      })() : undefined,
+      spots: g ? g.arrangeSpots.length : 0,
+      placedCount: g ? g.arrangeSpots.filter((sp) => sp.mark === null).length : 0,
     };
   });
+}
+
+/** 推进当前剧情对话到「选项行」出现（返回是否已出现选项） */
+async function advanceToOptions() {
+  for (let i = 0; i < 12; i++) {
+    const st = await page.evaluate(() => {
+      const s = window.__game?.scene?.getScenes(true)[0];
+      const dlg = s?.storyDialogue;
+      return {
+        optionsShown: !!(dlg?.optionsEl && dlg.optionsEl.style.display !== 'none'),
+        open: !!dlg?.isOpen?.(),
+      };
+    });
+    if (st.optionsShown) return true;
+    if (!st.open) return false;
+    await page.evaluate(() => {
+      const s = window.__game?.scene?.getScenes(true)[0];
+      s?.storyDialogue?.advance?.();
+    });
+    await sleep(400);
+  }
+  return false;
+}
+
+/** 让玩家移动到指定像素坐标（当前 town 场景） */
+async function movePlayerTo(x, y) {
+  return page.evaluate(([px, py]) => {
+    const s = window.__game?.scene?.getScene?.('town');
+    if (s?.player) s.player.setPosition(px, py);
+  }, [x, y]);
 }
 
 // ============ M1 村长未来访 → 无集市恢复点 ============
@@ -128,8 +169,7 @@ async function marketState() {
   await enterTownWithSave({
     gameState: { triggeredEvents: { ch1_elder_visit: true } }, // 村长已来访
   });
-  await sleep(1200);
-  const st = await marketState();
+  const st = await waitForMarket();
   result('M2 村长已来访：集市恢复点出现（荒地+标记）', st.exists && !st.restored && st.mark && st.debrisCount >= 3,
     `exists=${st.exists} restored=${st.restored} mark=${st.mark} debris=${st.debrisCount}`);
   await page.screenshot({ path: 'tests/probes/test-screenshots/ch1-market-ruined.png' });
@@ -165,7 +205,7 @@ async function marketState() {
   await page.screenshot({ path: 'tests/probes/test-screenshots/ch1-market-shortfall.png' });
 }
 
-// ============ M4 交付恢复 ============
+// ============ M4 交付清理（Phase 2：资源交付 = 清理场地，进入布置态，暂不开张） ============
 {
   // 重新进 town，背包给足资源
   await enterTownWithSave({
@@ -183,38 +223,125 @@ async function marketState() {
   await page.keyboard.press('KeyE');
   await sleep(1500);
   const st = await marketState();
-  result('M4 交付恢复：markRestored + 摊位灯光出现', st.exists && st.restored && !st.mark && st.debrisCount >= 5,
-    `restored=${st.restored} mark=${st.mark} debris=${st.debrisCount}`);
-  await page.screenshot({ path: 'tests/probes/test-screenshots/ch1-market-restored.png' });
+  result('M4 交付清理：cleared=true + 3 布置点出现（未开张）', st.exists && st.cleared && !st.restored && st.spots === 3,
+    `cleared=${st.cleared} restored=${st.restored} spots=${st.spots}`);
+  await page.screenshot({ path: 'tests/probes/test-screenshots/ch1-market-cleared.png' });
 }
 
-// ============ M5 存档字段 ============
+// ============ M5 清理后存档：未开张（worldRestore.marketSquare 未设）+ ch1_market_cleared 入档 ============
 {
   const saved = await page.evaluate(() => {
     const raw = localStorage.getItem('return_star_save');
     try {
       const d = JSON.parse(raw);
-      return { market: d.worldRestore?.marketSquare === true };
-    } catch { return { market: false }; }
+      return {
+        opened: d.worldRestore?.marketSquare === true,
+        cleared: !!(d.gameState?.triggeredEvents?.['ch1_market_cleared']),
+      };
+    } catch { return { opened: false, cleared: false }; }
   });
-  result('M5 存档含 worldRestore.marketSquare=true', saved.market, JSON.stringify(saved));
+  result('M5 清理后存档：未开张 + ch1_market_cleared=true', !saved.opened && saved.cleared, JSON.stringify(saved));
 }
 
-// ============ M6 读档重进 → 恢复态保持 ============
+// 三个布置点坐标（T=16，pos=(408,80)）：0 工具摊(312,80) / 1 小吃摊(408,120) / 2 花摊(504,80)
+const spotCoords = [[312, 80], [408, 120], [504, 80]];
+// 每个点的正确选项键位（1/2/3 = 工具摊/小吃摊/花摊）
+const spotCorrectKey = ['1', '2', '3'];
+
+/** 在布置点 idx 完成一轮布置：先选一个错误选项验证纠正，再选正确选项 */
+async function arrangePlace(idx, wrongKey) {
+  await dismissDialogue(); // 清掉上一步残留对白（如清理反馈），避免首个 E 被吞
+  await movePlayerTo(spotCoords[idx][0], spotCoords[idx][1]);
+  await sleep(250);
+  await page.keyboard.press('KeyE');
+  await sleep(600);
+  const gotOptions = await advanceToOptions();
+  if (!gotOptions) return false;
+  // 先选错误 → 应出现纠正（不摆摊），随后重新给选项
+  await page.keyboard.press(wrongKey);
+  await sleep(500);
+  const reOffer = await advanceToOptions();
+  if (!reOffer) return false;
+  // 选正确
+  await page.keyboard.press(spotCorrectKey[idx]);
+  await sleep(900);
+  // 放对后的反馈对白推进完
+  for (let i = 0; i < 8; i++) {
+    const open = await page.evaluate(() => {
+      const s = window.__game?.scene?.getScenes(true)[0];
+      return !!(s?.storyDialogue && s.storyDialogue.isOpen && s.storyDialogue.isOpen());
+    });
+    if (!open) break;
+    await page.evaluate(() => {
+      const s = window.__game?.scene?.getScenes(true)[0];
+      s?.storyDialogue?.advance?.();
+    });
+    await sleep(400);
+  }
+  return true;
+}
+
+// ============ M4b 布置错误反馈：先选错 → 温和纠正（不摆摊）→ 再选对就位 ============
+{
+  // 用 spot 0（工具摊），先选错误选项 '2'（小吃摊）：纠正后重新给选项（advanceToOptions 返回 true 即验证未摆摊），
+  // 再选正确 '1'（工具摊）→ spot0 就位（placedCount 从 0 → 1）
+  const ok = await arrangePlace(0, '2');
+  const st = await marketState();
+  result('M4b 放错纠正+放对就位：spot0 工具摊就位（placedCount=1）', ok && st.placedCount === 1,
+    `ok=${ok} placed=${st.placedCount}`);
+}
+
+// ============ M5b 布置放对：3 个点依次放对 → placedCount 递增 ============
+{
+  // spot 0 已就位（M4b 放对后剩 2 个点）
+  let st = await marketState();
+  result('M5b-1 布置点0 工具摊就位', st.placedCount === 1, `placed=${st.placedCount}`);
+  await arrangePlace(1, '3'); // spot1 小吃摊，先选错 '3'
+  st = await marketState();
+  result('M5b-2 布置点1 小吃摊就位', st.placedCount === 2, `placed=${st.placedCount}`);
+  await arrangePlace(2, '1'); // spot2 花摊，先选错 '1'
+  st = await marketState();
+  result('M5b-3 布置点2 花摊就位', st.placedCount === 3, `placed=${st.placedCount}`);
+  await page.screenshot({ path: 'tests/probes/test-screenshots/ch1-market-arranged.png' });
+}
+
+// ============ M6b 3 摊齐 → 开张：worldRestore.marketSquare=true ============
+{
+  const saved = await page.evaluate(() => {
+    const raw = localStorage.getItem('return_star_save');
+    try {
+      const d = JSON.parse(raw);
+      return {
+        opened: d.worldRestore?.marketSquare === true,
+        stall1: !!d.gameState?.triggeredEvents?.['ch1_market_stall_1'],
+        stall2: !!d.gameState?.triggeredEvents?.['ch1_market_stall_2'],
+        stall3: !!d.gameState?.triggeredEvents?.['ch1_market_stall_3'],
+      };
+    } catch { return { opened: false, stall1: false, stall2: false, stall3: false }; }
+  });
+  result('M6b 3摊齐开张：worldRestore.marketSquare=true + 3 摊已入档', saved.opened && saved.stall1 && saved.stall2 && saved.stall3,
+    JSON.stringify(saved));
+  const st = await marketState();
+  result('M6b2 开张态：restored=true + 无空位标记', st.exists && st.restored && st.placedCount === 3,
+    `restored=${st.restored} placed=${st.placedCount}`);
+  await page.screenshot({ path: 'tests/probes/test-screenshots/ch1-market-restored.png' });
+}
+
+// ============ M6c 读档重进 → 开张态保持（摊位在、无交互标记） ============
 {
   await page.reload({ waitUntil: 'networkidle2' });
   await sleep(2200);
   await page.keyboard.press('Enter');
   await sleep(600);
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 40; i++) {
     await sleep(300);
-    const sc = await page.evaluate(() => window.__game?.scene?.getScenes(true)[0]?.scene?.key ?? 'none');
-    if (sc === 'town') break;
+    const ready = await page.evaluate(() => !!window.__game?.scene?.getScene?.('town')?.player);
+    if (ready) break;
   }
   await sleep(1200);
   const st = await marketState();
-  result('M6 读档重进：恢复态保持（摊位在、无交互标记）', st.exists && st.restored && !st.mark,
-    `restored=${st.restored} mark=${st.mark}`);
+  result('M6c 读档重进：开张态保持（restored=true）', st.exists && st.restored,
+    `restored=${st.restored} placed=${st.placedCount}`);
 }
 
 // ============ M7 NPC 对白分支 ============

@@ -108,14 +108,17 @@ async function teleport(page, x, y) {
  * 真实出口切图路由（exits.ts 定义的出口区域，单位 px，16px/格）：
  *   farm 顶→forest | forest 右→mine | mine 底→town | town 左→farm
  *   farm 右→town   | town 顶→mine  | mine 左→forest | forest 底→farm
+ * 2026-08-13 修正（town 扩容 50×35 + 出口重定位后旧坐标失效）：
+ *   town→farm: (16,160) → (112,320)（新触发区 col6-7,row19-20 中心）
+ *   town→mine: (240,16) → (400,144)（mine 出口 col24-25,row8-9 中心）
  */
 const ROUTES = [
   { from: 'farm',   to: 'forest', x: 240, y: 30 },
   { from: 'forest', to: 'mine',   x: 464, y: 160 },
   { from: 'mine',   to: 'town',   x: 240, y: 300 },
-  { from: 'town',   to: 'farm',   x: 16,  y: 160 },
+  { from: 'town',   to: 'farm',   x: 112, y: 320 },
   { from: 'farm',   to: 'town',   x: 620, y: 160 },
-  { from: 'town',   to: 'mine',   x: 240, y: 16 },
+  { from: 'town',   to: 'mine',   x: 400, y: 144 },
   { from: 'mine',   to: 'forest', x: 16,  y: 160 },
   { from: 'forest', to: 'farm',   x: 240, y: 300 },
 ];

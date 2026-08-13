@@ -1,9 +1,20 @@
 # MiniMax（海螺）语音管线手册 v1.0
 
-> 状态：**当前唯一推荐的配音管线（2026-08-06 制作人拍板）**
-> 优先级：**后续所有角色 / 剧情配音优先使用本管线（MiniMax T2A v2）**；VoxCPM / MiMo 仅作为离线、断网或本地穷举音色时的备选。
+> 状态：**当前唯一推荐的配音管线（2026-08-06 制作人拍板，2026-08-13 重申）**
+> 优先级：**后续所有角色 / 剧情配音优先使用本管线（MiniMax T2A v2）**；VoxCPM / MiMo 仅作为离线、断网或本地穷举音色时的备选（VoxCPM 手册已标记废弃）。
 > 用途：夏雅等角色主线语音的云端合成管线，替代 VoxCPM 本地管线。
 > 背景：VoxCPM 存在 prompt 回显问题（需前导裁剪）且音色不稳定；Fish Audio 接口性价比过低；MiniMax T2A v2 无回显、音质稳定，定为当前正式管线。
+
+---
+
+> ## ⚠️ 禁止使用 voice_design 接口（2026-08-13 制作人拍板）
+>
+> **禁止调用 MiniMax `voice_design`（声音创作）接口**：单次生成成本约 **9.9 元**，成本过高，已正式叫停。
+>
+> - **新角色音色**：改用本地 TTS（IndexTTS 等）或基于已有音色克隆；不得新建 voice_design 音色。
+> - **阿风音色 A（`afeng_design_a_v1`）为既有资产**：在 voice_design 叫停前已生成，**继续沿用，不再重做**。
+> - **老周音色（`laozhou_carpenter_v1`）同为既有 voice_design 资产**：已生成并入库，保持现状不重做；详见第七节。
+> - 凡涉及 voice_design 的调用，必须**先停下并请示制作人**；未经确认不得执行。
 
 ---
 
@@ -45,6 +56,60 @@ npm run minimax -- --character 夏雅 --voice-id female-shaonv-jingpin --text "�
 ```
 
 接口：`POST https://api.minimaxi.com/v1/t2a_v2`（国际站 `api.minimax.io`），`output_format=hex` 返回 hex 音频。
+
+---
+
+## 二·一、音色 A（afeng_design_a_v1）使用说明
+
+阿风角色已使用 MiniMax `voice_design`（声音创作）接口设计的**音色 A**，作为阿风的正式配音音色。该音色为既有资产（voice_design 叫停前已生成），**继续沿用，不得重做**（详见顶部禁止规则）。
+
+| 项目 | 值 |
+| --- | --- |
+| 角色 | 阿风（冒险家 / 追风的人） |
+| voice_id | `afeng_design_a_v1` |
+| 来源 | MiniMax voice_design 声音创作（既有资产，禁止重新生成） |
+| 推荐模型 | `speech-2.8-turbo`（性价比档；关键情绪句可单独升 `speech-2.8-hd`） |
+| speed / vol / pitch | 1.0 / 1.0 / 0（默认，按台词情绪微调） |
+
+### 单条生成示例
+
+```powershell
+# 列出音色（确认 afeng_design_a_v1 在列）
+npm run minimax -- --list-voices --search afeng
+
+# 单条合成（阿风音色 A）
+npm run minimax -- `
+  --character 阿风 `
+  --voice-id afeng_design_a_v1 `
+  --text "风从岛上吹过来的时候，总带着一股铁锈味。" `
+  --output public/audio/voice/afeng/<tid>.mp3
+
+# 品质优先（关键情绪句）
+npm run minimax -- `
+  --character 阿风 `
+  --voice-id afeng_design_a_v1 `
+  --model speech-2.8-hd `
+  --text "……别走。" `
+  --output public/audio/voice/afeng/<tid>_hd.mp3
+```
+
+### 批量生成
+
+通用角色批量脚本（与老周同入口）：
+
+```powershell
+# 通用任意角色批量脚本（替换 --role / --voice-id 即可）
+python tools/gen_role_minimax.py --role afeng --voice-id afeng_design_a_v1
+```
+
+> 📌 若 `tools/gen_role_minimax.py` 暂未覆盖阿风角色清单，请按第四节「标准化与验证」流程产出后入库，并把 `afeng` 的 `voice_id` 映射写入 `MINIMAX_VOICE_MAP` 或 `voicebank.data.ts`。
+
+### 注意事项
+
+1. **音色 A 为既有 voice_design 资产**：不得调用 `voice_design` 重新生成；阿风声线变更必须先请示制作人。
+2. 阿风所有台词统一使用 `afeng_design_a_v1`，**不要混用其他音色**（避免角色音色漂移）。
+3. 产物入库前必须跑第四节「标准化与验证」（清空目标目录 → 标准化 -16 LUFS → `check_voicebank_match.py`）。
+4. 控制台编码：运行带 Unicode 输出的 Python 脚本前设置 `$env:PYTHONIOENCODING='utf-8'`。
 
 ---
 

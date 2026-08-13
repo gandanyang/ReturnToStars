@@ -23,7 +23,7 @@
 | 测试 | Puppeteer-core 探针（`tests/probes/*.mjs`）+ `tsc --noEmit` |
 | 世界/存档 | 800x600 画布基线；16x16 像素网格（Tiled，Ground/Walls 双层，tools 统一管线）；存档在 localStorage |
 | 美术管线 | GPT tileset（`tools/gpt_tileset_normalizer.py` v1.1 + `tools/star_island_palette.json` 锚点调色板 + `tools/prompts/*.txt`） |
-| 配音 | 本地 VoxCPM 克隆 + MiniMax 线上 API（`tools/tts.mjs` / `tools/minimax_tts.ts` / `tools/gen_*` 脚本；ogg 44.1kHz stereo，-16 LUFS 标准化）；`src/audio/voicebank.data.ts` 精确匹配 |
+| 配音 | MiniMax T2A v2 云端 API（优先，详见 `docs/MiniMax语音生成工具手册.md`），VoxCPM 仅作离线备选（`tools/tts.mjs` / `tools/minimax_tts.ts` / `tools/gen_*` 脚本；ogg 44.1kHz stereo，-16 LUFS 标准化）；`src/audio/voicebank.data.ts` 精确匹配 |
 
 ## 三、当前版本与基线
 
@@ -80,6 +80,7 @@
 - ❌ 竖屏适配/竖屏验收（移动端只横屏）
 - 未经制作人拍板大改文案（剧情权限规则）
 - 多 Agent 并行时 git 写操作必须独占：只 `git add` 自己改的文件，禁止 `git add -A` / `git add .` / 宽泛暂存；提交由 opencode 或制作人执行；配音打包前必须先本地试听、制作人确认
+- ❌ 使用 MiniMax voice_design 接口（单次 9.9 元，2026-08-13 制作人拍板）；新角色音色改用本地 TTS（IndexTTS 等）或已有音色克隆。配音优先 MiniMax T2A v2，VoxCPM 仅作离线备选
 
 ## 当前最高优先级
 

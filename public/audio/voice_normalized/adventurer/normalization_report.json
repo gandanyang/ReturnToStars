@@ -1,9 +1,107 @@
 [
   {
     "file": "adv_01.wav",
-    "original_loudness": -33.57,
-    "normalized_loudness": -15.87,
-    "adjustment": 17.700000000000003,
-    "status": "success"
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_02.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_02_backup_forest_20260805.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_03.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_03_backup_forest_20260805.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_04.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_04_backup_forest_20260805.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_05.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_06.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_06_backup_forest_20260805.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_07.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_08.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_09.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "adv_10.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
+  },
+  {
+    "file": "afeng_clone_ref.wav",
+    "original_loudness": null,
+    "normalized_loudness": null,
+    "adjustment": null,
+    "status": "failed"
   }
 ]

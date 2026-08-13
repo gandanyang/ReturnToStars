@@ -1,0 +1,25 @@
+A single game asset sprite.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering,
+no painting style.
+
+A worn wooden hanging board of an old village shop,
+smooth blank wooden surface hanging from an old iron hook,
+slightly weathered warm brown wood,
+small town restoration theme,
+Stardew Valley inspired pixel game asset.
+
+Isolated on a solid pure black background,
+centered object,
+front view,
+single object only.
+
+No words, no letters, no watermarks, no Chinese characters anywhere in the image.
+The wooden surface is plain and blank.
+No people, no characters, no animals, no scenery, no buildings, no ground, no background details.

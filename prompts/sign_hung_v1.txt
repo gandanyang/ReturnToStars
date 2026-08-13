@@ -1,0 +1,25 @@
+A single game asset sprite.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering,
+no painting style.
+
+A worn wooden hanging shop sign of a modern rural village,
+empty blank sign board hanging from an old metal bracket,
+slightly weathered warm brown wood,
+small town restoration theme,
+Stardew Valley inspired pixel game asset.
+
+Isolated on a solid pure black background,
+centered object,
+front view,
+single object only.
+
+No text, no letters, no words, no signs, no banners, no watermarks, no Chinese characters, no captions anywhere in the image.
+The sign board is blank and empty with no writing on it.
+No people, no characters, no animals, no scenery, no buildings, no ground, no background details.

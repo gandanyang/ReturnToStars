@@ -24,9 +24,45 @@ type SfxName =
   // 第一章 P1-2 村长来访：敲门声（程序合成低频双响，零资产）
   | 'knock'
   // 第一章 P3 春日集：人群低语（程序合成低通噪声+说话起伏，零资产）
-  | 'crowd';
+  | 'crowd'
+  // 第一章 B-2（2026-08-13 体验债务）：老屋整理点专属程序合成反馈（叠被/灯亮/摆桌）
+  | 'tidy_bed' | 'tidy_lamp' | 'tidy_desk';
 
 let ctx: AudioContext | null = null;
+
+// B-2 探针 hook（2026-08-13 体验债务）：记录"请求播放"的音效 key。
+// 放在声音开关检查之前——无论声音开关状态都记录接线意图，供探针断言
+// onTidyItemDone 已正确接线 tidy_bed / tidy_lamp / tidy_desk / radio_life。
+const _sfxLog: string[] = [];
+
+/** 最近请求播放的音效 key 列表（仅返回尾部 64 条，防膨胀） */
+export function getSfxLog(): string[] {
+  return _sfxLog.slice(-64);
+}
+
+// ── 全局声音总开关（2026-08-13 制作人拍板：游戏音乐暂时屏蔽 + 重新打开开关）──
+// 默认静音（"暂时屏蔽"）：localStorage 无记录即为静音；开关写入 localStorage 持久化，
+// 刷新/切场景保持。覆盖 BGM / 环境音 / 操作音效 / 配音四条链路（各系统入口拦截）。
+const SOUND_KEY = 'return_star_sound_on';
+
+/** 声音是否开启（默认静音） */
+export function isSoundEnabled(): boolean {
+  try {
+    return localStorage.getItem(SOUND_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** 设置声音开关（true=开启；写入 localStorage） */
+export function setSoundEnabled(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(SOUND_KEY, '1');
+    else localStorage.removeItem(SOUND_KEY);
+  } catch {
+    /* 隐私模式等场景忽略 */
+  }
+}
 
 /** 懒初始化 AudioContext（浏览器要求用户交互后才能创建） */
 export function getCtx(): AudioContext {
@@ -50,6 +86,7 @@ export function tone(
   volume = 0.15,
   delay = 0,
 ): void {
+  if (!isSoundEnabled()) return;
   const c = getCtx();
   const osc = c.createOscillator();
   const gain = c.createGain();
@@ -65,6 +102,7 @@ export function tone(
 
 /** 播放白噪声（用于浇水等） */
 export function noise(duration: number, volume = 0.08, delay = 0): void {
+  if (!isSoundEnabled()) return;
   const c = getCtx();
   const bufferSize = c.sampleRate * duration;
   const buffer = c.createBuffer(1, bufferSize, c.sampleRate);
@@ -92,6 +130,8 @@ export function noise(duration: number, volume = 0.08, delay = 0): void {
  * 用法：AudioSystem.play('harvest')
  */
 export function play(name: SfxName): void {
+  _sfxLog.push(name); // B-2 探针 hook：记录请求（在开关检查前，静音态也可断言接线）
+  if (!isSoundEnabled()) return;
   switch (name) {
     case 'hoe':
       // 锄地：低频碰撞感 + 土屑/土块碎裂（声音补全 v1.0 升级——"土回应我"）
@@ -175,6 +215,30 @@ export function play(name: SfxName): void {
       noise(0.35, 0.025, 2.2);
       tone(320, 0.15, 'triangle', 0.02, 0.9);
       tone(380, 0.12, 'triangle', 0.02, 1.8);
+      break;
+
+    case 'tidy_bed':
+      // 第一章 B-2 叠被（2026-08-13 体验债务）：布料柔软翻动——低频柔和"扑"一声
+      // + 一点点布料摩擦高音（轻、短），低音量一次性——"被子叠好了，踏实感"。
+      noise(0.12, 0.06);
+      tone(130, 0.2, 'triangle', 0.08);
+      noise(0.05, 0.035, 0.06);
+      break;
+
+    case 'tidy_lamp':
+      // 第一章 B-2 灯亮（2026-08-13 体验债务）：暖黄灯光点亮——微弱的"咔哒"开
+      // 关声 + 一个柔和的上升暖音（像灯丝被点亮），低音量——"光回来了"。
+      tone(520, 0.06, 'triangle', 0.06);
+      tone(780, 0.22, 'sine', 0.09, 0.05);
+      tone(1040, 0.3, 'sine', 0.04, 0.1);
+      break;
+
+    case 'tidy_desk':
+      // 第一章 B-2 摆书桌（2026-08-13 体验债务）：书本/物件轻放在桌面——两下短促
+      // 木质闷响（书先、电脑后），低音量——"桌子上开始有人生活了"。
+      tone(180, 0.08, 'triangle', 0.09);
+      tone(160, 0.07, 'triangle', 0.07, 0.12);
+      noise(0.04, 0.04, 0.12);
       break;
 
     case 'buy':

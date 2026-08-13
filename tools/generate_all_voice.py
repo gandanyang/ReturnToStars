@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""主线剧情全台词批量语音生成（VoxCPM 本地推理）。"""
+"""主线剧情全台词批量语音生成（VoxCPM 本地推理）。
+
+⚠️ 已退役（2026-08-13）：主引擎已替换为 IndexTTS-2，勿再使用本脚本。
+新流程：python tools/gen_mainline_voice.py --emit-batch <out.jsonl>
+→ indextts.cli_v2 batch → python tools/gen_mainline_voice.py --emit-voicebank
+详见 docs/IndexTTS-2语音生成工具手册.md。
+"""
 import argparse, subprocess, sys, time
 from pathlib import Path
 

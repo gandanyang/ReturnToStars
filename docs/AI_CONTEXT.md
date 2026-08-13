@@ -52,7 +52,7 @@
 | 语言/构建 | TypeScript 5.4 + Vite 5（`tsc && vite build`） |
 | 移动端 | Capacitor 8（JDK 21 + Gradle 8.14） |
 | 地图 | Tiled JSON（gid 语义禁止改动） |
-| 语音 | MiniMax T2A v2 云端 API（唯一推荐管线） |
+| 语音 | MiniMax T2A v2 云端 API（唯一推荐管线，VoxCPM 仅作离线备选） |
 | 测试 | Puppeteer 探针 + tsc |
 | 生图 | ComfyUI，默认工作流 `workflow/anima_turboV10.json`（anima turbo；禁止自建默认） |
 
@@ -69,6 +69,7 @@
 7. 对应任务文档（`docs/tasks/…`）
 
 > **生图**：ComfyUI 出图默认使用 `workflow/anima_turboV10.json`（anima turbo），禁止选用/新建其它默认工作流。
+> **语音**：配音优先 MiniMax T2A v2（详见 `docs/MiniMax语音生成工具手册.md`），VoxCPM 仅作离线备选。⚠️ 禁止使用 MiniMax voice_design 接口（单次 9.9 元，2026-08-13 制作人拍板）；新角色音色改用本地 TTS（IndexTTS 等）或已有音色克隆。
 
 ---
 

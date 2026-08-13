@@ -3,25 +3,23 @@
 """
 归星物语主线剧情语音批量生成脚本（任务-主线剧情语音生成与接入）。
 
-- 入口：E:\\BINGdown\\VoxCPM\\mwedm\\python.exe -m voxcpm.cli（禁止 voxcpm.exe shim）
-- 参数：--cfg-value 2.4（超短句 ≤4 字 2.6）--inference-timesteps 16（超短句 20）
-       --no-denoiser --local-files-only
-- 台词格式：标点连排、不用换行（避免长停顿）
-- 生成后立即 F0 自检（男 70-180Hz / 女 170-320Hz），漂移重跑 ≤3 次
-- 夏雅 atempo 1.1；爷爷/少女 atempo 0.95（稍慢）；HR 电话感 EQ
-- 输出：public/audio/voice/<角色>/<场景>_<序号>.wav
+- 引擎（2026-08-13 起）：IndexTTS-2 本地 TTS（G:\\AI_Tools\\index-tts，Python 3.11 venv）
+      合成统一走 `python -m indextts.cli_v2 batch --batch-file <清单>`（本脚本 --emit-batch 生成清单）
+      推理不能在 Trae 沙箱跑 → 清单交给制作人在自己终端跑（见 docs/IndexTTS-2语音生成工具手册.md）
+- 旧 VoxCPM 引擎 gen()/trim_voice_lead/F0 自检保留未删（退役，VoxCPM 无 prompt 回显/F0 漂移问题）
+- 输出：art_source/audio/voice/<角色>/<场景>_<序号>.wav（+ 同名 .txt 来源文本 sidecar）
 
 用法：
   python tools/gen_mainline_voice.py --dry-run     # 打印任务清单不执行
-  python tools/gen_mainline_voice.py --limit 3     # 只跑前 3 条（样本验证）
-  python tools/gen_mainline_voice.py               # 全量（已存在文件跳过）
-  python tools/gen_mainline_voice.py --force       # 覆盖已存在文件
-  python tools/gen_mainline_voice.py --skip-f0     # 跳过 F0 自检（调试用）
+  python tools/gen_mainline_voice.py --emit-batch .tmp/all_tasks.jsonl   # 生成 IndexTTS-2 batch 清单（不跑合成）
+  python tools/gen_mainline_voice.py --emit-voicebank src/audio/voicebank.data.ts   # 生成语音映射
+  # 制作人终端：G:\AI_Tools\index-tts\.venv\Scripts\python.exe -m indextts.cli_v2 batch --batch-file .tmp/all_tasks.jsonl --model-dir G:\AI_Tools\index-tts\checkpoints --device cuda:0 --fp16
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -36,6 +34,10 @@ OUT_ROOT = Path("art_source") / "audio" / "voice"
 MIN_BYTES = 30 * 1024
 MAX_RETRY = 3
 
+# ========================= IndexTTS-2 引擎常量（2026-08-13 主引擎，替代 VoxCPM） =========================
+IDX_PY = r"G:\AI_Tools\index-tts\.venv\Scripts\python.exe"
+IDX_MODEL = r"G:\AI_Tools\index-tts\checkpoints"
+
 # 角色参考（ref_text 为空 → 不传 --prompt-text，让 VoxCPM 自动转写）
 ROLES = {
     "linche": dict(
@@ -43,11 +45,10 @@ ROLES = {
         ref_text="十年前的那个早晨，我依然清晰记得，你穿着白衬衫的样子，那是我第一次遇见你，至今难忘。",
         cfg=2.4, steps=16, atempo=1.0, sex="male",
     ),
-    "xiya": dict(  # 2026-08-05 换声线定案：Fish 知性女声 bdc493bc（制作人拍板"选1"）；mp3 直喂 F0 漂移，已转 12s 16k wav 修复
-        # 2026-08-06 源修复：VoxCPM 必然回显参考语音（模型行为，无参数可关）；
-        # 前导由 gen_mainline_voice.py 管线必跑的 trim_voice_lead() 裁剪。
-        # 短样本（夏雅知性女声_样本.wav）F0 漂移率过高（400Hz），换回 12s 长段（F0 稳定）+ 必裁。
-        ref=r"art_source\audio_generated\夏雅知性女声_20260805_001.wav",
+    "xiya": dict(  # IndexTTS 时代（2026-08-13）：用 MiniMax 定案产物做参考音
+        # 2026-08-06 制作人拍板弃用 VoxCPM 时代 Fish 知性女声（夏雅知性女声_20260805_001.wav），
+        # 08-13 起改用定案参考（5.4s 平静温柔，最贴人设）。详见 docs/design/夏雅配音改良方案-IndexTTS参考音替换-v1.0.md
+        ref=r"art_source\audio_generated\夏雅_minimax定案参考_24k.wav",
         ref_text="生活中总会遇到不如意，但请记住，每一次跌倒都是成长的机会。不要急着否定自己，也不要轻易放弃希望。温柔地对待自己的同时，也要学会接纳生命中的不确定。当你学会放下，前方自然会有新的风景。",
         cfg=2.4, steps=16, atempo=1.1, sex="female",
     ),
@@ -163,6 +164,25 @@ T = [
     ("linche", "tea_quest_04", "……好。"),
     # 支线试点：村长星空（ELDER_STAR_SITE_DIALOGUE）——林澈独白
     ("linche", "star_site_01", "……爷爷以前，就坐在这里吗？"),
+    # 心语任务：夏雅《春深有信·一》（XIYA_LETTER_OPEN/FLOWER/RECORD/FINAL_DIALOGUE，4 段 44 句）——林澈应答
+    ("linche", "letter_open_01", "你每天都会来这里看看？"),
+    ("linche", "letter_open_04", "不是已经种下了吗？"),
+    ("linche", "letter_open_06", "听起来像是在等一个很慢的结果。"),
+    ("linche", "letter_open_08", "你以前也是这样种东西？"),
+    ("linche", "letter_open_11", "为什么？"),
+    ("linche", "letter_open_13", "后来呢？"),
+    ("linche", "letter_open_17", "因为我？"),
+    ("linche", "letter_flower_01", "这些花什么时候会开？"),
+    ("linche", "letter_flower_03", "慢的话？"),
+    ("linche", "letter_flower_05", "这么久？"),
+    ("linche", "letter_record_01", "这是你的记录？"),
+    ("linche", "letter_record_03", "写了好多年。"),
+    ("linche", "letter_record_05", "为什么还留着？"),
+    ("linche", "letter_final_01", "你一直都在做这些事情？"),
+    ("linche", "letter_final_03", "不觉得累吗？"),
+    ("linche", "letter_final_05", "那为什么还继续？"),
+    ("linche", "letter_final_08", "什么？"),
+    ("linche", "letter_final_10", "什么活动？"),
 
     # ---- 夏雅（xiya）----
     ("xiya", "xiya_01", "你就是林澈？"),
@@ -212,6 +232,33 @@ T = [
     ("xiya", "trellis_need_01", "藤架还差几根木材。你要是有空，从庄园里砍几根来？"),
     ("xiya", "trellis_done_01", "好了……以后每年花开，都有地方靠了。"),
     ("xiya", "trellis_done_02", "他说，院子有人照顾，就不会冷清。"),
+    # 心语任务：夏雅《春深有信·一》（XIYA_LETTER_OPEN/FLOWER/RECORD/FINAL_DIALOGUE）——夏雅台词
+    ("xiya", "letter_open_02", "嗯。"),
+    ("xiya", "letter_open_03", "虽然现在还看不出来什么。"),
+    ("xiya", "letter_open_05", "种下去和长出来，中间还差一点时间。"),
+    ("xiya", "letter_open_07", "可能吧。"),
+    ("xiya", "letter_open_09", "以前……"),
+    ("xiya", "letter_open_10", "比现在更忙一点。"),
+    ("xiya", "letter_open_12", "因为那时候，总觉得岛上什么都不会消失。"),
+    ("xiya", "letter_open_14", "后来才发现。"),
+    ("xiya", "letter_open_15", "有些东西，如果没人记得，它就真的没有了。"),
+    ("xiya", "letter_open_16", "不过现在，好像又开始不一样了。"),
+    ("xiya", "letter_open_18", "因为大家。"),
+    ("xiya", "letter_open_19", "你只是刚好回来了。"),
+    ("xiya", "letter_flower_02", "快的话，几天。"),
+    ("xiya", "letter_flower_04", "可能要等一个季节。"),
+    ("xiya", "letter_flower_06", "嗯。但花又不知道我们觉得它慢。"),
+    ("xiya", "letter_flower_07", "它只是按照自己的时间长出。"),
+    ("xiya", "letter_record_02", "嗯。"),
+    ("xiya", "letter_record_04", "有些花没种出来。"),
+    ("xiya", "letter_record_06", "因为失败也算种过。"),
+    ("xiya", "letter_final_02", "差不多。"),
+    ("xiya", "letter_final_04", "会啊。"),
+    ("xiya", "letter_final_06", "因为总要有人先开始。"),
+    ("xiya", "letter_final_07", "以前爷爷也是这么说的。"),
+    ("xiya", "letter_final_09", "对了。"),
+    ("xiya", "letter_final_11", "下周岛上有个小活动。"),
+    ("xiya", "letter_final_12", "到时候你就知道了。"),
 
     # ---- 村长（elder）----
     ("elder", "elder_01", "你就是小林吧？林爷爷家的孙子。"),
@@ -325,9 +372,11 @@ T = [
     ("adventurer", "adv_05", "嘿！你这小子，胆子不小啊！"),
     ("adventurer", "adv_06", "说得对。有空来后山，我带你转转。"),
     # 反馈 #28 阿风热情欢迎「你回来了！」（ADVENTURER_WELCOME_BACK_DIALOGUE，一次性）
+    # 2026-08-13 制作人拍板台词定稿（#28 v1.0 落地）：adv_07 保留 / adv_08 替换 / adv_09 替换 / adv_10 新增
     ("adventurer", "adv_07", "嘿！你回来了！"),
-    ("adventurer", "adv_08", "路过，顺便看看。听说你把这儿拾掇得挺像样，我来长长见识。"),
-    ("adventurer", "adv_09", "乱不怕，有人气就行。你忙你的，我先走啦——回头找你玩。"),
+    ("adventurer", "adv_08", "我这些年也一直在外面跑，有时候走着走着，会想起小时候我们在这里吹风的日子。"),
+    ("adventurer", "adv_09", "是啊，不过风还是那个风。慢慢来吧，我相信这里会重新热闹起来。"),
+    ("adventurer", "adv_10", "没想到这么多年过去，你还是回来了。"),
 
     # ---- 木匠老周（carpenter）：CARPENTER_RETURN_DIALOGUE 定稿稿 4 句 + 老屋对话 2 句（制作人 2026-08-10 A1 施工版，MiniMax 音色 laozhou_carpenter_v1）----
     # A1 定稿后：carpenter_01/02/03/05 随文本删除（资产保留）；_04 门轴窗栓定稿稿继续使用；_08/09/10 为定稿稿新句
@@ -452,6 +501,41 @@ def emit_voicebank_ts(out_file: str) -> None:
     lines.append("];")
     Path(out_file).write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"✅ 已生成 VoiceBank 数据：{out_file}（{len(T)} 条）")
+
+
+def ensure_ref_wav(role: str, ref: str) -> str:
+    """IndexTTS-2 需要 wav 参考；mp3 参考 → ffmpeg 转 24k 单声道 wav 到 .tmp/refs/<role>.wav。"""
+    src = Path(ref)
+    if not src.exists():
+        warn(f"参考音频不存在（{role}）：{src}")
+        return str(src.resolve())
+    if src.suffix.lower() == ".wav":
+        return str(src.resolve())
+    dst = Path(".tmp") / "refs" / f"{role}.wav"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    rc, tail = run_cmd([FFMPEG, "-y", "-i", str(src.resolve()), "-ar", "24000", "-ac", "1", str(dst)])
+    if rc != 0 or not dst.exists() or dst.stat().st_size < MIN_BYTES:
+        warn(f"参考转 wav 失败（{role}）：{tail[-200:]}")
+        return str(src.resolve())  # 兜底原路径（CLI 可能支持）
+    return str(dst.resolve())
+
+
+def emit_batch_jsonl(out_file: str) -> None:
+    """生成 IndexTTS-2 CLI batch 清单 JSONL（替换 VoxCPM：合成走 indextts.cli_v2 batch，一次加载模型）。
+
+    - 跳过 minimax_voice 角色（在线 TTS 已全量重配，不走本地引擎）
+    - 每行 {text, voice, output}，交给制作人在自己终端跑 batch
+    """
+    rows = []
+    for role, tid, text in T:
+        rc = ROLES[role]
+        if rc.get("minimax_voice"):
+            continue
+        out = output_path(role, tid)
+        rows.append({"text": text, "voice": ensure_ref_wav(role, rc["ref"]), "output": str(out.resolve())})
+    Path(out_file).write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+    print(f"✅ 已生成 IndexTTS batch 清单：{out_file}（{len(rows)} 条）")
+    print(f"   执行：{IDX_PY} -m indextts.cli_v2 batch --batch-file {out_file} --model-dir {IDX_MODEL} --device cuda:0 --fp16")
 
 
 def run_cmd(cmd: list[str]) -> tuple[int, str]:
@@ -629,10 +713,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--skip-f0", action="store_true", help="跳过 F0 自检")
     p.add_argument("--emit-voicebank", metavar="OUT_TS", default="",
                    help="只生成 VoiceBank 映射数据 TS 文件（不跑生成）")
+    p.add_argument("--emit-batch", metavar="OUT_JSONL", default="",
+                   help="只生成 IndexTTS-2 CLI batch 清单 JSONL（不跑合成）")
     args = p.parse_args(argv)
 
     if args.emit_voicebank:
         emit_voicebank_ts(args.emit_voicebank)
+        return
+    if args.emit_batch:
+        emit_batch_jsonl(args.emit_batch)
         return
 
     tasks = T[:args.limit] if args.limit > 0 else T

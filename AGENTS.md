@@ -19,7 +19,9 @@
 7. `docs/第一章开发总纲.md`（第一章阶段定位 / 优先级 / 禁止事项 / 验收标准）
 8. 对应任务文档（`docs/tasks/…`）
 9. `docs/dev/EventSystem.md`（事件系统契约：**triggerOnce 先执行 fn 后标记 → save/check 放 triggerOnceIf 之后**，涉及一次性事件必读）
-10. `docs/AI出图与生视频经验归档-v1.0.md`（出图/生视频调用经验与制作人纪律；**涉及生图/生视频任务必读**）
+10. `docs/dev/TestSystem.md`（**自动化测试体系契约**：L1 回归 / L2 探针 / L3 showcase 三层结构 + harness API + 编写范式 + 测试纪律 + 决策流程；**涉及测试 / 写探针 / 改动验证必读**）
+11. `docs/dev/MapExpansion.md`（**地图扩容与底图施工规范**：四字段铁律（map/layer 尺寸 + data 长度 + tileset 引用必须同步）+ tileset 数据源唯一 + Blockout 阶段划分 + GID 漂移验收；**涉及改地图尺寸 / 铺底图 / 新增地图必读**）
+12. `docs/AI出图与生视频经验归档-v1.0.md`（出图/生视频调用经验与制作人纪律；**涉及生图/生视频任务必读**）
 
 > ⚠️ **移动端只支持横屏**：禁止按竖屏手游设计、禁止做竖屏适配、禁止用竖屏模拟器验收。详见 `AI_CONTEXT.md` / `AI_GUARDRAIL.md`。
 
@@ -216,6 +218,9 @@ v0.6-demo              # Demo 发布版
 > 不要只说"应该没问题"，**必须验证**。
 
 ## 语音交付流程（制作人 2026-08-05 拍板）
+
+> 配音优先使用 MiniMax T2A v2（详见 `docs/MiniMax语音生成工具手册.md`），VoxCPM 仅作离线备选。
+> ⚠️ 禁止使用 MiniMax voice_design 接口（单次 9.9 元，2026-08-13 制作人拍板）。新角色音色改用本地 TTS（IndexTTS 等）或已有音色克隆。
 
 语音 / 配音相关改动完成后：
 

@@ -1,0 +1,31 @@
+A single game asset sprite, isolated object.
+
+A small flower bed planter: a low rectangular wooden planter box,
+filled with soil and a few small flowers in warm colors,
+pale yellow and soft orange flowers, green leaves,
+old village restoration theme,
+modern rural village small town style,
+cozy and gently tended, flowers that someone planted on purpose,
+Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no house,
+no fence,
+no scenery around the planter.
+
+Pure black background,
+centered object,
+straight-on front view,
+the flower bed fills most of the frame,
+only the planter itself, floating alone on the black background.

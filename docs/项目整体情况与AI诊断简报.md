@@ -89,6 +89,7 @@ tests/probes/        Puppeteer 探针（每个功能一条，回归主力）
 - voicebank 映射：`src/audio/voicebank.data.ts`（203 条，由 `tools/gen_mainline_voice.py --emit-voicebank` 从 T 清单自动生成，**勿手改**）
 - 校验：`tools/check_voicebank_match.py`（StorySystem+NPCSystem 台词 vs voicebank 对齐）
 - 本轮（2026-08-08）同时：短信播报删第 1 页自动朗读（hr_station_01 停用，保留翻页 hr_station_03）；语音交付流程=试听确认 → 更新文档 → 打包 APK → 装机复验
+- ⚠️ **禁止使用 MiniMax voice_design 接口**（单次 9.9 元，2026-08-13 制作人拍板）；新角色音色改用本地 TTS（IndexTTS 等）或已有音色克隆。配音优先 MiniMax T2A v2，VoxCPM 仅作离线备选。
 
 ## 7. 最近完成（2026-08-08 及近期）
 

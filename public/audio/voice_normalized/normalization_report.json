@@ -1,5 +1,446 @@
 [
   {
+    "file": "adv_01.wav",
+    "original_loudness": -13.13,
+    "normalized_loudness": -15.44,
+    "adjustment": -2.3099999999999987,
+    "status": "success"
+  },
+  {
+    "file": "adv_02.wav",
+    "original_loudness": -8.84,
+    "normalized_loudness": -11.61,
+    "adjustment": -2.7699999999999996,
+    "status": "success"
+  },
+  {
+    "file": "adv_02_backup_forest_20260805.wav",
+    "original_loudness": -23.8,
+    "normalized_loudness": -16.66,
+    "adjustment": 7.140000000000001,
+    "status": "success"
+  },
+  {
+    "file": "adv_03.wav",
+    "original_loudness": -15.09,
+    "normalized_loudness": -16.09,
+    "adjustment": -1.0,
+    "status": "success"
+  },
+  {
+    "file": "adv_03_backup_forest_20260805.wav",
+    "original_loudness": -24.17,
+    "normalized_loudness": -16.12,
+    "adjustment": 8.05,
+    "status": "success"
+  },
+  {
+    "file": "adv_04.wav",
+    "original_loudness": -14.56,
+    "normalized_loudness": -15.26,
+    "adjustment": -0.6999999999999993,
+    "status": "success"
+  },
+  {
+    "file": "adv_04_backup_forest_20260805.wav",
+    "original_loudness": -24.22,
+    "normalized_loudness": -16.45,
+    "adjustment": 7.77,
+    "status": "success"
+  },
+  {
+    "file": "adv_05.wav",
+    "original_loudness": -15.35,
+    "normalized_loudness": -16.59,
+    "adjustment": -1.2400000000000002,
+    "status": "success"
+  },
+  {
+    "file": "adv_06.wav",
+    "original_loudness": -13.8,
+    "normalized_loudness": -15.54,
+    "adjustment": -1.7399999999999984,
+    "status": "success"
+  },
+  {
+    "file": "adv_06_backup_forest_20260805.wav",
+    "original_loudness": -22.51,
+    "normalized_loudness": -16.0,
+    "adjustment": 6.510000000000002,
+    "status": "success"
+  },
+  {
+    "file": "adv_07.wav",
+    "original_loudness": -24.36,
+    "normalized_loudness": -16.0,
+    "adjustment": 8.36,
+    "status": "success"
+  },
+  {
+    "file": "adv_08.wav",
+    "original_loudness": -24.55,
+    "normalized_loudness": -16.43,
+    "adjustment": 8.120000000000001,
+    "status": "success"
+  },
+  {
+    "file": "adv_09.wav",
+    "original_loudness": -23.92,
+    "normalized_loudness": -15.47,
+    "adjustment": 8.450000000000001,
+    "status": "success"
+  },
+  {
+    "file": "adv_10.wav",
+    "original_loudness": -24.96,
+    "normalized_loudness": -16.36,
+    "adjustment": 8.600000000000001,
+    "status": "success"
+  },
+  {
+    "file": "afeng_clone_ref.wav",
+    "original_loudness": -10.33,
+    "normalized_loudness": -14.53,
+    "adjustment": -4.199999999999999,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_01.wav",
+    "original_loudness": -25.01,
+    "normalized_loudness": -16.36,
+    "adjustment": 8.650000000000002,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_02.wav",
+    "original_loudness": -23.59,
+    "normalized_loudness": -15.99,
+    "adjustment": 7.6,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_03.wav",
+    "original_loudness": -25.93,
+    "normalized_loudness": -17.78,
+    "adjustment": 8.149999999999999,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_04.wav",
+    "original_loudness": -26.74,
+    "normalized_loudness": -17.29,
+    "adjustment": 9.45,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_05.wav",
+    "original_loudness": -24.15,
+    "normalized_loudness": -16.14,
+    "adjustment": 8.009999999999998,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_06.wav",
+    "original_loudness": -24.78,
+    "normalized_loudness": -15.99,
+    "adjustment": 8.790000000000001,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_07.wav",
+    "original_loudness": -27.43,
+    "normalized_loudness": -18.19,
+    "adjustment": 9.239999999999998,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_08.wav",
+    "original_loudness": -25.85,
+    "normalized_loudness": -19.84,
+    "adjustment": 6.010000000000002,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_09.wav",
+    "original_loudness": -26.27,
+    "normalized_loudness": -15.98,
+    "adjustment": 10.29,
+    "status": "success"
+  },
+  {
+    "file": "carpenter_10.wav",
+    "original_loudness": -24.79,
+    "normalized_loudness": -15.76,
+    "adjustment": 9.03,
+    "status": "success"
+  },
+  {
+    "file": "busy_01.wav",
+    "original_loudness": -22.11,
+    "normalized_loudness": -16.62,
+    "adjustment": 5.489999999999998,
+    "status": "success"
+  },
+  {
+    "file": "busy_02.wav",
+    "original_loudness": -21.68,
+    "normalized_loudness": -17.05,
+    "adjustment": 4.629999999999999,
+    "status": "success"
+  },
+  {
+    "file": "busy_03.wav",
+    "original_loudness": -21.82,
+    "normalized_loudness": -17.15,
+    "adjustment": 4.670000000000002,
+    "status": "success"
+  },
+  {
+    "file": "busy_short_01.wav",
+    "original_loudness": -20.7,
+    "normalized_loudness": -17.29,
+    "adjustment": 3.41,
+    "status": "success"
+  },
+  {
+    "file": "elder_01.wav",
+    "original_loudness": -19.43,
+    "normalized_loudness": -15.54,
+    "adjustment": 3.8900000000000006,
+    "status": "success"
+  },
+  {
+    "file": "elder_03.wav",
+    "original_loudness": -21.83,
+    "normalized_loudness": -17.05,
+    "adjustment": 4.779999999999998,
+    "status": "success"
+  },
+  {
+    "file": "elder_05.wav",
+    "original_loudness": -21.76,
+    "normalized_loudness": -16.53,
+    "adjustment": 5.23,
+    "status": "success"
+  },
+  {
+    "file": "elder_05_backup_forest_20260805.wav",
+    "original_loudness": -21.97,
+    "normalized_loudness": -15.39,
+    "adjustment": 6.579999999999998,
+    "status": "success"
+  },
+  {
+    "file": "elder_07.wav",
+    "original_loudness": -22.74,
+    "normalized_loudness": -16.31,
+    "adjustment": 6.43,
+    "status": "success"
+  },
+  {
+    "file": "farm_01.wav",
+    "original_loudness": -22.51,
+    "normalized_loudness": -15.71,
+    "adjustment": 6.800000000000001,
+    "status": "success"
+  },
+  {
+    "file": "farm_02.wav",
+    "original_loudness": -19.05,
+    "normalized_loudness": -15.92,
+    "adjustment": 3.130000000000001,
+    "status": "success"
+  },
+  {
+    "file": "farm_03.wav",
+    "original_loudness": -20.83,
+    "normalized_loudness": -16.16,
+    "adjustment": 4.669999999999998,
+    "status": "success"
+  },
+  {
+    "file": "farm_04.wav",
+    "original_loudness": -22.16,
+    "normalized_loudness": -16.43,
+    "adjustment": 5.73,
+    "status": "success"
+  },
+  {
+    "file": "farm_05.wav",
+    "original_loudness": -22.33,
+    "normalized_loudness": -15.66,
+    "adjustment": 6.669999999999998,
+    "status": "success"
+  },
+  {
+    "file": "farm_06.wav",
+    "original_loudness": -22.24,
+    "normalized_loudness": -15.79,
+    "adjustment": 6.449999999999999,
+    "status": "success"
+  },
+  {
+    "file": "farm_07.wav",
+    "original_loudness": -21.59,
+    "normalized_loudness": -16.52,
+    "adjustment": 5.07,
+    "status": "success"
+  },
+  {
+    "file": "house_01.wav",
+    "original_loudness": -22.15,
+    "normalized_loudness": -17.69,
+    "adjustment": 4.459999999999997,
+    "status": "success"
+  },
+  {
+    "file": "house_02.wav",
+    "original_loudness": -17.86,
+    "normalized_loudness": -14.29,
+    "adjustment": 3.5700000000000003,
+    "status": "success"
+  },
+  {
+    "file": "npc_daily_01.wav",
+    "original_loudness": -21.57,
+    "normalized_loudness": -17.18,
+    "adjustment": 4.390000000000001,
+    "status": "success"
+  },
+  {
+    "file": "npc_daily_02.wav",
+    "original_loudness": -19.12,
+    "normalized_loudness": -14.75,
+    "adjustment": 4.370000000000001,
+    "status": "success"
+  },
+  {
+    "file": "npc_daily_03.wav",
+    "original_loudness": -22.73,
+    "normalized_loudness": -15.65,
+    "adjustment": 7.08,
+    "status": "success"
+  },
+  {
+    "file": "npc_daily_04.wav",
+    "original_loudness": -21.13,
+    "normalized_loudness": -16.07,
+    "adjustment": 5.059999999999999,
+    "status": "success"
+  },
+  {
+    "file": "npc_daily_05.wav",
+    "original_loudness": -22.84,
+    "normalized_loudness": -16.17,
+    "adjustment": 6.669999999999998,
+    "status": "success"
+  },
+  {
+    "file": "npc_daily_06.wav",
+    "original_loudness": -22.12,
+    "normalized_loudness": -16.46,
+    "adjustment": 5.66,
+    "status": "success"
+  },
+  {
+    "file": "quest_return_01.wav",
+    "original_loudness": -22.56,
+    "normalized_loudness": -15.55,
+    "adjustment": 7.009999999999998,
+    "status": "success"
+  },
+  {
+    "file": "quest_return_02.wav",
+    "original_loudness": -22.44,
+    "normalized_loudness": -15.39,
+    "adjustment": 7.050000000000001,
+    "status": "success"
+  },
+  {
+    "file": "shard_02.wav",
+    "original_loudness": -22.05,
+    "normalized_loudness": -16.24,
+    "adjustment": 5.810000000000002,
+    "status": "success"
+  },
+  {
+    "file": "shard_03.wav",
+    "original_loudness": -21.39,
+    "normalized_loudness": -15.19,
+    "adjustment": 6.200000000000001,
+    "status": "success"
+  },
+  {
+    "file": "shard_04.wav",
+    "original_loudness": -22.75,
+    "normalized_loudness": -16.51,
+    "adjustment": 6.239999999999998,
+    "status": "success"
+  },
+  {
+    "file": "shard_06.wav",
+    "original_loudness": -21.99,
+    "normalized_loudness": -16.3,
+    "adjustment": 5.689999999999998,
+    "status": "success"
+  },
+  {
+    "file": "shard_07.wav",
+    "original_loudness": -23.04,
+    "normalized_loudness": -18.2,
+    "adjustment": 4.84,
+    "status": "success"
+  },
+  {
+    "file": "shard_08.wav",
+    "original_loudness": -21.14,
+    "normalized_loudness": -16.59,
+    "adjustment": 4.550000000000001,
+    "status": "success"
+  },
+  {
+    "file": "shard_09.wav",
+    "original_loudness": -21.38,
+    "normalized_loudness": -16.6,
+    "adjustment": 4.779999999999998,
+    "status": "success"
+  },
+  {
+    "file": "shard_10.wav",
+    "original_loudness": -22.18,
+    "normalized_loudness": -16.06,
+    "adjustment": 6.120000000000001,
+    "status": "success"
+  },
+  {
+    "file": "tea_quest_01.wav",
+    "original_loudness": -19.87,
+    "normalized_loudness": -16.56,
+    "adjustment": 3.3100000000000023,
+    "status": "success"
+  },
+  {
+    "file": "tea_quest_02.wav",
+    "original_loudness": -22.32,
+    "normalized_loudness": -15.49,
+    "adjustment": 6.83,
+    "status": "success"
+  },
+  {
+    "file": "tea_quest_03.wav",
+    "original_loudness": -22.68,
+    "normalized_loudness": -16.93,
+    "adjustment": 5.75,
+    "status": "success"
+  },
+  {
+    "file": "town_elope_01.wav",
+    "original_loudness": -21.53,
+    "normalized_loudness": -15.99,
+    "adjustment": 5.540000000000001,
+    "status": "success"
+  },
+  {
     "file": "garden_01.wav",
     "original_loudness": -25.46,
     "normalized_loudness": -15.24,
@@ -46,6 +487,1462 @@
     "original_loudness": -23.81,
     "normalized_loudness": -16.0,
     "adjustment": 7.809999999999999,
+    "status": "success"
+  },
+  {
+    "file": "forest_08.wav",
+    "original_loudness": -23.0,
+    "normalized_loudness": -17.28,
+    "adjustment": 5.719999999999999,
+    "status": "success"
+  },
+  {
+    "file": "mystery_after_01.wav",
+    "original_loudness": -20.72,
+    "normalized_loudness": -16.46,
+    "adjustment": 4.259999999999998,
+    "status": "success"
+  },
+  {
+    "file": "mystery_after_02.wav",
+    "original_loudness": -20.15,
+    "normalized_loudness": -15.99,
+    "adjustment": 4.159999999999998,
+    "status": "success"
+  },
+  {
+    "file": "mystery_after_03.wav",
+    "original_loudness": -20.87,
+    "normalized_loudness": -17.9,
+    "adjustment": 2.9700000000000024,
+    "status": "success"
+  },
+  {
+    "file": "mystery_talk_01.wav",
+    "original_loudness": -22.42,
+    "normalized_loudness": -16.01,
+    "adjustment": 6.41,
+    "status": "success"
+  },
+  {
+    "file": "mystery_talk_02.wav",
+    "original_loudness": -20.07,
+    "normalized_loudness": -15.56,
+    "adjustment": 4.51,
+    "status": "success"
+  },
+  {
+    "file": "mystery_talk_03.wav",
+    "original_loudness": -19.78,
+    "normalized_loudness": -15.99,
+    "adjustment": 3.790000000000001,
+    "status": "success"
+  },
+  {
+    "file": "mystery_talk_04.wav",
+    "original_loudness": -20.8,
+    "normalized_loudness": -16.53,
+    "adjustment": 4.27,
+    "status": "success"
+  },
+  {
+    "file": "ending_06.wav",
+    "original_loudness": -34.88,
+    "normalized_loudness": -17.27,
+    "adjustment": 17.610000000000003,
+    "status": "success"
+  },
+  {
+    "file": "ending_07.wav",
+    "original_loudness": -35.8,
+    "normalized_loudness": -16.78,
+    "adjustment": 19.019999999999996,
+    "status": "success"
+  },
+  {
+    "file": "ending_08.wav",
+    "original_loudness": -37.06,
+    "normalized_loudness": -17.33,
+    "adjustment": 19.730000000000004,
+    "status": "success"
+  },
+  {
+    "file": "ending_09.wav",
+    "original_loudness": -35.49,
+    "normalized_loudness": -17.2,
+    "adjustment": 18.290000000000003,
+    "status": "success"
+  },
+  {
+    "file": "evening_note.wav",
+    "original_loudness": -35.29,
+    "normalized_loudness": -17.76,
+    "adjustment": 17.529999999999998,
+    "status": "success"
+  },
+  {
+    "file": "flash1_01.wav",
+    "original_loudness": -35.2,
+    "normalized_loudness": -18.53,
+    "adjustment": 16.67,
+    "status": "success"
+  },
+  {
+    "file": "flash1_02.wav",
+    "original_loudness": -35.39,
+    "normalized_loudness": -16.57,
+    "adjustment": 18.82,
+    "status": "success"
+  },
+  {
+    "file": "flash3_01.wav",
+    "original_loudness": -36.63,
+    "normalized_loudness": -20.79,
+    "adjustment": 15.840000000000003,
+    "status": "success"
+  },
+  {
+    "file": "flash3_03.wav",
+    "original_loudness": -40.45,
+    "normalized_loudness": -20.9,
+    "adjustment": 19.550000000000004,
+    "status": "success"
+  },
+  {
+    "file": "flashG_01.wav",
+    "original_loudness": -36.75,
+    "normalized_loudness": -23.09,
+    "adjustment": 13.66,
+    "status": "success"
+  },
+  {
+    "file": "flashS_01.wav",
+    "original_loudness": -37.88,
+    "normalized_loudness": -22.72,
+    "adjustment": 15.160000000000004,
+    "status": "success"
+  },
+  {
+    "file": "notes_01.wav",
+    "original_loudness": -35.52,
+    "normalized_loudness": -17.04,
+    "adjustment": 18.480000000000004,
+    "status": "success"
+  },
+  {
+    "file": "notes_02.wav",
+    "original_loudness": -33.6,
+    "normalized_loudness": -17.29,
+    "adjustment": 16.310000000000002,
+    "status": "success"
+  },
+  {
+    "file": "notes_03.wav",
+    "original_loudness": -32.54,
+    "normalized_loudness": -18.0,
+    "adjustment": 14.54,
+    "status": "success"
+  },
+  {
+    "file": "notes_04.wav",
+    "original_loudness": -35.45,
+    "normalized_loudness": -20.07,
+    "adjustment": 15.380000000000003,
+    "status": "success"
+  },
+  {
+    "file": "branchA_01.wav",
+    "original_loudness": -34.67,
+    "normalized_loudness": -16.64,
+    "adjustment": 18.03,
+    "status": "success"
+  },
+  {
+    "file": "branchB_01.wav",
+    "original_loudness": -34.02,
+    "normalized_loudness": -15.68,
+    "adjustment": 18.340000000000003,
+    "status": "success"
+  },
+  {
+    "file": "branchB_02.wav",
+    "original_loudness": -35.23,
+    "normalized_loudness": -16.36,
+    "adjustment": 18.869999999999997,
+    "status": "success"
+  },
+  {
+    "file": "branchC_01.wav",
+    "original_loudness": -35.07,
+    "normalized_loudness": -15.71,
+    "adjustment": 19.36,
+    "status": "success"
+  },
+  {
+    "file": "dawn_02.wav",
+    "original_loudness": -33.74,
+    "normalized_loudness": -15.98,
+    "adjustment": 17.76,
+    "status": "success"
+  },
+  {
+    "file": "dawn_04.wav",
+    "original_loudness": -34.26,
+    "normalized_loudness": -15.37,
+    "adjustment": 18.89,
+    "status": "success"
+  },
+  {
+    "file": "elder_02.wav",
+    "original_loudness": -33.95,
+    "normalized_loudness": -16.14,
+    "adjustment": 17.810000000000002,
+    "status": "success"
+  },
+  {
+    "file": "elder_04.wav",
+    "original_loudness": -31.96,
+    "normalized_loudness": -16.93,
+    "adjustment": 15.030000000000001,
+    "status": "success"
+  },
+  {
+    "file": "elder_06.wav",
+    "original_loudness": -33.96,
+    "normalized_loudness": -18.11,
+    "adjustment": 15.850000000000001,
+    "status": "success"
+  },
+  {
+    "file": "elder_08.wav",
+    "original_loudness": -33.59,
+    "normalized_loudness": -16.73,
+    "adjustment": 16.860000000000003,
+    "status": "success"
+  },
+  {
+    "file": "ending_04.wav",
+    "original_loudness": -33.77,
+    "normalized_loudness": -17.27,
+    "adjustment": 16.500000000000004,
+    "status": "success"
+  },
+  {
+    "file": "ending_10.wav",
+    "original_loudness": -33.9,
+    "normalized_loudness": -15.49,
+    "adjustment": 18.409999999999997,
+    "status": "success"
+  },
+  {
+    "file": "evening_02.wav",
+    "original_loudness": -34.52,
+    "normalized_loudness": -16.02,
+    "adjustment": 18.500000000000004,
+    "status": "success"
+  },
+  {
+    "file": "evening_04.wav",
+    "original_loudness": -34.32,
+    "normalized_loudness": -18.42,
+    "adjustment": 15.899999999999999,
+    "status": "success"
+  },
+  {
+    "file": "evening_obs_01.wav",
+    "original_loudness": -35.15,
+    "normalized_loudness": -16.09,
+    "adjustment": 19.06,
+    "status": "success"
+  },
+  {
+    "file": "evening_obs_02.wav",
+    "original_loudness": -34.95,
+    "normalized_loudness": -15.6,
+    "adjustment": 19.35,
+    "status": "success"
+  },
+  {
+    "file": "evening_talk_01.wav",
+    "original_loudness": -35.75,
+    "normalized_loudness": -16.64,
+    "adjustment": 19.11,
+    "status": "success"
+  },
+  {
+    "file": "evening_talk_02.wav",
+    "original_loudness": -35.37,
+    "normalized_loudness": -15.84,
+    "adjustment": 19.529999999999998,
+    "status": "success"
+  },
+  {
+    "file": "evening_talk_03.wav",
+    "original_loudness": -33.6,
+    "normalized_loudness": -17.0,
+    "adjustment": 16.6,
+    "status": "success"
+  },
+  {
+    "file": "flash1_03.wav",
+    "original_loudness": -34.93,
+    "normalized_loudness": -15.31,
+    "adjustment": 19.619999999999997,
+    "status": "success"
+  },
+  {
+    "file": "flash1_04.wav",
+    "original_loudness": -34.72,
+    "normalized_loudness": -16.0,
+    "adjustment": 18.72,
+    "status": "success"
+  },
+  {
+    "file": "flash2_01.wav",
+    "original_loudness": -35.02,
+    "normalized_loudness": -16.73,
+    "adjustment": 18.290000000000003,
+    "status": "success"
+  },
+  {
+    "file": "flash2_03.wav",
+    "original_loudness": -34.72,
+    "normalized_loudness": -16.29,
+    "adjustment": 18.43,
+    "status": "success"
+  },
+  {
+    "file": "flash3_02.wav",
+    "original_loudness": -35.43,
+    "normalized_loudness": -17.09,
+    "adjustment": 18.34,
+    "status": "success"
+  },
+  {
+    "file": "flash3_04.wav",
+    "original_loudness": -35.86,
+    "normalized_loudness": -16.58,
+    "adjustment": 19.28,
+    "status": "success"
+  },
+  {
+    "file": "flashL_01.wav",
+    "original_loudness": -34.99,
+    "normalized_loudness": -15.97,
+    "adjustment": 19.020000000000003,
+    "status": "success"
+  },
+  {
+    "file": "flashL_03.wav",
+    "original_loudness": -35.31,
+    "normalized_loudness": -15.64,
+    "adjustment": 19.67,
+    "status": "success"
+  },
+  {
+    "file": "flashL_05.wav",
+    "original_loudness": -34.13,
+    "normalized_loudness": -15.85,
+    "adjustment": 18.28,
+    "status": "success"
+  },
+  {
+    "file": "forest_02.wav",
+    "original_loudness": -33.6,
+    "normalized_loudness": -16.0,
+    "adjustment": 17.6,
+    "status": "success"
+  },
+  {
+    "file": "forest_03.wav",
+    "original_loudness": -34.02,
+    "normalized_loudness": -16.01,
+    "adjustment": 18.01,
+    "status": "success"
+  },
+  {
+    "file": "forest_05.wav",
+    "original_loudness": -34.58,
+    "normalized_loudness": -15.85,
+    "adjustment": 18.729999999999997,
+    "status": "success"
+  },
+  {
+    "file": "forest_07.wav",
+    "original_loudness": -33.29,
+    "normalized_loudness": -15.99,
+    "adjustment": 17.299999999999997,
+    "status": "success"
+  },
+  {
+    "file": "forest_08.wav",
+    "original_loudness": -32.93,
+    "normalized_loudness": -16.02,
+    "adjustment": 16.91,
+    "status": "success"
+  },
+  {
+    "file": "forest_09.wav",
+    "original_loudness": -35.12,
+    "normalized_loudness": -16.24,
+    "adjustment": 18.88,
+    "status": "success"
+  },
+  {
+    "file": "garden_answer_01.wav",
+    "original_loudness": -33.2,
+    "normalized_loudness": -17.76,
+    "adjustment": 15.440000000000001,
+    "status": "success"
+  },
+  {
+    "file": "garden_reflect_01.wav",
+    "original_loudness": -35.66,
+    "normalized_loudness": -16.18,
+    "adjustment": 19.479999999999997,
+    "status": "success"
+  },
+  {
+    "file": "gate_01.wav",
+    "original_loudness": -33.95,
+    "normalized_loudness": -15.99,
+    "adjustment": 17.96,
+    "status": "success"
+  },
+  {
+    "file": "gate_03.wav",
+    "original_loudness": -33.84,
+    "normalized_loudness": -16.0,
+    "adjustment": 17.840000000000003,
+    "status": "success"
+  },
+  {
+    "file": "gate_06.wav",
+    "original_loudness": -34.62,
+    "normalized_loudness": -16.0,
+    "adjustment": 18.619999999999997,
+    "status": "success"
+  },
+  {
+    "file": "harvest_02.wav",
+    "original_loudness": -35.08,
+    "normalized_loudness": -15.98,
+    "adjustment": 19.099999999999998,
+    "status": "success"
+  },
+  {
+    "file": "harvest_04.wav",
+    "original_loudness": -34.57,
+    "normalized_loudness": -16.37,
+    "adjustment": 18.2,
+    "status": "success"
+  },
+  {
+    "file": "lamp_01.wav",
+    "original_loudness": -35.25,
+    "normalized_loudness": -16.29,
+    "adjustment": 18.96,
+    "status": "success"
+  },
+  {
+    "file": "lamp_03.wav",
+    "original_loudness": -33.31,
+    "normalized_loudness": -17.97,
+    "adjustment": 15.340000000000003,
+    "status": "success"
+  },
+  {
+    "file": "mine_01.wav",
+    "original_loudness": -32.87,
+    "normalized_loudness": -15.99,
+    "adjustment": 16.879999999999995,
+    "status": "success"
+  },
+  {
+    "file": "mine_03.wav",
+    "original_loudness": -32.71,
+    "normalized_loudness": -16.88,
+    "adjustment": 15.830000000000002,
+    "status": "success"
+  },
+  {
+    "file": "mine_05.wav",
+    "original_loudness": -35.18,
+    "normalized_loudness": -16.43,
+    "adjustment": 18.75,
+    "status": "success"
+  },
+  {
+    "file": "mystery_answered_01.wav",
+    "original_loudness": -32.99,
+    "normalized_loudness": -16.18,
+    "adjustment": 16.810000000000002,
+    "status": "success"
+  },
+  {
+    "file": "robot_01.wav",
+    "original_loudness": -33.35,
+    "normalized_loudness": -16.31,
+    "adjustment": 17.040000000000003,
+    "status": "success"
+  },
+  {
+    "file": "robot_02.wav",
+    "original_loudness": -34.17,
+    "normalized_loudness": -16.28,
+    "adjustment": 17.89,
+    "status": "success"
+  },
+  {
+    "file": "robot_03.wav",
+    "original_loudness": -34.93,
+    "normalized_loudness": -18.8,
+    "adjustment": 16.13,
+    "status": "success"
+  },
+  {
+    "file": "shard_01.wav",
+    "original_loudness": -34.36,
+    "normalized_loudness": -15.3,
+    "adjustment": 19.06,
+    "status": "success"
+  },
+  {
+    "file": "shard_05.wav",
+    "original_loudness": -35.19,
+    "normalized_loudness": -16.49,
+    "adjustment": 18.7,
+    "status": "success"
+  },
+  {
+    "file": "star_site_01.wav",
+    "original_loudness": -34.25,
+    "normalized_loudness": -16.68,
+    "adjustment": 17.57,
+    "status": "success"
+  },
+  {
+    "file": "station_01.wav",
+    "original_loudness": -34.02,
+    "normalized_loudness": -15.98,
+    "adjustment": 18.040000000000003,
+    "status": "success"
+  },
+  {
+    "file": "station_02.wav",
+    "original_loudness": -34.36,
+    "normalized_loudness": -19.45,
+    "adjustment": 14.91,
+    "status": "success"
+  },
+  {
+    "file": "station_03.wav",
+    "original_loudness": -35.37,
+    "normalized_loudness": -16.43,
+    "adjustment": 18.939999999999998,
+    "status": "success"
+  },
+  {
+    "file": "station_04.wav",
+    "original_loudness": -35.9,
+    "normalized_loudness": -15.94,
+    "adjustment": 19.96,
+    "status": "success"
+  },
+  {
+    "file": "tea_quest_04.wav",
+    "original_loudness": -35.75,
+    "normalized_loudness": -19.12,
+    "adjustment": 16.63,
+    "status": "success"
+  },
+  {
+    "file": "town_01.wav",
+    "original_loudness": -34.97,
+    "normalized_loudness": -16.33,
+    "adjustment": 18.64,
+    "status": "success"
+  },
+  {
+    "file": "trellis_03.wav",
+    "original_loudness": -33.21,
+    "normalized_loudness": -16.36,
+    "adjustment": 16.85,
+    "status": "success"
+  },
+  {
+    "file": "water_04.wav",
+    "original_loudness": -34.25,
+    "normalized_loudness": -17.38,
+    "adjustment": 16.87,
+    "status": "success"
+  },
+  {
+    "file": "woodcut_01.wav",
+    "original_loudness": -34.87,
+    "normalized_loudness": -16.03,
+    "adjustment": 18.839999999999996,
+    "status": "success"
+  },
+  {
+    "file": "woodcut_03.wav",
+    "original_loudness": -35.14,
+    "normalized_loudness": -16.88,
+    "adjustment": 18.26,
+    "status": "success"
+  },
+  {
+    "file": "woodcut_05.wav",
+    "original_loudness": -35.2,
+    "normalized_loudness": -15.81,
+    "adjustment": 19.39,
+    "status": "success"
+  },
+  {
+    "file": "xiya_02.wav",
+    "original_loudness": -32.26,
+    "normalized_loudness": -16.01,
+    "adjustment": 16.249999999999996,
+    "status": "success"
+  },
+  {
+    "file": "xiya_04.wav",
+    "original_loudness": -35.62,
+    "normalized_loudness": -15.89,
+    "adjustment": 19.729999999999997,
+    "status": "success"
+  },
+  {
+    "file": "miner_01.wav",
+    "original_loudness": -14.63,
+    "normalized_loudness": -16.19,
+    "adjustment": -1.5600000000000005,
+    "status": "success"
+  },
+  {
+    "file": "miner_02.wav",
+    "original_loudness": -12.28,
+    "normalized_loudness": -16.14,
+    "adjustment": -3.860000000000001,
+    "status": "success"
+  },
+  {
+    "file": "miner_03.wav",
+    "original_loudness": -13.85,
+    "normalized_loudness": -15.75,
+    "adjustment": -1.9000000000000004,
+    "status": "success"
+  },
+  {
+    "file": "miner_04.wav",
+    "original_loudness": -13.12,
+    "normalized_loudness": -15.23,
+    "adjustment": -2.110000000000001,
+    "status": "success"
+  },
+  {
+    "file": "miner_05.wav",
+    "original_loudness": -15.14,
+    "normalized_loudness": -16.41,
+    "adjustment": -1.2699999999999996,
+    "status": "success"
+  },
+  {
+    "file": "miner_06.wav",
+    "original_loudness": -15.83,
+    "normalized_loudness": -16.92,
+    "adjustment": -1.0900000000000016,
+    "status": "success"
+  },
+  {
+    "file": "miner_07.wav",
+    "original_loudness": -14.23,
+    "normalized_loudness": -16.62,
+    "adjustment": -2.3900000000000006,
+    "status": "success"
+  },
+  {
+    "file": "miner_08.wav",
+    "original_loudness": -14.32,
+    "normalized_loudness": -16.78,
+    "adjustment": -2.460000000000001,
+    "status": "success"
+  },
+  {
+    "file": "shop_01.wav",
+    "original_loudness": -15.23,
+    "normalized_loudness": -16.0,
+    "adjustment": -0.7699999999999996,
+    "status": "success"
+  },
+  {
+    "file": "shop_02.wav",
+    "original_loudness": -15.47,
+    "normalized_loudness": -16.38,
+    "adjustment": -0.9099999999999984,
+    "status": "success"
+  },
+  {
+    "file": "shop_03.wav",
+    "original_loudness": -18.11,
+    "normalized_loudness": -16.67,
+    "adjustment": 1.4399999999999977,
+    "status": "success"
+  },
+  {
+    "file": "hr_station_01.wav",
+    "original_loudness": -12.55,
+    "normalized_loudness": -16.18,
+    "adjustment": -3.629999999999999,
+    "status": "success"
+  },
+  {
+    "file": "hr_station_02.wav",
+    "original_loudness": -34.93,
+    "normalized_loudness": -15.84,
+    "adjustment": 19.09,
+    "status": "success"
+  },
+  {
+    "file": "hr_station_03.wav",
+    "original_loudness": -13.63,
+    "normalized_loudness": -15.69,
+    "adjustment": -2.0599999999999987,
+    "status": "success"
+  },
+  {
+    "file": "branchA_02.wav",
+    "original_loudness": -26.01,
+    "normalized_loudness": -15.99,
+    "adjustment": 10.020000000000001,
+    "status": "success"
+  },
+  {
+    "file": "branchC_02.wav",
+    "original_loudness": -25.54,
+    "normalized_loudness": -16.01,
+    "adjustment": 9.529999999999998,
+    "status": "success"
+  },
+  {
+    "file": "branchC_03.wav",
+    "original_loudness": -25.36,
+    "normalized_loudness": -16.01,
+    "adjustment": 9.349999999999998,
+    "status": "success"
+  },
+  {
+    "file": "dawn_01.wav",
+    "original_loudness": -26.34,
+    "normalized_loudness": -15.48,
+    "adjustment": 10.86,
+    "status": "success"
+  },
+  {
+    "file": "dawn_03.wav",
+    "original_loudness": -24.67,
+    "normalized_loudness": -16.43,
+    "adjustment": 8.240000000000002,
+    "status": "success"
+  },
+  {
+    "file": "ending_01.wav",
+    "original_loudness": -23.53,
+    "normalized_loudness": -15.62,
+    "adjustment": 7.910000000000002,
+    "status": "success"
+  },
+  {
+    "file": "ending_02.wav",
+    "original_loudness": -24.53,
+    "normalized_loudness": -15.75,
+    "adjustment": 8.780000000000001,
+    "status": "success"
+  },
+  {
+    "file": "ending_03.wav",
+    "original_loudness": -23.92,
+    "normalized_loudness": -15.85,
+    "adjustment": 8.070000000000002,
+    "status": "success"
+  },
+  {
+    "file": "ending_05.wav",
+    "original_loudness": -24.6,
+    "normalized_loudness": -16.39,
+    "adjustment": 8.21,
+    "status": "success"
+  },
+  {
+    "file": "evening_01.wav",
+    "original_loudness": -22.57,
+    "normalized_loudness": -16.01,
+    "adjustment": 6.559999999999999,
+    "status": "success"
+  },
+  {
+    "file": "evening_03.wav",
+    "original_loudness": -24.89,
+    "normalized_loudness": -16.03,
+    "adjustment": 8.86,
+    "status": "success"
+  },
+  {
+    "file": "evening_05.wav",
+    "original_loudness": -24.93,
+    "normalized_loudness": -16.01,
+    "adjustment": 8.919999999999998,
+    "status": "success"
+  },
+  {
+    "file": "finale_01.wav",
+    "original_loudness": -23.26,
+    "normalized_loudness": -15.8,
+    "adjustment": 7.460000000000001,
+    "status": "success"
+  },
+  {
+    "file": "finale_02.wav",
+    "original_loudness": -23.16,
+    "normalized_loudness": -16.0,
+    "adjustment": 7.16,
+    "status": "success"
+  },
+  {
+    "file": "flash2_02.wav",
+    "original_loudness": -25.72,
+    "normalized_loudness": -15.99,
+    "adjustment": 9.729999999999999,
+    "status": "success"
+  },
+  {
+    "file": "flashL_02.wav",
+    "original_loudness": -24.58,
+    "normalized_loudness": -16.0,
+    "adjustment": 8.579999999999998,
+    "status": "success"
+  },
+  {
+    "file": "flashL_04.wav",
+    "original_loudness": -25.68,
+    "normalized_loudness": -15.99,
+    "adjustment": 9.69,
+    "status": "success"
+  },
+  {
+    "file": "forest_01.wav",
+    "original_loudness": -23.78,
+    "normalized_loudness": -16.02,
+    "adjustment": 7.760000000000002,
+    "status": "success"
+  },
+  {
+    "file": "forest_04.wav",
+    "original_loudness": -22.95,
+    "normalized_loudness": -15.97,
+    "adjustment": 6.979999999999999,
+    "status": "success"
+  },
+  {
+    "file": "forest_06.wav",
+    "original_loudness": -23.32,
+    "normalized_loudness": -16.47,
+    "adjustment": 6.850000000000001,
+    "status": "success"
+  },
+  {
+    "file": "forest_08.wav",
+    "original_loudness": -24.42,
+    "normalized_loudness": -15.96,
+    "adjustment": 8.46,
+    "status": "success"
+  },
+  {
+    "file": "forest_09.wav",
+    "original_loudness": -24.55,
+    "normalized_loudness": -15.68,
+    "adjustment": 8.870000000000001,
+    "status": "success"
+  },
+  {
+    "file": "garden_01.wav",
+    "original_loudness": -25.05,
+    "normalized_loudness": -15.78,
+    "adjustment": 9.270000000000001,
+    "status": "success"
+  },
+  {
+    "file": "garden_02.wav",
+    "original_loudness": -25.58,
+    "normalized_loudness": -15.51,
+    "adjustment": 10.069999999999999,
+    "status": "success"
+  },
+  {
+    "file": "garden_03.wav",
+    "original_loudness": -25.23,
+    "normalized_loudness": -15.17,
+    "adjustment": 10.06,
+    "status": "success"
+  },
+  {
+    "file": "garden_04.wav",
+    "original_loudness": -25.61,
+    "normalized_loudness": -15.77,
+    "adjustment": 9.84,
+    "status": "success"
+  },
+  {
+    "file": "gate_02.wav",
+    "original_loudness": -24.59,
+    "normalized_loudness": -16.0,
+    "adjustment": 8.59,
+    "status": "success"
+  },
+  {
+    "file": "gate_05.wav",
+    "original_loudness": -24.43,
+    "normalized_loudness": -18.17,
+    "adjustment": 6.259999999999998,
+    "status": "success"
+  },
+  {
+    "file": "harvest_01.wav",
+    "original_loudness": -26.46,
+    "normalized_loudness": -16.8,
+    "adjustment": 9.66,
+    "status": "success"
+  },
+  {
+    "file": "harvest_03.wav",
+    "original_loudness": -23.96,
+    "normalized_loudness": -16.01,
+    "adjustment": 7.949999999999999,
+    "status": "success"
+  },
+  {
+    "file": "lamp_02.wav",
+    "original_loudness": -23.69,
+    "normalized_loudness": -16.01,
+    "adjustment": 7.68,
+    "status": "success"
+  },
+  {
+    "file": "lamp_04.wav",
+    "original_loudness": -25.03,
+    "normalized_loudness": -15.99,
+    "adjustment": 9.040000000000001,
+    "status": "success"
+  },
+  {
+    "file": "mine_02.wav",
+    "original_loudness": -23.98,
+    "normalized_loudness": -16.11,
+    "adjustment": 7.870000000000001,
+    "status": "success"
+  },
+  {
+    "file": "mine_04.wav",
+    "original_loudness": -23.9,
+    "normalized_loudness": -16.76,
+    "adjustment": 7.139999999999997,
+    "status": "success"
+  },
+  {
+    "file": "sow_01.wav",
+    "original_loudness": -25.9,
+    "normalized_loudness": -15.62,
+    "adjustment": 10.28,
+    "status": "success"
+  },
+  {
+    "file": "trellis_01.wav",
+    "original_loudness": -24.24,
+    "normalized_loudness": -15.2,
+    "adjustment": 9.04,
+    "status": "success"
+  },
+  {
+    "file": "trellis_02.wav",
+    "original_loudness": -23.08,
+    "normalized_loudness": -16.38,
+    "adjustment": 6.699999999999999,
+    "status": "success"
+  },
+  {
+    "file": "trellis_04.wav",
+    "original_loudness": -25.86,
+    "normalized_loudness": -15.54,
+    "adjustment": 10.32,
+    "status": "success"
+  },
+  {
+    "file": "trellis_done_01.wav",
+    "original_loudness": -24.9,
+    "normalized_loudness": -15.65,
+    "adjustment": 9.249999999999998,
+    "status": "success"
+  },
+  {
+    "file": "trellis_done_02.wav",
+    "original_loudness": -24.84,
+    "normalized_loudness": -15.17,
+    "adjustment": 9.67,
+    "status": "success"
+  },
+  {
+    "file": "trellis_need_01.wav",
+    "original_loudness": -23.7,
+    "normalized_loudness": -15.31,
+    "adjustment": 8.389999999999999,
+    "status": "success"
+  },
+  {
+    "file": "water_01.wav",
+    "original_loudness": -24.03,
+    "normalized_loudness": -15.28,
+    "adjustment": 8.750000000000002,
+    "status": "success"
+  },
+  {
+    "file": "water_02.wav",
+    "original_loudness": -26.08,
+    "normalized_loudness": -15.72,
+    "adjustment": 10.359999999999998,
+    "status": "success"
+  },
+  {
+    "file": "water_03.wav",
+    "original_loudness": -24.08,
+    "normalized_loudness": -15.6,
+    "adjustment": 8.479999999999999,
+    "status": "success"
+  },
+  {
+    "file": "water_05.wav",
+    "original_loudness": -24.22,
+    "normalized_loudness": -15.18,
+    "adjustment": 9.04,
+    "status": "success"
+  },
+  {
+    "file": "woodcut_02.wav",
+    "original_loudness": -24.4,
+    "normalized_loudness": -15.44,
+    "adjustment": 8.959999999999999,
+    "status": "success"
+  },
+  {
+    "file": "woodcut_04.wav",
+    "original_loudness": -24.89,
+    "normalized_loudness": -15.56,
+    "adjustment": 9.33,
+    "status": "success"
+  },
+  {
+    "file": "xiya_01.wav",
+    "original_loudness": -23.38,
+    "normalized_loudness": -16.01,
+    "adjustment": 7.369999999999997,
+    "status": "success"
+  },
+  {
+    "file": "xiya_03.wav",
+    "original_loudness": -24.73,
+    "normalized_loudness": -15.69,
+    "adjustment": 9.040000000000001,
+    "status": "success"
+  },
+  {
+    "file": "xiya_05.wav",
+    "original_loudness": -23.58,
+    "normalized_loudness": -15.99,
+    "adjustment": 7.589999999999998,
+    "status": "success"
+  },
+  {
+    "file": "xiya_01.wav",
+    "original_loudness": -22.52,
+    "normalized_loudness": -15.99,
+    "adjustment": 6.529999999999999,
+    "status": "success"
+  },
+  {
+    "file": "xiya_03.wav",
+    "original_loudness": -25.57,
+    "normalized_loudness": -16.58,
+    "adjustment": 8.990000000000002,
+    "status": "success"
+  },
+  {
+    "file": "xiya_05.wav",
+    "original_loudness": -24.72,
+    "normalized_loudness": -16.0,
+    "adjustment": 8.719999999999999,
+    "status": "success"
+  },
+  {
+    "file": "branchA_02.wav",
+    "original_loudness": -23.93,
+    "normalized_loudness": -16.01,
+    "adjustment": 7.919999999999998,
+    "status": "success"
+  },
+  {
+    "file": "branchC_02.wav",
+    "original_loudness": -25.4,
+    "normalized_loudness": -15.99,
+    "adjustment": 9.409999999999998,
+    "status": "success"
+  },
+  {
+    "file": "branchC_03.wav",
+    "original_loudness": -25.59,
+    "normalized_loudness": -16.01,
+    "adjustment": 9.579999999999998,
+    "status": "success"
+  },
+  {
+    "file": "dawn_01.wav",
+    "original_loudness": -25.97,
+    "normalized_loudness": -15.34,
+    "adjustment": 10.629999999999999,
+    "status": "success"
+  },
+  {
+    "file": "dawn_03.wav",
+    "original_loudness": -25.06,
+    "normalized_loudness": -15.76,
+    "adjustment": 9.299999999999999,
+    "status": "success"
+  },
+  {
+    "file": "ending_01.wav",
+    "original_loudness": -23.14,
+    "normalized_loudness": -16.01,
+    "adjustment": 7.129999999999999,
+    "status": "success"
+  },
+  {
+    "file": "ending_02.wav",
+    "original_loudness": -25.17,
+    "normalized_loudness": -16.14,
+    "adjustment": 9.030000000000001,
+    "status": "success"
+  },
+  {
+    "file": "ending_03.wav",
+    "original_loudness": -24.33,
+    "normalized_loudness": -15.46,
+    "adjustment": 8.869999999999997,
+    "status": "success"
+  },
+  {
+    "file": "ending_05.wav",
+    "original_loudness": -25.15,
+    "normalized_loudness": -15.83,
+    "adjustment": 9.319999999999999,
+    "status": "success"
+  },
+  {
+    "file": "evening_01.wav",
+    "original_loudness": -21.81,
+    "normalized_loudness": -16.01,
+    "adjustment": 5.799999999999997,
+    "status": "success"
+  },
+  {
+    "file": "evening_03.wav",
+    "original_loudness": -25.33,
+    "normalized_loudness": -16.01,
+    "adjustment": 9.319999999999997,
+    "status": "success"
+  },
+  {
+    "file": "evening_05.wav",
+    "original_loudness": -24.49,
+    "normalized_loudness": -16.0,
+    "adjustment": 8.489999999999998,
+    "status": "success"
+  },
+  {
+    "file": "finale_01.wav",
+    "original_loudness": -23.87,
+    "normalized_loudness": -15.7,
+    "adjustment": 8.170000000000002,
+    "status": "success"
+  },
+  {
+    "file": "finale_02.wav",
+    "original_loudness": -23.7,
+    "normalized_loudness": -15.99,
+    "adjustment": 7.709999999999999,
+    "status": "success"
+  },
+  {
+    "file": "flash2_02.wav",
+    "original_loudness": -25.16,
+    "normalized_loudness": -16.0,
+    "adjustment": 9.16,
+    "status": "success"
+  },
+  {
+    "file": "flashL_02.wav",
+    "original_loudness": -22.21,
+    "normalized_loudness": -16.01,
+    "adjustment": 6.199999999999999,
+    "status": "success"
+  },
+  {
+    "file": "flashL_04.wav",
+    "original_loudness": -26.33,
+    "normalized_loudness": -15.99,
+    "adjustment": 10.339999999999998,
+    "status": "success"
+  },
+  {
+    "file": "forest_01.wav",
+    "original_loudness": -23.75,
+    "normalized_loudness": -16.03,
+    "adjustment": 7.719999999999999,
+    "status": "success"
+  },
+  {
+    "file": "forest_04.wav",
+    "original_loudness": -22.5,
+    "normalized_loudness": -16.0,
+    "adjustment": 6.5,
+    "status": "success"
+  },
+  {
+    "file": "forest_06.wav",
+    "original_loudness": -24.95,
+    "normalized_loudness": -16.0,
+    "adjustment": 8.95,
+    "status": "success"
+  },
+  {
+    "file": "forest_08.wav",
+    "original_loudness": -24.1,
+    "normalized_loudness": -15.58,
+    "adjustment": 8.520000000000001,
+    "status": "success"
+  },
+  {
+    "file": "forest_09.wav",
+    "original_loudness": -25.58,
+    "normalized_loudness": -15.39,
+    "adjustment": 10.189999999999998,
+    "status": "success"
+  },
+  {
+    "file": "garden_01.wav",
+    "original_loudness": -24.8,
+    "normalized_loudness": -16.0,
+    "adjustment": 8.8,
+    "status": "success"
+  },
+  {
+    "file": "garden_02.wav",
+    "original_loudness": -25.58,
+    "normalized_loudness": -15.81,
+    "adjustment": 9.769999999999998,
+    "status": "success"
+  },
+  {
+    "file": "garden_03.wav",
+    "original_loudness": -25.29,
+    "normalized_loudness": -15.83,
+    "adjustment": 9.459999999999999,
+    "status": "success"
+  },
+  {
+    "file": "garden_04.wav",
+    "original_loudness": -25.68,
+    "normalized_loudness": -16.36,
+    "adjustment": 9.32,
+    "status": "success"
+  },
+  {
+    "file": "gate_02.wav",
+    "original_loudness": -23.33,
+    "normalized_loudness": -15.99,
+    "adjustment": 7.339999999999998,
+    "status": "success"
+  },
+  {
+    "file": "gate_04.wav",
+    "original_loudness": -24.75,
+    "normalized_loudness": -16.98,
+    "adjustment": 7.77,
+    "status": "success"
+  },
+  {
+    "file": "gate_05.wav",
+    "original_loudness": -24.44,
+    "normalized_loudness": -18.0,
+    "adjustment": 6.440000000000001,
+    "status": "success"
+  },
+  {
+    "file": "gate_07.wav",
+    "original_loudness": -25.84,
+    "normalized_loudness": -16.14,
+    "adjustment": 9.7,
+    "status": "success"
+  },
+  {
+    "file": "harvest_01.wav",
+    "original_loudness": -25.96,
+    "normalized_loudness": -16.01,
+    "adjustment": 9.95,
+    "status": "success"
+  },
+  {
+    "file": "harvest_03.wav",
+    "original_loudness": -22.6,
+    "normalized_loudness": -16.0,
+    "adjustment": 6.600000000000001,
+    "status": "success"
+  },
+  {
+    "file": "lamp_02.wav",
+    "original_loudness": -23.07,
+    "normalized_loudness": -15.99,
+    "adjustment": 7.08,
+    "status": "success"
+  },
+  {
+    "file": "lamp_04.wav",
+    "original_loudness": -24.35,
+    "normalized_loudness": -15.98,
+    "adjustment": 8.370000000000001,
+    "status": "success"
+  },
+  {
+    "file": "mine_02.wav",
+    "original_loudness": -24.74,
+    "normalized_loudness": -16.17,
+    "adjustment": 8.569999999999997,
+    "status": "success"
+  },
+  {
+    "file": "mine_04.wav",
+    "original_loudness": -24.31,
+    "normalized_loudness": -16.16,
+    "adjustment": 8.149999999999999,
+    "status": "success"
+  },
+  {
+    "file": "sow_01.wav",
+    "original_loudness": -25.9,
+    "normalized_loudness": -16.07,
+    "adjustment": 9.829999999999998,
+    "status": "success"
+  },
+  {
+    "file": "trellis_01.wav",
+    "original_loudness": -24.71,
+    "normalized_loudness": -16.16,
+    "adjustment": 8.55,
+    "status": "success"
+  },
+  {
+    "file": "trellis_02.wav",
+    "original_loudness": -25.0,
+    "normalized_loudness": -17.04,
+    "adjustment": 7.960000000000001,
+    "status": "success"
+  },
+  {
+    "file": "trellis_04.wav",
+    "original_loudness": -24.96,
+    "normalized_loudness": -16.6,
+    "adjustment": 8.36,
+    "status": "success"
+  },
+  {
+    "file": "trellis_done_01.wav",
+    "original_loudness": -23.87,
+    "normalized_loudness": -15.82,
+    "adjustment": 8.05,
+    "status": "success"
+  },
+  {
+    "file": "trellis_done_02.wav",
+    "original_loudness": -24.35,
+    "normalized_loudness": -16.01,
+    "adjustment": 8.34,
+    "status": "success"
+  },
+  {
+    "file": "trellis_need_01.wav",
+    "original_loudness": -23.91,
+    "normalized_loudness": -15.51,
+    "adjustment": 8.4,
+    "status": "success"
+  },
+  {
+    "file": "water_01.wav",
+    "original_loudness": -24.97,
+    "normalized_loudness": -15.57,
+    "adjustment": 9.399999999999999,
+    "status": "success"
+  },
+  {
+    "file": "water_02.wav",
+    "original_loudness": -26.78,
+    "normalized_loudness": -15.98,
+    "adjustment": 10.8,
+    "status": "success"
+  },
+  {
+    "file": "water_03.wav",
+    "original_loudness": -24.38,
+    "normalized_loudness": -15.44,
+    "adjustment": 8.94,
+    "status": "success"
+  },
+  {
+    "file": "water_05.wav",
+    "original_loudness": -24.81,
+    "normalized_loudness": -15.43,
+    "adjustment": 9.379999999999999,
+    "status": "success"
+  },
+  {
+    "file": "woodcut_02.wav",
+    "original_loudness": -25.04,
+    "normalized_loudness": -16.42,
+    "adjustment": 8.619999999999997,
+    "status": "success"
+  },
+  {
+    "file": "woodcut_04.wav",
+    "original_loudness": -24.77,
+    "normalized_loudness": -16.01,
+    "adjustment": 8.759999999999998,
+    "status": "success"
+  },
+  {
+    "file": "xiya_01.wav",
+    "original_loudness": -22.52,
+    "normalized_loudness": -15.99,
+    "adjustment": 6.529999999999999,
+    "status": "success"
+  },
+  {
+    "file": "xiya_03.wav",
+    "original_loudness": -25.57,
+    "normalized_loudness": -16.58,
+    "adjustment": 8.990000000000002,
+    "status": "success"
+  },
+  {
+    "file": "xiya_05.wav",
+    "original_loudness": -24.72,
+    "normalized_loudness": -16.0,
+    "adjustment": 8.719999999999999,
     "status": "success"
   }
 ]

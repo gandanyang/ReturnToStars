@@ -111,6 +111,22 @@ export const XIYA_DAWN_DIALOGUE: DialogueLine[] = [
 ];
 
 /**
+ * 第一章「复苏」开场独白（[A-1] 章节切换仪式感，2026-08-13 制作人拍板）
+ *
+ * 叙事定位：观星夜结束 → EndingPanel 关闭后，玩家站在 farm 晨光里。
+ * 此刻玩家心理从"昨晚看星"跳到"今天种田"，缺少"我决定住下了"的认知信号。
+ * 本对白用 3 行建立"新生活开始"的仪式感，承接第0章结尾、引出第一章老屋整理。
+ *
+ * 触发：EndingPanel.onClose → 延迟 600ms → triggerOnce('ch1_awakening')
+ * 与 first_morning_response（day2 清晨）时间错开，不冲突。
+ */
+export const CH1_AWAKENING_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（晨光里，林澈站在老屋前。昨晚的星星还留在记忆里。）' },
+  { speaker: '林澈', color: COLORS.linche, inner: true, text: '……是的。这里，可以是我新的家。' },
+  { speaker: '', color: COLORS.system, text: '（新的一天开始了。该去老屋看看，整理一下了。）' },
+];
+
+/**
  * 岛屿的第一声回应（day2 清晨自动触发，制作人定稿 2026-08-07，Agent 不得扩写/改写）
  * 关键剧情节点：第一天睡觉后，玩家第一次"完整循环"的回报——岛屿开始回应玩家的努力。
  * 触发：day2 清晨首次进 farm（EventManager triggerOnce 判重，见 MapScene.tryFirstMorningSequence）。
@@ -206,10 +222,11 @@ export const EVENING_DIALOGUE: DialogueLine[] = [
 
 /** 首次进入小镇 */
 export const TOWN_INTRO_DIALOGUE: DialogueLine[] = [
-  { speaker: '', color: COLORS.system, text: '（清晨，林澈穿过庄园外的石桥，第一次踏上青禾镇的街道。）' },
+  // 2026-08-13 P0 残留清理：对齐新地图实际路径（第一章从农场老屋进镇，非第0章"庄园石桥"）
+  { speaker: '', color: COLORS.system, text: '（清晨，林澈从老屋出来，沿着土路走了一段，第一次踏上青禾镇的街道。）' },
   { speaker: '林澈', color: COLORS.linche, inner: true, text: '这就是青禾镇……爷爷信里提起过的地方。' },
   { speaker: '', color: COLORS.system, text: '（街道两旁是低矮的木屋，商店门口已经支起了摊子。一个老人正在清扫门前的台阶。）' },
-  { speaker: '', color: COLORS.system, text: '（镇长早就听说庄园来了一位新主人。他放下扫帚，朝林澈招了招手。）' },
+  { speaker: '', color: COLORS.system, text: '（镇长早就听说老屋来了新主人。他放下扫帚，朝林澈招了招手。）' },
   { speaker: '', color: COLORS.system, text: hint('（靠近镇长、商人或居民，按 [E] 键与他们对话。镇长看起来有话想说。）', '（靠近镇长、商人或居民，点「交互」与他们对话。镇长看起来有话想说。）') },
 ];
 
@@ -388,14 +405,23 @@ export const CARPENTER_RETURN_DIALOGUE: DialogueLine[] = [
 
 /** 反馈 #28：阿风热情欢迎「你回来了！」（一次性：玩家去过镇上第一章后回农场自动触发）
  *  纯生活化欢迎，不涉及主角成长/世界观/主线走向；触发实现见 MapScene.tryAdventurerWelcome。
- *  配音：阿风 3 条新台词由 gen_voice.py 生成（adv_07~09），VoiceBank 按 (speaker,text) 匹配。 */
+ *  配音：阿风 4 条台词由 gen_voice.py 生成（adv_07/08/09/10），VoiceBank 按 (speaker,text) 匹配。
+ *  2026-08-13 制作人拍板台词定稿（#28 v1.0 任务卡落地）：
+ *   - 保留 adv_07「嘿！你回来了！」（复用）
+ *   - 新增 adv_10「没想到这么多年过去，你还是回来了。」（点出童年旧友）
+ *   - 替换 adv_08 →「我这些年也一直在外面跑，有时候走着走着，会想起小时候我们在这里吹风的日子。」
+ *     （立旅行者身份 + 岛特殊联系，触碰旅行/故乡边缘但不展开）
+ *   - 替换 adv_09 →「是啊，不过风还是那个风。慢慢来吧，我相信这里会重新热闹起来。」
+ *     （呼应「追风的人」意象 + 留下期待，优于原「有人气就行」）
+ *  镜像主题：林澈离开城市→回故乡；阿风离开故乡→看过世界→都回到青禾镇（角色分工：林澈归来 / 夏雅守护与记忆 / 阿风远方与自由 / 爷爷土地与传承）。 */
 export const ADVENTURER_WELCOME_BACK_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（刚走进庄园，就看见阿风靠在木屋前的栅栏上，远远地朝你挥手。）' },
   { speaker: '阿风', color: '#88b8e8', text: '嘿！你回来了！' },
-  { speaker: '林澈', color: COLORS.linche, text: '阿风？你怎么跑庄园来了？' },
-  { speaker: '阿风', color: '#88b8e8', text: '路过，顺便看看。听说你把这儿拾掇得挺像样，我来长长见识。' },
-  { speaker: '林澈', color: COLORS.linche, text: '（笑）就是刚开荒，还乱着呢。' },
-  { speaker: '阿风', color: '#88b8e8', text: '乱不怕，有人气就行。你忙你的，我先走啦——回头找你玩。' },
+  { speaker: '林澈', color: COLORS.linche, text: '阿风？你怎么跑这里来了？' },
+  { speaker: '阿风', color: '#88b8e8', text: '没想到这么多年过去，你还是回来了。' },
+  { speaker: '阿风', color: '#88b8e8', text: '我这些年也一直在外面跑，有时候走着走着，会想起小时候我们在这里吹风的日子。' },
+  { speaker: '林澈', color: COLORS.linche, text: '（笑）看来这里变化挺大的。' },
+  { speaker: '阿风', color: '#88b8e8', text: '是啊，不过风还是那个风。慢慢来吧，我相信这里会重新热闹起来。' },
 ];
 
 // ============ T2 改动 2：关键对白（制作人 2026-08-06 定稿） ============
@@ -419,6 +445,131 @@ export const XIYA_SMALL_THINGS_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '以前我总觉得，要让这里变回来，得做一件很厉害的事情。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '后来才发现，好像不是这样。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '这些小事情多起来了，这里也就慢慢有了人生活的感觉。' },
+];
+
+/**
+ * 第一章 P2 捕虫「自然记录」分享（2026-08-13，制作人拍板方向：观察→分享→情感连接，非送礼系统）。
+ * 玩家清晨把在花丛里捉到的蝴蝶标本交给夏雅，解锁一句旧日记忆——分享无好感数值、无奖励循环，
+ * 奖励即"世界因你的观察而回应你"。一次性（triggerOnce('natural_record_butterfly_xiya')）。
+ */
+export const XIYA_BUTTERFLY_SHARE_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（夏雅接过蝴蝶标本，安静地看了很久。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '……这是蝴蝶？' },
+  { speaker: '林澈', color: COLORS.linche, text: '嗯，今天在花丛里看到的。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '好久没有这么仔细看过一只蝴蝶了。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '小时候，我总觉得夏天应该很长很长。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '一抬头，蝴蝶还在，风也还在。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '后来不知道从什么时候开始，大家都变得很忙。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '连这些小东西什么时候消失了，都没人发现。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '谢谢你。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '你让我想起来——青禾镇，其实一直没有离开过。' },
+];
+
+/**
+ * 第一章 P2「自然记录」第三段昆虫观察（2026-08-13，制作人拍板方向：观察→记录→连接生命）。
+ * 玩家捕捉到青禾凤蝶后，靠近小梅（gardener）按 E → 小梅递放大镜 → 玩家通过对话选项观察 3 个特点
+ * （翅膀颜色 / 活动时间 / 喜欢环境）→ 填满自然笔记 → 解锁「青禾镇自然记录 1/10」。
+ * 结尾以小梅点睛台词收束主题："原来它们一直都在"。一次性（triggerOnce('ch1_natural_record_1')）。
+ */
+export const XIAOMEI_OBSERVE_INTRO_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（小梅看见你手里的蝴蝶标本，眼睛亮了起来。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '咦，你捉到的？给我看看！' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '这种蝴蝶我好像见过，但一直没好好看过。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '来，用这个。看仔细点，别急着走。' },
+];
+
+/** 小梅递放大镜后，玩家逐项观察 3 个特点（选项行，onChoice 逐项引导） */
+export const XIAOMEI_OBSERVE_CHOICES_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（小梅递过来一只放大镜。蝴蝶薄薄的翅膀，在光下透出浅蓝。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '先看它的翅膀——' },
+  { speaker: '', color: COLORS.system, text: '', options: ['看翅膀的颜色', '看它什么时候出现', '看它喜欢待在哪里'] },
+];
+
+/** 逐项观察的小梅引导台词（按下标对应：0翅膀 1活动时间 2环境） */
+export const XIAOMEI_OBSERVE_DETAIL_DIALOGUE: DialogueLine[][] = [
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '翅膀……是一种浅浅的蓝，最外面一圈颜色淡一些。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '嗯，你看它边缘那圈，像水晕开一样。这种蓝，只有青禾镇的花丛附近才有。' },
+  ],
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '它好像……白天才会出来，太阳一高就躲起来了。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '对，它喜欢清早和傍晚。天太热了，它就去花影里歇着。' },
+  ],
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '它总喜欢待在花丛附近，不怎么飞远。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '因为它认得这片花。花在，它就在。' },
+  ],
+];
+
+// ============ 第一章 P2-1 集市「重新开张」布置玩法（Phase 2，2026-08-13 制作人拍板） ============
+// 需求匹配布置：资源交付清理场地后，玩家按居民需求把 3 个摊位放对位置。
+//   布置点 0=工具摊（老张，靠近路边）｜1=小吃摊（小梅，中间聚人气）｜2=花摊（夏雅，老树旁）。
+//   放对 → 摊位就位 + 正面反馈；放错 → 温和纠正（不消耗，可重试）；3 摊齐 → 开张演出。
+// 选项顺序固定：['工具摊','小吃摊','花摊'] = ['tool','food','flower']。
+
+/** 摊位选项（菜单显示顺序 = 类型下标：0 工具 1 小吃 2 花） */
+export const MARKET_STALL_OPTIONS = ['工具摊', '小吃摊', '花摊'] as const;
+
+/** 每个布置点的需求提示（按下标对应：0 老张工具摊 1 小梅小吃摊 2 夏雅花摊） */
+export const MARKET_STALL_HINT_DIALOGUES: DialogueLine[][] = [
+  [
+    { speaker: '', color: COLORS.system, text: '（老张站在广场路边，看着你搬来的摊架子。）' },
+    { speaker: '老张', color: COLORS.miner, text: '工具摊要挨着路边摆，赶集的人放下锄头就能顺路买。' },
+    { speaker: '', color: COLORS.system, text: '', options: [...MARKET_STALL_OPTIONS] },
+  ],
+  [
+    { speaker: '', color: COLORS.system, text: '（小梅在广场中间比划着，眼睛亮晶晶的。）' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '中间摆个小吃摊吧，香味一飘大家就聚过来，我也好看个热闹。' },
+    { speaker: '', color: COLORS.system, text: '', options: [...MARKET_STALL_OPTIONS] },
+  ],
+  [
+    { speaker: '', color: COLORS.system, text: '（夏雅抱着几盆花，在广场一角的老树边停下来。）' },
+    { speaker: '夏雅', color: COLORS.xiya, text: '花摊就放老树边上吧，花香飘到歇脚的人那里，正好。' },
+    { speaker: '', color: COLORS.system, text: '', options: [...MARKET_STALL_OPTIONS] },
+  ],
+];
+
+/** 放错摊位后的温和纠正（按下标对应布置点；不消耗、可重试） */
+export const MARKET_STALL_WRONG_DIALOGUES: DialogueLine[][] = [
+  [
+    { speaker: '老张', color: COLORS.miner, text: '这个放这儿不合适。工具摊得挨着路边，方便人放下东西就走。' },
+  ],
+  [
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '中间不放这个啦，得留个聚人气的小吃摊，大家才愿意来。' },
+  ],
+  [
+    { speaker: '夏雅', color: COLORS.xiya, text: '这个不配呀。花摊要放在老树边上，让经过的人一眼看到花。' },
+  ],
+];
+
+/** 放对摊位后的正面反馈（按下标对应布置点） */
+export const MARKET_STALL_PLACED_DIALOGUES: DialogueLine[][] = [
+  [
+    { speaker: '老张', color: COLORS.miner, text: '对，就这儿。镐头、灯油都摆上，赶集的乡亲要用伸手就够得着。' },
+  ],
+  [
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '好嘞！小吃摊开在这儿，香味一飘，准有人顺着味儿过来。' },
+  ],
+  [
+    { speaker: '夏雅', color: COLORS.xiya, text: '花摆好了。老树底下，又有了颜色。' },
+  ],
+];
+
+/** 3 摊齐开张演出（灯亮 / 人来 / 音乐 → 世界状态变化，制作人 2026-08-12 拍板） */
+export const MARKET_OPEN_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（三个摊位都搭好了。灯一盏一盏亮起来，广场另一边传来脚步声。）' },
+  { speaker: '镇长', color: COLORS.elder, text: '灯一亮，人一聚，青禾镇又像从前了。……谢谢你，林澈。' },
+  { speaker: '商店老板', color: '#8ac8a0', text: '哈，看来我这小店，以后不愁没客人了。' },
+];
+
+/** 填满自然笔记后的收束对白（小梅点睛台词） */
+export const XIAOMEI_OBSERVE_DONE_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（你在自然笔记上写下了关于这只蝴蝶的三件事。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '青禾凤蝶……嗯，记好了。' },
+  { speaker: '林澈', color: COLORS.linche, text: '原来每一只蝴蝶，都有自己喜欢待的地方。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '是呀。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '青禾镇的自然记录，这是第一条。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '原来它们一直都在。只是我们以前，没认真看过。' },
 ];
 
 // ============ T3 NPC 生活事件（制作人 2026-08-07 定稿微调） ============

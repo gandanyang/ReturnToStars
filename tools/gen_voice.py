@@ -3,6 +3,11 @@
 """
 归星物语一键语音生成脚本（双引擎：本地 VoxCPM / 小米 MiMo-TTS）。
 
+⚠️ 已退役（2026-08-13）：主引擎已替换为 IndexTTS-2，勿再使用本脚本。
+新流程：python tools/gen_mainline_voice.py --emit-batch <out.jsonl>
+→ indextts.cli_v2 batch（或 REST API 服务 POST /api/tts，模型常驻）→ --emit-voicebank
+详见 docs/IndexTTS-2语音生成工具手册.md。
+
 引擎说明：
   · engine=voxcpm  → 本地推理，E 盘 VoxCPM 自带 3 模型 + CLI，不联网
                       优点：完全离线、免费、可精细调参 cfg/steps/enhance

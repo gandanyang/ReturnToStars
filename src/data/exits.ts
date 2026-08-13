@@ -61,16 +61,26 @@ export const MAP_EXITS: Record<string, ExitZone[]> = {
     { x: 14 * T, y: 18 * T,  w: 2 * T, h: 2 * T, target: 'farm',   spawn: { x: 15 * T, y: 6 * T } },
     { x: 28 * T, y: 9 * T,   w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 3 * T,  y: 10 * T } },
   ],
-  // 小镇：左→农场，顶→矿洞，右下→镇长家
+  // 小镇：左→农场，顶→矿洞，右下镇长家门口→镇长家
   // 2026-08-12 Chapter1 P0-0：town 地图 30x20 → 50x35（内容平移 dx=10T dy=8T），出口随内容平移
+  // 2026-08-13 出口重定位（制作人反馈）：
+  //   farm 出口：col10-11 → col6-7（河岸内侧"左边边缘"，避开 r17-18 横贯荒地带防路过误吸；
+  //              S6 长椅 (5,15) 停留点不受影响——触发区 y≥19T 在长椅下方 4 格）
+  //   elder_house 出口：原 (28,20) 在建筑西侧偏上（非门口，紧邻中央广场 NPC 区，玩家路过被吸走）
+  //              → 移至镇长家门 (33,25) 正下方 row26-27，玩家须主动走到门口才触发
+  // 2026-08-13 矿洞入口挪至地图最顶端（制作人拍板）：
+  //   原入口 (24T,8T) 顶部偏中（非地图边缘，玩家需走到中部）；现挪到 (24T,0) 地图最上边缘，
+  //   与农场顶→后山同款"贴顶触发"。col24-25 原本就是贯穿全图的小路 tile(7)、Walls 全 0，
+  //   入口瓦片无需改动；矿洞→小镇出生点随入口下移 3 格至 (25T,4T)（y=64 > 触发区下边界 32，避免一帧弹回）。
   town: [
-    { x: 10 * T, y: 17 * T,  w: 2 * T, h: 2 * T, target: 'farm',   spawn: { x: 27 * T, y: 10 * T } },
-    { x: 24 * T, y: 8 * T,   w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 15 * T, y: 17 * T } },
-    { x: 28 * T, y: 20 * T,  w: 2 * T, h: 2 * T, target: 'elder_house', spawn: { x: 5 * T, y: 8 * T } },
+    { x: 6 * T,  y: 19 * T,  w: 2 * T, h: 2 * T, target: 'farm',   spawn: { x: 27 * T, y: 10 * T } },
+    { x: 24 * T, y: 0,       w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 15 * T, y: 17 * T } },
+    { x: 32 * T, y: 26 * T,  w: 2 * T, h: 2 * T, target: 'elder_house', spawn: { x: 5 * T, y: 8 * T } },
   ],
   // 矿洞：底→小镇，左→森林
+  // 2026-08-13 矿洞→小镇出生点随小镇入口挪至最顶端而调整：(25T,11T) → (25T,4T)（新入口内侧 3 格）
   mine: [
-    { x: 14 * T, y: 18 * T,  w: 2 * T, h: 2 * T, target: 'town',   spawn: { x: 25 * T, y: 11 * T } },
+    { x: 14 * T, y: 18 * T,  w: 2 * T, h: 2 * T, target: 'town',   spawn: { x: 25 * T, y: 4 * T } },
     { x: 0,      y: 9 * T,   w: 2 * T, h: 2 * T, target: 'forest', spawn: { x: 27 * T, y: 10 * T } },
   ],
   // 室内：底部门→农场

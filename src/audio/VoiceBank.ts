@@ -16,7 +16,7 @@
  */
 
 import { VOICE_ENTRIES, VoiceEntry } from './voicebank.data';
-import { getCtx } from '../systems/AudioSystem';
+import { getCtx, isSoundEnabled } from '../systems/AudioSystem';
 
 /** 归一化 StorySystem 原文 → 与生成脚本 T 清单文本对齐：
  *  剥开头（…）语气标注（（笑）/（笑了笑）/（点点头）…），再剥首尾「」。
@@ -98,6 +98,11 @@ export class VoiceBank {
   /** 播放台词语音；找不到音频静默跳过，不阻塞对话。
    *  volume 0~1 相对增益（默认 1；如短信播报等提示音可用 0.5 压低）。 */
   static play(speaker: string, text: string, inner = false, volume = 1): void {
+    // 全局声音总开关（2026-08-13）：静音时配音不播，且清掉上一句残留语音
+    if (!isSoundEnabled()) {
+      VoiceBank.stop();
+      return;
+    }
     const url = VoiceBank.find(speaker, text);
     if (!url) {
       // 当前行无语音（旁白/系统行等）：停止上一句残留语音，保证语音与显示行同步

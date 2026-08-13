@@ -8,6 +8,10 @@
  *   - 昼夜配置：白天含 birds（timer 启动），夜晚 farm 无 birds
  * 段B（浏览器集成）：进入 farm 场景 → 环境音被调用（通过 window 钩子）
  *   - 说明：需 MapScene 接入后生效；若未接入，段B 标 WARN 不 FAIL
+ * 段0/B2/E（2026-08-13 新增）：全局声音总开关
+ *   - 默认静音（游戏音乐暂时屏蔽）+ setSoundEnabled 可重新打开
+ *   - hudDom 开关按钮（#sound-toggle-btn）存在、点击切换状态、重新打开恢复音频
+ *   - 多端适配：桌面视口下按钮同样存在且可切换
  *
  * 前置：dev server 在 localhost:5173
  * 运行：node tests/probes/probe-ambience.mjs
@@ -47,6 +51,21 @@ async function run() {
     page.on('pageerror', e => pageErrs.push(e.message));
     await page.goto(GAME_URL + '?reset=1', { waitUntil: 'networkidle2' });
     await sleep(2000);
+
+    // 段0（2026-08-13 新增）：全局声音总开关——默认静音 + 可重新打开
+    // 先清掉声音 key 保证确定性（?reset=1 只清存档不清声音 key，localStorage 跨页共享）
+    await page.evaluate(() => localStorage.removeItem('return_star_sound_on'));
+    const soundMod = await page.evaluate(async () => {
+      const mod = await import('/src/systems/AudioSystem.ts');
+      window.__audio = mod;
+      return mod.isSoundEnabled();
+    });
+    check('默认静音：isSoundEnabled() === false（游戏音乐暂时屏蔽）', soundMod === false);
+    const enabledNow = await page.evaluate(() => {
+      window.__audio.setSoundEnabled(true);
+      return window.__audio.isSoundEnabled();
+    });
+    check('setSoundEnabled(true) → isSoundEnabled() === true（开关可重新打开）', enabledNow === true);
 
     // 段A：模块级 API（通过 window.__ambience 钩子，需 MapScene/其他入口挂载）
     const mod = await page.evaluate(() => {
@@ -122,6 +141,36 @@ async function run() {
     console.log(`  进 farm 音频节点增量: osc+${d1.osc} buf+${d1.buf} flt+${d1.flt}`);
     check('进入 farm 场景触发 AmbienceSystem.start（音频节点创建）', d1.osc > 0 || d1.buf > 0);
 
+    // 段B2（2026-08-13 新增）：声音开关按钮（hudDom 全端挂载；多端适配）
+    const btn1 = await page.evaluate(() => {
+      const b = document.getElementById('sound-toggle-btn');
+      return { exists: !!b, text: b?.textContent ?? null };
+    });
+    check(`声音开关按钮存在且显示当前状态（"${btn1.text}"）`, btn1.exists && !!btn1.text && btn1.text.includes('声音开'));
+    // 点击 → 静音：立即停止 BGM/环境音，localStorage 写入
+    await page.evaluate(() => document.getElementById('sound-toggle-btn').click());
+    await sleep(300);
+    const mutedBtn = await page.evaluate(() => ({
+      text: document.getElementById('sound-toggle-btn')?.textContent ?? null,
+      enabled: window.__audio.isSoundEnabled(),
+    }));
+    check('点击开关 → 静音（按钮"声音关" + isSoundEnabled false）', mutedBtn.text?.includes('声音关') === true && mutedBtn.enabled === false);
+    // 再点击 → 重新打开：环境音/BGM 立即重启（同步创建音频节点）
+    const beforeReopen = await page.evaluate(() => ({ ...window.__spy }));
+    await page.evaluate(() => document.getElementById('sound-toggle-btn').click());
+    await sleep(400);
+    const reopened = await page.evaluate(() => ({
+      text: document.getElementById('sound-toggle-btn')?.textContent ?? null,
+      enabled: window.__audio.isSoundEnabled(),
+      nodes: { ...window.__spy },
+    }));
+    const dR = { osc: reopened.nodes.osc - beforeReopen.osc, buf: reopened.nodes.buf - beforeReopen.buf };
+    console.log(`  重新打开音频节点增量: osc+${dR.osc} buf+${dR.buf}`);
+    check(
+      '重新打开 → 恢复声音（按钮"声音开" + 环境音重启创建节点）',
+      reopened.text?.includes('声音开') === true && reopened.enabled === true && (dR.osc > 0 || dR.buf > 0),
+    );
+
     // 段C：切图后旧环境音停止、新地图环境音启动（SHUTDOWN stop + start 生效）
     await page.evaluate(() => {
       const g = window.__game;
@@ -148,6 +197,38 @@ async function run() {
     });
     console.log(`昼夜翻转后 activeMap = ${flip.afterFlip}`);
     check('昼夜翻转：update 后环境音仍在活动地图（重载生效）', flip.afterFlip === 'farm');
+
+    // 段E（2026-08-13 新增）：多端适配——桌面视口下开关同样存在且可切换（hudDom 全端挂载）
+    {
+      const page2 = await browser.newPage();
+      await page2.setViewport({ width: 1280, height: 720, isMobile: false, hasTouch: false });
+      await page2.goto(GAME_URL + '?reset=1', { waitUntil: 'networkidle2' });
+      await sleep(2000);
+      await page2.keyboard.press('Enter');
+      await waitFor(page2, () => page2.evaluate(() => !!document.getElementById('intro-skip-btn')));
+      await page2.evaluate(() => { const b = document.getElementById('intro-skip-btn'); if (b) b.click(); });
+      await sleep(1500);
+      await page2.evaluate(() => window.debug?.setStoryStep('done'));
+      await sleep(300);
+      await page2.evaluate(() => {
+        const g = window.__game;
+        const a = g.scene.getScenes(true)[0];
+        if (a) g.scene.stop(a.scene.key);
+        g.scene.start('farm');
+      });
+      await sleep(2500);
+      const btn2 = await page2.evaluate(() => {
+        const b = document.getElementById('sound-toggle-btn');
+        return { exists: !!b, text: b?.textContent ?? null };
+      });
+      check(`桌面端声音开关按钮存在（文本"${btn2.text}"）`, btn2.exists && !!btn2.text && btn2.text.includes('声音'));
+      await page2.evaluate(() => document.getElementById('sound-toggle-btn')?.click());
+      await sleep(300);
+      const btn2after = await page2.evaluate(() =>
+        document.getElementById('sound-toggle-btn')?.textContent ?? null);
+      check('桌面端点击开关 → 按钮状态切换（多端可用）', !!btn2after && btn2after !== btn2.text);
+      await page2.close();
+    }
 
     if (pageErrs.length) {
       console.log(`页面错误（${pageErrs.length}）:`, pageErrs.slice(0, 5));

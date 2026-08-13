@@ -10,7 +10,7 @@
  * - 使用 ogg（P0 资产瘦身：mp3 fallback 已移出 runtime，现代浏览器均支持 ogg vorbis）
  */
 
-import { getCtx } from '../systems/AudioSystem';
+import { getCtx, isSoundEnabled } from '../systems/AudioSystem';
 
 // 文件实际位于 public/assets/audio/music/，必须带 assets/ 前缀
 const TRACKS: Record<string, string> = {
@@ -105,9 +105,9 @@ function cacheSet(key: string, buf: AudioBuffer): void {
 }
 
 // ── 播放状态 ──
-// 录制视频期间全局屏蔽 BGM（2026-08-06 制作人要求）→ 已恢复（同日），BGM 正常播放。
-// 如需再次静音：改为 true 即可。
-const BGM_MUTED = false;
+// 录制视频期间全局屏蔽 BGM（2026-08-06 制作人要求）→ 已恢复（同日）。
+// 2026-08-13 制作人：游戏音乐暂时屏蔽 + 重新打开开关 → 改为读取 AudioSystem 全局声音总开关
+// （默认静音，开关持久化于 localStorage，见 AudioSystem.isSoundEnabled）。
 let currentSource: AudioBufferSourceNode | null = null;
 let currentGain: GainNode | null = null;
 let currentKey: string | null = null; // 当前播放曲目（查询用：剧情中途回归补播等）
@@ -188,7 +188,7 @@ function stopCurrent(): void {
 
 export const MusicSystem = {
   async play(key: string): Promise<void> {
-    if (BGM_MUTED) {
+    if (!isSoundEnabled()) {
       stopCurrent();
       return;
     }

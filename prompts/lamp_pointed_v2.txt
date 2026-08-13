@@ -1,0 +1,25 @@
+A single game asset sprite.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering,
+no painting style.
+
+A warm wooden street lamp of a modern rural village,
+small town restoration theme,
+small lantern with warm yellow glowing light,
+simple wooden pole with metal lamp head,
+slightly worn but cozy,
+Stardew Valley inspired pixel game asset.
+
+Transparent background,
+centered object,
+front view,
+single object only.
+
+No text, no letters, no words, no signs, no banners, no watermarks, no Chinese characters, no captions anywhere in the image.
+No people, no characters, no animals, no scenery, no buildings, no ground, no background details.

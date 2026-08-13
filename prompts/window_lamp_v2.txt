@@ -1,0 +1,36 @@
+A single game asset sprite, isolated object.
+
+Only a wooden window frame, nothing else around it:
+the window is a simple square wooden frame,
+the glass pane inside glows with warm yellow light,
+dark brown wooden frame, cozy and warm,
+a window that shows someone has come back home,
+old village restoration theme,
+modern rural village small town style,
+Stardew Valley inspired pixel game asset.
+
+No wall,
+no house,
+no building surface,
+no roof,
+no bricks,
+no scenery around the window.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people.
+
+Pure black background,
+centered object,
+straight-on front view,
+the window fills most of the frame,
+only the window itself, floating alone on the black background.

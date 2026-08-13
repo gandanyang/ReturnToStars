@@ -1,6 +1,6 @@
 # 任务：夏雅《春深有信·一》Demo Cut（心语任务）
 
-> 状态：✅ 已实现并验证（2026-08-08）｜决策依据：DESIGN_DECISIONS.md D-011（2026-08-08 制作人拍板）
+> 状态：✅ 已实现并验证（2026-08-08）｜**语音接入完成（2026-08-13）**：letter 配音补齐后 4 段对白语音全部真实播放｜决策依据：DESIGN_DECISIONS.md D-011（2026-08-08 制作人拍板）
 > 体系：**「心语任务」首个实例**（D-012，2026-08-09 制作人拍板：角色剧情任务统一命名心语任务）——本卡/后续文档/代码一律称「心语任务」
 > 范围：Alpha Demo Cut，只做第一章核心体验 5 步；**不做好感系统 / 章节系统 / 心语任务框架**（P2 Beta）
 > 剧情权限：对白文本**逐字取自** `docs/design/character/夏雅角色篇章-春深有信-v1.0.md` 第一章定稿，**不得扩写或改变**；实现仅落档与接线。
@@ -18,6 +18,24 @@
 1. 「院子有人照顾」支线（`trySideXiyaGarden`）锚点=花田中心，`restore.garden=true` 时会劫持探针按 E → 探针存档注入 `sideXiyaGardenAsked/Done=true` 规避
 2. 木匠回归演出（`tryCarpenterReturn`，`restore.oldHouse=true` 时 delayedCall 2.6s 自动播对白）会劫持探针文本断言 → 注入 `gameState.triggeredEvents['carpenter_returned']=true` 跳过
 3. 对话结束回调（清理/生成）发生在 play 完成后 → 断言用 `drainDialogue` 等场景状态而非仅文本出现
+
+## 0.5 语音接入完成（2026-08-13，IndexTTS-2 重录）
+
+- **背景**：08-08 实现时 letter 语音产物缺失（voicebank 引用但无 ogg，游戏内静默跳过）
+- **补齐**：IndexTTS-2 批量重录 **xiya 26 条 + linche 18 条** letter 配音（参考音=MiniMax 定案产物转 24k，纯克隆无 emotion）→ 标准化 -16 LUFS → ogg → voicebank re-emit（256 条）
+- **匹配校验**：StorySystem 4 组 letter 对白 44 句语音行 100% 命中 voicebank（归一化文本匹配）
+- **新探针 `probe-xiya-letter-voice.mjs`：8/8 全绿**——游戏启动→farm→播放 4 组对白，39 个 letter ogg 请求全部命中且 200/206；夏雅 23 + 林澈 16；系统演出行不触发语音
+- **回归**：`probe-xiya-letter.mjs` 18/18（任务链路无破坏）；`probe-voice.mjs` 10/11（唯一失败 station_01 为探针自身 inner 时序 flaky，`VoiceBank.find('林澈','五年了。')` 实测正确返回，非改动引入）
+
+## 0.6 P1 世界反馈·花田花苗（2026-08-13 制作人拍板纳入）
+
+- **背景**：制作人审阅《第一章春深有信-主线与心语任务衔接》后拍板——花田视觉反馈必须加，建立「玩家行为 → 世界变化」（归星岛复兴主循环差异化）
+- **实现**（MapScene.ts）：
+  - 新增字段 `letterFlowerSprite` + 函数 `spawnLetterFlowerbed()`：·一 完成后花田旁 (31,6) 生成新花苗视觉（复用 Phase3 资产 `spr_flowerbed`，61×32）
+  - D 段完成回调调 `spawnLetterFlowerbed()`；`setupLetterXiya()` 开头加"完成后恢复"分支（读档/跨天常驻）
+  - `spr_flowerbed` preload 从 town 分支扩到 town+farm（farm 原本不加载该 texture）
+- **验证**：探针扩展至 **20/20**（新增 D4 完成后花苗生成、G2 重进常驻）；回归 语音 8/8、Phase3 10/10；tsc EXIT=0
+- **不新增存档字段**：花苗由 `xiyaLetterDone` 隐式控制（完成即永久显示）
 
 ## 1. 制作人确认的实现决策
 

@@ -12,7 +12,7 @@
  * - 复用 AudioSystem 的合成原语（getCtx/tone/noise），不重复造轮子
  */
 
-import { getCtx, tone } from './AudioSystem';
+import { getCtx, tone, isSoundEnabled } from './AudioSystem';
 
 type AmbientName =
   | 'birds'     // 鸟叫（白天）
@@ -66,6 +66,10 @@ let liveCount = 0;
 let rainActive = false;
 /** 当前正在播放的雨声音源 */
 let rainNode: { node: AudioNode; stop: () => void } | null = null;
+/** Phase 3 河水流动节点（§四 S6 河堤水声增强）：靠近河边时创建，远离时移除 */
+let riverNode: { node: AudioNode; stop: () => void } | null = null;
+/** 玩家是否正靠近河边（位置触发水声的持久意图，切图/昼夜由 start 重建） */
+let riverNear = false;
 
 /** 是否夜晚（18:00 - 6:00） */
 function isNight(hour: number): boolean {
@@ -295,6 +299,8 @@ function scheduleEvents(): void {
 /** 启动环境音（进入地图时调用） */
 export function start(mapKey: string, hour: number): void {
   stop();
+  // 全局声音总开关（2026-08-13）：静音时环境音整体不启动（stop() 已清状态，activeMap 保持 null）
+  if (!isSoundEnabled()) return;
   activeMap = mapKey;
   stopped = false;
   currentNight = isNight(hour);
@@ -340,12 +346,23 @@ export function start(mapKey: string, hour: number): void {
         // P1 远处海浪：低通噪声 + 极低频大起伏（0.07Hz ≈ 14s 一个浪头，浪涌感）
         playing.push(loopSource('noise', { filterFreq: 320, volume: 0.03, lfoHz: 0.07, lfoDepth: 0.75 }));
         break;
+      case 'water':
+        // Phase 3 河水流动（2026-08-13，拍板基线 §四 S6 河堤水声增强）：
+        // 中低通噪声 + 缓慢起伏（0.2Hz ≈ 5s 一波），比海浪更"近"更连续（河道流动感）。
+        // 音量由 setRiverProximity 控制：靠近河边增强、远离减弱（位置触发，不全局播）。
+        playing.push(loopSource('noise', { filterFreq: 520, volume: 0.022, lfoHz: 0.2, lfoDepth: 0.55 }));
+        break;
     }
   }
 
   // BUG-048：雨天叠加雨声（跨场景/昼夜翻转后保持；仅室外地图）
   if (rainActive && RAIN_MAPS.includes(mapKey)) {
     setRain(true);
+  }
+
+  // Phase 3 河水流动：位置触发意图恢复（玩家在河边切图/昼夜翻转后，start 重建时叠加）
+  if (riverNear && mapKey === 'town') {
+    setRiverProximity(true);
   }
 
   // P1 环境音事件链（2026-08-09）：farm/forest 白天鸟叫、farm 海鸥、town 鸟/犬吠/猫叫
@@ -378,6 +395,28 @@ export function setRain(on: boolean): void {
 }
 
 /**
+ * Phase 3 位置触发水声（2026-08-13，拍板基线 §四 S6 河堤水声增强）。
+ * 玩家靠近河边（MapScene 每帧检测）时叠加"河水流动"层，远离时移除。
+ * 与 setRain 同范式：记录意图（riverNear）并立即在当前 town 地图叠加；
+ * 切图/昼夜翻转由 start 重建（start 内检测 riverNear 恢复）。
+ */
+export function setRiverProximity(near: boolean): void {
+  riverNear = near;
+  if (stopped) return; // 已停止：仅记录意图
+  if (near) {
+    if (riverNode || activeMap !== 'town') return;
+    // 河水流动：中低通噪声 + 缓慢起伏（音量低，不压操作音效）
+    riverNode = loopSource('noise', { filterFreq: 520, volume: 0.022, lfoHz: 0.2, lfoDepth: 0.55 });
+    playing.push(riverNode);
+  } else if (riverNode) {
+    riverNode.stop();
+    const i = playing.indexOf(riverNode);
+    if (i >= 0) playing.splice(i, 1);
+    riverNode = null;
+  }
+}
+
+/**
  * 昼夜翻转检测（每帧或低频调用）。
  * 时间从白天跨到夜晚（或反之）时，重新加载当前地图的环境音组合
  * （白天鸟叫 → 夜晚虫鸣）。未翻转时零开销返回。
@@ -398,6 +437,7 @@ export function stop(): void {
   for (const p of playing) p.stop();
   playing.length = 0;
   rainNode = null; // 雨声已在 playing 中统一 stop，这里只清引用（rainActive 意图保留）
+  riverNode = null; // 河水流动同 rain：playing 已统一 stop，清引用（riverNear 意图保留）
   if (eventTimer) {
     clearInterval(eventTimer);
     eventTimer = null;

@@ -13,7 +13,7 @@ import { resetOres } from './data/MineState';
 import { save } from './systems/SaveSystem';
 import { advanceStory, getStoryStep, setStoryStep, isObservatoryComplete } from './systems/StorySystem';
 import { initAndroidBackHandler, initPcEscapeHandler } from './systems/AndroidBackHandler';
-import { addItem } from './data/Inventory';
+import { addItem, getItemCount } from './data/Inventory';
 import { getRobotCount, runDailyAutomation } from './systems/AutomationSystem';
 import { setTileState as farmSetTile, setCrop as farmSetCrop, getTileState as farmGetTile } from './data/FarmState';
 import { unlockPhoto as albumUnlock, PHOTO_DATABASE } from './data/PhotoAlbum';
@@ -23,7 +23,7 @@ import { getHouseTidyLevel, isHouseTidyComplete } from './data/HouseTidy';
 import { getTriggeredTags } from './systems/GuiXingRecordSystem';
 import { MusicSystem } from './audio/MusicSystem';
 import * as AmbienceSystem from './systems/AmbienceSystem';
-import { play as sfxPlay } from './systems/AudioSystem';
+import { play as sfxPlay, getSfxLog } from './systems/AudioSystem';
 import { isTouchDevice } from './config';
 
 // 桌面端标记：禁用竖屏提示层（避免开发者工具窄窗口误触发）
@@ -229,7 +229,7 @@ applyAdaptiveLogicalSize();
 //   window.debug.getChapter()        获取当前章节
 //   window.debug.setChapter(c)       设置当前章节（调试/章节切换验证用）
 //   window.debug.setMusicBoxTrack(k) 设置音乐盒"我的歌"（null 清除，恢复地图默认）
-(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; getChapter: () => number; setChapter: (c: number) => void; getHouseTidyLevel: () => number; isHouseTidyComplete: () => boolean; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; ambience: () => { map: string | null; layers: number }; events: { triggerOnce: (id: string, fn: () => void) => boolean; triggerOnceIf: (id: string, cond: EventCondition | undefined, fn: () => void) => boolean; evalCondition: (cond?: EventCondition) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
+(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; getChapter: () => number; setChapter: (c: number) => void; getHouseTidyLevel: () => number; isHouseTidyComplete: () => boolean; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; getItemCount: (item: string) => number; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; sfxLog: () => string[]; ambience: () => { map: string | null; layers: number }; events: { triggerOnce: (id: string, fn: () => void) => boolean; triggerOnceIf: (id: string, cond: EventCondition | undefined, fn: () => void) => boolean; evalCondition: (cond?: EventCondition) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
   getChapter,
   setChapter,
   getHouseTidyLevel,
@@ -319,6 +319,9 @@ applyAdaptiveLogicalSize();
     addItem(item as any, count);
     console.log(`[debug] giveItem → ${item} ×${count}`);
   },
+  getItemCount: (item: string) => {
+    return getItemCount(item as any);
+  },
   // 农场状态钩子：指向游戏真实 FarmState 实例（绕过 Vite dev 双模块问题，供自动化测试驱动）
   farm: {
     setTileState: (col, row, state) => {
@@ -348,6 +351,8 @@ applyAdaptiveLogicalSize();
   },
   // 声音补全 v1.0：SFX 冒烟钩子（探针调用各音效 key 验证可播放无异常）
   sfx: (name: string) => sfxPlay(name as never),
+  // B-2（2026-08-13 体验债务）：最近请求播放的音效 key 列表（探针断言 tidy_bed/lamp/desk/radio_life 接线）
+  sfxLog: () => getSfxLog(),
   // 声音补全 v1.0（2026-08-09）：环境音状态钩子（探针断言地图环境音组合已创建）
   ambience: () => ({ map: AmbienceSystem.getActiveMap(), layers: AmbienceSystem.getSourceCount() }),
 };

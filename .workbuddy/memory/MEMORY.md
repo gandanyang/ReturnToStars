@@ -19,12 +19,20 @@
 - 试玩 `tmp/_player-run.mjs`：瞬时按键须 HOLD；click 弹窗须 mouse.click；坐标闭环走位；玩家被出口"吸走"时 player 可能 null（容忍）
 
 ## 制作人拍板（要点）
-- **配音（最高优先级）**：一律优先 MiniMax（T2A v2），VoxCPM 仅离线备选；夏雅=female-shaonv-jingpin 定案，其他角色先定音色
+- **配音（最高优先级）**：一律优先 MiniMax（T2A v2），VoxCPM 仅离线备选；夏雅=female-shaonv-jingpin 定案，其他角色先定音色。**IndexTTS-2（08-13 部署）**：本地主引擎（替代 VoxCPM），CLI batch 主路径 `G:\AI_Tools\index-tts\.venv\Scripts\python.exe -m indextts.cli_v2 batch`；**WebUI API 不可自动化**（gradio 5.45 Radio 校验坑 + speech synthesis 崩），批量一律走 CLI；**emotion 功能不稳定勿用**（纯克隆，情绪靠参考音+标点）；夏雅参考音=**MiniMax 定案产物转 24k**（`art_source/audio_generated/夏雅_minimax定案参考_24k.wav`），勿用旧 Fish 知性女声参考；**夏雅 76 条已 IndexTTS 重录落地**（08-13），旧 MiniMax 备份 `art_source/audio/voice/xiya_minimax_backup/`；**T 列表提取注意**：正则须匹配完整（含 letter 系列，勿截断）；**沙箱删除**：rm/--force 覆盖会被 safe-delete 拦 → 用 Python os.remove/rename 或目录改名换新
 - **T2 红线**：只做 Day1 引导链+关键对白+出售反馈世界化；禁新货币/建筑/任务链/UI/经济公式；冻结：好感、新地图、战斗、大型农业扩展；EventManager 不再扩接口
 - **美术（08-07）**：GPT tileset A 工具做扎实→farm 达标复制管线；调色板映射锁定；重出图绝不覆盖历史素材
 - **术语（08-09）**：「心语任务」=角色剧情统一命名；「村长」→「镇长」全仓收敛
 - **BUG-071 关闭（08-09）**：双夏雅三层根因修复；P2 候补 XiyaStateManager（禁手工互斥列表，稳定期不重构）
 - **阶段（08-09）**：Alpha→可展示版；P0=收口→回归→TapTap→实机 PV；收口完成 `6aca71d`；下一批=「3 分钟体验测量版」
+
+## 青禾镇 Phase 3 美术升级（08-13 ✅ §一~§四 完成）
+- **拍板基线**：`docs/design/青禾镇Phase3美术升级-拍板基线-v1.0.md`（路线 C：不扩 tileset，修复态用 GameObject sprite，零 tile 修改）
+- **5 资产入库**（GPT 黑底管线 `tools/sprite_process.py`：黑→透明阈值18/36→裁剪→NEAREST→24色量化）：spr_lamp(17×48)/sign(55×48)/bench(37×32)/window(47×48)/flowerbed(61×32)，prompts/ 有 v2 文案（sign 禁写 text 防 GPT 400）
+- **施工**：`setupPhase3Restoration()`（town 分支）：S1 路灯(22,27)=ch1_elder_visit 后；S2 招牌(35,3)+窗灯(34,4)+花坛(33,6)=marketSquare 恢复；S6 长椅(5,15)常驻+夜灯(5,11)；**S4 老屋暂不挂**（四阶段任务未实现）
+- **声音绑定（§四）**：AmbienceSystem `case 'water'`+`setRiverProximity(near)`（riverNear 意图持久/riverNode 仅 town 叠加/stop 清引用/start 恢复）；MapScene `riverSoundNear` 字段 + update 检测 `x<6*TILE && y∈(5,30)*TILE`（河在 Walls cols0-4×rows6-28 gid4，长椅=西岸可站立地）
+- **验证**：probe-phase3-restoration 10/10；**probe-phase3-river-sound 15/15**；probe-phase0-tileset-verify 8/8（GID 零漂移）；tsc EXIT=0
+- **探针踩坑（已固化）**：①换档先 removeItem+reload 卸净旧实例 ②AmbienceSystem.start() 首行查 isSoundEnabled（默认静音，先 setSoundEnabled(true)）③enterTown 的 reload 清 window 状态（AudioSpy 进 town 后装）④storyDialogue 打开时 update 提前 return（位置检测暂停，探针先 reset()）⑤town 白天 playing=2 层（birds 是事件音不进循环）⑥Vite dev 动态 import 与游戏静态 import 不同实例（模块逻辑用独立实例测，集成用 AudioContext.prototype 全局 spy）
 
 ## 平台事实
 - **横屏优先**：🔴 探针视口红线（制作人点名）：禁止竖屏视口（375×812）——触发 #rotate-hint + isMobileLayout 竖屏分支拦截交互；必须横屏（1024×768 或移动端 844×390+hasTouch）

@@ -126,11 +126,15 @@ def main() -> int:
     p.add_argument("--limit", type=int, default=0, help="只跑前 N 条")
     p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--force", action="store_true", help="覆盖已存在文件")
+    p.add_argument("--ids", default="", help="只跑指定 tid（逗号分隔，如 adv_07,adv_08）；不传则跑全部")
     args = p.parse_args()
 
     tasks = load_role_tasks(args.role)
     if args.limit > 0:
         tasks = tasks[: args.limit]
+    if args.ids:
+        wanted = {x.strip() for x in args.ids.split(",") if x.strip()}
+        tasks = [t for t in tasks if t[1] in wanted]
 
     voice_dir = ROOT / "art_source" / "audio" / "voice" / args.role
     voice_dir.mkdir(parents=True, exist_ok=True)
