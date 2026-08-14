@@ -16,11 +16,11 @@
  */
 
 import { getItemCount, addItem, type ItemType } from '../data/Inventory';
-import { getCoins, spendCoins, WOOD_BUY_PRICE } from '../data/Economy';
+import { getCoins, spendCoins, WOOD_BUY_PRICE, STONE_BUY_PRICE } from '../data/Economy';
 import { markTriggered, hasTriggered } from './EventManager';
 
-/** 需求物品类别：wood=木材 / food=食物（聚合） */
-export type RequestItemKind = 'wood' | 'food';
+/** 需求物品类别：wood=木材 / stone=石头 / lantern=灯笼 / food=食物聚合 / fish=鱼聚合 / gather=采集物聚合 */
+export type RequestItemKind = 'wood' | 'food' | 'stone' | 'lantern' | 'fish' | 'gather';
 
 /** 一条居民需求（静态数据 + 完成态经 EventManager 查询，不入本模块） */
 export interface ResidentRequest {
@@ -39,8 +39,16 @@ export interface ResidentRequest {
 /** 食物聚合物品池（扣除顺序：萝卜 → 番茄 → 玉米 → 草莓） */
 const FOOD_ITEMS: ItemType[] = ['radish', 'tomato', 'corn', 'strawberry'];
 
+/** 鱼聚合物品池（扣除顺序：青禾鲫 → 河虾 → 黄昏鱼 → 月光鲈） */
+const FISH_ITEMS: ItemType[] = ['qinghe_crucian', 'river_shrimp', 'dusk_fish', 'moon_bass'];
+
+/** 采集物聚合物品池（扣除顺序：蒲公英 → 野莓 → 野蘑菇 → 小野花 → 小树枝） */
+const GATHER_ITEMS: ItemType[] = ['dandelion', 'wild_berry', 'wild_mushroom', 'small_flower', 'twig'];
+
 /** 食物聚合显示名（不足提示用） */
 const FOOD_LABEL = '食物（萝卜/番茄/玉米/草莓）';
+const FISH_LABEL = '鱼（青禾鲫/河虾/黄昏鱼/月光鲈）';
+const GATHER_LABEL = '采集物（蒲公英/野莓/野蘑菇/小野花/小树枝）';
 
 // ============ 需求数据（任务卡定稿，制作人拍板数值与文案） ============
 
@@ -63,6 +71,45 @@ const REQUESTS: ResidentRequest[] = [
     count: 5,
     rewardDialogue: '正好下矿前垫垫肚子。谢了，小子。',
   },
+  // ── 居民需求系统升级（2026-08 制作人拍板：结合 NPC 人设 + 世界观「复苏」意象） ──
+  // 意象映射：镇长灯笼=老宅归属「灯亮=有人住」；阿风=童年秘密基地「河边煮锅」；
+  //          老周=手艺传承「修东西的人不能绝」；老姜=河边生活「河虾配酒」。
+  {
+    id: 'resident_req_elder_lantern',
+    npcId: 'elder',
+    npcName: '镇长',
+    npcColor: '#c8b898',
+    itemKind: 'lantern',
+    count: 2,
+    rewardDialogue: '码头那盏灯，黑了好些年了。\n挂上它吧。\n以后夜里回来的人，也能远远看见这里还有灯亮着。',
+  },
+  {
+    id: 'resident_req_adventurer_food',
+    npcId: 'adventurer',
+    npcName: '阿风',
+    npcColor: '#88b8e8',
+    itemKind: 'food',
+    count: 3,
+    rewardDialogue: '还是热乎的好。\n小时候咱们在河边煮东西，糊了好几次。\n你还记得不？',
+  },
+  {
+    id: 'resident_req_carpenter_wood',
+    npcId: 'carpenter',
+    npcName: '木匠老周',
+    npcColor: '#d8b878',
+    itemKind: 'wood',
+    count: 8,
+    rewardDialogue: '好料子。\n门框窗框都能修。\n旧东西啊，就得有人愿意慢慢修。',
+  },
+  {
+    id: 'resident_req_laojiang_fish',
+    npcId: 'laojiang',
+    npcName: '老姜',
+    npcColor: '#d8b878',
+    itemKind: 'fish',
+    count: 2,
+    rewardDialogue: '河里的鱼啊，配点酒，坐河边慢慢吃。',
+  },
 ];
 
 // ============ 查询 ============
@@ -84,51 +131,79 @@ export function isRequestDone(id: string): boolean {
 
 // ============ 交付判定 ============
 
+/** 聚合池（按类别取） */
+function aggregateItems(kind: RequestItemKind): ItemType[] {
+  if (kind === 'food') return FOOD_ITEMS;
+  if (kind === 'fish') return FISH_ITEMS;
+  if (kind === 'gather') return GATHER_ITEMS;
+  return [];
+}
+
+/** 聚合持有总量 */
+function aggregateCount(kind: RequestItemKind): number {
+  return aggregateItems(kind).reduce((sum, it) => sum + getItemCount(it), 0);
+}
+
 /** 背包是否足够交付该需求 */
 export function canFulfillRequest(req: ResidentRequest): boolean {
-  if (req.itemKind === 'wood') return getItemCount('wood') >= req.count;
-  return FOOD_ITEMS.reduce((sum, it) => sum + getItemCount(it), 0) >= req.count;
+  switch (req.itemKind) {
+    case 'wood': return getItemCount('wood') >= req.count;
+    case 'stone': return getItemCount('stone') >= req.count;
+    case 'lantern': return getItemCount('lantern') >= req.count;
+    case 'food':
+    case 'fish':
+    case 'gather': return aggregateCount(req.itemKind) >= req.count;
+    default: return false;
+  }
 }
 
 /** 资源不足提示文案（明确缺什么） */
 export function getRequestShortageText(req: ResidentRequest): string {
-  if (req.itemKind === 'wood') {
-    return `木材不足，还差 ${req.count - getItemCount('wood')} 个`;
+  switch (req.itemKind) {
+    case 'wood': return `木材不足，还差 ${req.count - getItemCount('wood')} 个`;
+    case 'stone': return `石头不足，还差 ${req.count - getItemCount('stone')} 个`;
+    case 'lantern': return `灯笼不足，还差 ${req.count - getItemCount('lantern')} 个`;
+    case 'food': return `${FOOD_LABEL}不足，还差 ${req.count - aggregateCount('food')} 份`;
+    case 'fish': return `${FISH_LABEL}不足，还差 ${req.count - aggregateCount('fish')} 条`;
+    case 'gather': return `${GATHER_LABEL}不足，还差 ${req.count - aggregateCount('gather')} 个`;
+    default: return '资源不足';
   }
-  const have = FOOD_ITEMS.reduce((sum, it) => sum + getItemCount(it), 0);
-  return `${FOOD_LABEL}不足，还差 ${req.count - have} 份`;
 }
 
 /**
- * 资源快速置换：木材类需求「用金币一键补齐」所需花费（按商店买入价 8G/根）。
- * 金币足以补齐全部缺口时返回花费；否则返回 null（不弹购买）。
- * 食物类需求不支持金币购买（聚合复杂，返回 null）。
+ * 资源快速置换：木材/石头类需求「用金币一键补齐」所需花费（按商店买入价）。
+ * 木材 8G/根；石头按商店买入价。食物/鱼/采集物/灯笼不支持金币购买（聚合复杂，返回 null）。
  */
 export function getRequestQuickBuyCost(req: ResidentRequest): number | null {
-  if (req.itemKind !== 'wood') return null;
+  if (req.itemKind !== 'wood' && req.itemKind !== 'stone') return null;
   if (isRequestDone(req.id)) return null;
-  const need = req.count - getItemCount('wood');
+  const have = req.itemKind === 'wood' ? getItemCount('wood') : getItemCount('stone');
+  const need = req.count - have;
   if (need <= 0) return null;
-  const cost = need * WOOD_BUY_PRICE;
+  const price = req.itemKind === 'wood' ? WOOD_BUY_PRICE : STONE_BUY_PRICE;
+  const cost = need * price;
   if (cost > getCoins()) return null;
   return cost;
 }
 
 /**
- * 资源快速置换：用金币补齐木材缺口后立即交付。
+ * 资源快速置换：用金币补齐木材/石头缺口后立即交付。
  * 返回 FulfillResult（success / insufficient / done_already）。调用方负责反馈对白 + save。
  */
 export function fulfillRequestWithGold(id: string): FulfillResult {
   const req = getRequestById(id);
   if (!req) return 'not_found';
   if (isRequestDone(id)) return 'done_already';
-  if (req.itemKind !== 'wood') return 'insufficient';
-  const need = req.count - getItemCount('wood');
+  if (req.itemKind !== 'wood' && req.itemKind !== 'stone') return 'insufficient';
+  const have = req.itemKind === 'wood' ? getItemCount('wood') : getItemCount('stone');
+  const need = req.count - have;
   if (need <= 0) return 'insufficient';
-  const cost = need * WOOD_BUY_PRICE;
+  const price = req.itemKind === 'wood' ? WOOD_BUY_PRICE : STONE_BUY_PRICE;
+  const cost = need * price;
   if (!spendCoins(cost)) return 'insufficient';
-  addItem('wood', need);
-  addItem('wood', -req.count);
+  const item = req.itemKind === 'wood' ? 'wood' : 'stone';
+  addItem(item, need);
+  addItem(item, -req.count);
   markTriggered(id);
   return 'success';
 }
@@ -148,18 +223,21 @@ export function fulfillRequest(id: string): FulfillResult {
   if (isRequestDone(id)) return 'done_already';
   if (!canFulfillRequest(req)) return 'insufficient';
 
-  if (req.itemKind === 'wood') {
-    addItem('wood', -req.count);
-  } else {
-    deductFood(req.count);
+  switch (req.itemKind) {
+    case 'wood': addItem('wood', -req.count); break;
+    case 'stone': addItem('stone', -req.count); break;
+    case 'lantern': addItem('lantern', -req.count); break;
+    case 'food':
+    case 'fish':
+    case 'gather': deductAggregate(req.itemKind, req.count); break;
   }
   markTriggered(id);
   return 'success';
 }
 
-/** 食物聚合扣除：按固定顺序从各作物里取够 count（调用前已校验总量足够） */
-function deductFood(count: number): void {
-  for (const item of FOOD_ITEMS) {
+/** 聚合扣除：按固定顺序从各物品里取够 count（调用前已校验总量足够） */
+function deductAggregate(kind: RequestItemKind, count: number): void {
+  for (const item of aggregateItems(kind)) {
     if (count <= 0) break;
     const have = getItemCount(item);
     const take = Math.min(have, count);

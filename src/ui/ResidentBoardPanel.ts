@@ -47,18 +47,31 @@ function escapeHtml(s: string): string {
 
 /** 需求展示文案（含图标） */
 function needText(req: ResidentRequest): string {
-  if (req.itemKind === 'wood') return `${itemIconHtml('wood', 16)} 木材`;
-  return '🍽️ 食物（萝卜/番茄/玉米/草莓）';
+  switch (req.itemKind) {
+    case 'wood': return `${itemIconHtml('wood', 16)} 木材`;
+    case 'stone': return `${itemIconHtml('stone', 16)} 石头`;
+    case 'lantern': return `${itemIconHtml('lantern', 16)} 灯笼`;
+    case 'food': return '🍽️ 食物（萝卜/番茄/玉米/草莓）';
+    case 'fish': return '🐟 鱼（青禾鲫/河虾/黄昏鱼/月光鲈）';
+    case 'gather': return '🌿 采集物（蒲公英/野莓/野蘑菇/小野花/小树枝）';
+    default: return '资源';
+  }
 }
 
 /** 持有数量文案 */
 function haveText(req: ResidentRequest): string {
-  if (req.itemKind === 'wood') {
-    return `持有：木材 ${getItemCount('wood')}`;
-  }
-  const food = (['radish', 'tomato', 'corn', 'strawberry'] as ItemType[])
-    .reduce((sum, it) => sum + getItemCount(it), 0);
-  return `持有：食物 ${food} 份`;
+  const itemKind = req.itemKind;
+  if (itemKind === 'wood') return `持有：木材 ${getItemCount('wood')}`;
+  if (itemKind === 'stone') return `持有：石头 ${getItemCount('stone')}`;
+  if (itemKind === 'lantern') return `持有：灯笼 ${getItemCount('lantern')}`;
+  const pool: ItemType[] = itemKind === 'food'
+    ? ['radish', 'tomato', 'corn', 'strawberry']
+    : itemKind === 'fish'
+      ? ['qinghe_crucian', 'river_shrimp', 'dusk_fish', 'moon_bass']
+      : ['dandelion', 'wild_berry', 'wild_mushroom', 'small_flower', 'twig'];
+  const total = pool.reduce((sum, it) => sum + getItemCount(it), 0);
+  const label = itemKind === 'food' ? '食物' : itemKind === 'fish' ? '鱼' : '采集物';
+  return `持有：${label} ${total} ${itemKind === 'fish' ? '条' : '份'}`;
 }
 
 /** 创建 DOM（只创建一次） */

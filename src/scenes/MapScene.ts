@@ -21,8 +21,9 @@ import {
   chopTree,
   refreshStumps,
   getAllCropEntries,
+  countGrownTiles,
 } from '../data/FarmState';
-import type { TreeState } from '../data/FarmState';
+import type { TreeState, CropData, TileState } from '../data/FarmState';
 import {
   getPlotAt,
   getPlotTiles,
@@ -33,7 +34,8 @@ import {
 } from '../data/FarmPlot';
 import { getProjectShortfall, getQuickBuyCost, isRestored, markRestored, getRevivalLevel } from '../data/FarmRestore';
 import { isHouseTidyComplete } from '../data/HouseTidy';
-import { addItem, getItemCount, itemIconHtml } from '../data/Inventory';
+import { addItem, getItemCount, getItemDef, itemIconHtml, setItemCount, type ItemType } from '../data/Inventory';
+import { getGatherPointsForScene, gatherKindToItem, gatherEventKey, GATHER_INTERACT_RANGE, GATHER_VISUAL, type GatherPointDef, type GatherVisualConfig } from '../data/Gathering';
 import { formatTime, getTime, nextDay as timeNextDay, setTime, setTimeFull, tick as timeTick } from '../data/TimeSystem';
 import { getCoins, spendCoins, addCoins, WOOD_BUY_PRICE } from '../data/Economy';
 import { addXp, getLevel, getXp, getXpToNext, setOnLevelUp } from '../data/FarmProgress';
@@ -81,7 +83,7 @@ import { StoryDialogue } from '../ui/StoryDialogue';
 import { EndingPanel } from '../ui/EndingPanel';
 import { PhotoAlbumPanel } from '../ui/PhotoAlbumPanel';
 import { ResidentBoardPanel } from '../ui/ResidentBoardPanel';
-import { getRequestById } from '../systems/ResidentRequestSystem';
+import { getRequestById, isRequestDone } from '../systems/ResidentRequestSystem';
 import {
   getStoryStep, setStoryStep, advanceStory, isTutorialDone,
   isCh1TownIntroDone, markCh1TownIntroDone,
@@ -96,6 +98,8 @@ import {
   CH1_AWAKENING_DIALOGUE,
   GARDEN_RESTORED_XIYA_DIALOGUE, XIYA_SMALL_THINGS_DIALOGUE, XIYA_BUTTERFLY_SHARE_DIALOGUE,
   XIAOMEI_OBSERVE_INTRO_DIALOGUE, XIAOMEI_OBSERVE_CHOICES_DIALOGUE, XIAOMEI_OBSERVE_DETAIL_DIALOGUE, XIAOMEI_OBSERVE_DONE_DIALOGUE,
+  XIAOMEI_OBSERVE_WILLOW_INTRO_DIALOGUE, XIAOMEI_OBSERVE_WILLOW_DETAIL_DIALOGUE, XIAOMEI_OBSERVE_WILLOW_DONE_DIALOGUE,
+  XIAOMEI_OBSERVE_MOTH_INTRO_DIALOGUE, XIAOMEI_OBSERVE_MOTH_DETAIL_DIALOGUE, XIAOMEI_OBSERVE_MOTH_DONE_DIALOGUE,
   MARKET_STALL_HINT_DIALOGUES, MARKET_STALL_WRONG_DIALOGUES, MARKET_STALL_PLACED_DIALOGUES, MARKET_OPEN_DIALOGUE,
   OLD_HOUSE_RESTORED_DIALOGUE, FOREST_ROAD_RESTORED_DIALOGUE,
   CARPENTER_RETURN_DIALOGUE,
@@ -161,6 +165,10 @@ export interface MapSceneFlags {
   ch1ElderVisitDay?: number;
   /** P1-2 村长来访态度：'help' 愿意帮忙 / 'unsure' 还没想好（集市恢复前置；读档保持） */
   ch1ElderChoice?: 'help' | 'unsure';
+  /** 钓鱼 Phase 4：夏雅交换果干当天（次日河边长椅小场景判断用；读档保持） */
+  fishXiyaExchangeDay?: number;
+  /** 钓鱼放生彩蛋 v1.2：首次放生当天的天数（-1=从未放生；放生 2 天后河面鱼影 + 老姜台词） */
+  fishReleaseDay?: number;
   /** T3 夏雅「整理旧照片」：老屋修复后，老屋门口事件（一次性入档） */
   sideXiyaPhotoAsked?: boolean;
   sideXiyaPhotoDone?: boolean;
@@ -184,6 +192,12 @@ export interface MapSceneFlags {
   xiyaLetterDone?: boolean;
   /** D-011 剧情阶段（0=未开始 / 1=开场完成 / 2=整理花苗完成 / 3=旧花种记录完成；读档恢复现场用） */
   xiyaLetterStage?: number;
+  /** 小镇计划·星光艺术展（Feature-XXX，2026-08-15 制作人拍板）：筹备/活动/永久状态 */
+  artShowUnlocked?: boolean;      // 「小镇计划」已解锁（首次打开面板看过契机）
+  artShowEnvStage?: number;       // 环境准备进度 0-3（展台→灯光→花艺）
+  artShowMaterialsDone?: boolean; // 素材准备完成（鱼·晚餐食材）
+  artShowHeld?: boolean;          // 活动当天已办（演出触发）
+  artShowPerm?: boolean;          // 永久变化已落地（广场东侧艺术角）
 }
 
 /** 存档中保存的 MapScene flag（模块级暂存，apply 时写入，MapScene.create 时消费） */
@@ -324,6 +338,14 @@ export class MapScene extends Phaser.Scene {
   private oreCracks = new Map<string, Phaser.GameObjects.Graphics>();
   // 农场树木精灵列表（farm 场景，key = "col,row"）
   private treeSprites = new Map<string, Phaser.GameObjects.Image>();
+  // 树视觉升级：成片装饰树丛（纯视觉 Graphics，无碰撞；供探针验证）
+  private groveTrees: Phaser.GameObjects.Graphics[] = [];
+  // 居民需求系统升级：需求交付世界变化（纯视觉 Graphics，幂等渲染 + 探针验证用）
+  private reqFlowerTrellisGfx: Phaser.GameObjects.Graphics | null = null;
+  private reqDoorFrameGfx: Phaser.GameObjects.Graphics | null = null;
+  private reqLanternGfx: Phaser.GameObjects.Graphics | null = null;
+  private reqStoveGfx: Phaser.GameObjects.Graphics | null = null;
+  private reqFishBasketGfx: Phaser.GameObjects.Graphics | null = null;
   // v1.1 采集体验升级：树干裂纹图形（key = "col,row"，击打第 2 击出现）
   private treeCracks = new Map<string, Phaser.GameObjects.Graphics>();
   // 首次引导标志
@@ -371,6 +393,98 @@ export class MapScene extends Phaser.Scene {
     done: Phaser.GameObjects.Graphics | null;
     glow: Phaser.GameObjects.Ellipse | null;
   }> = [];
+  /** 老屋整理靠近提示（DOM，会话级；对齐 oldTreeInteractHint 范式） */
+  private houseTidyInteractHint: HTMLDivElement | null = null;
+  // 第一章 P2 钓鱼 Phase 1（2026-08-14，制作人 Decision Override 启动）：
+  // 纯手感原型——一个钓点（S6 老河堤）+ 一种鱼（青禾鲫）+ 状态机会话级（刷新即丢，零新存档字段）。
+  // 状态机：idle → casting → waiting → fakeBite/realBite → success/fail → idle
+  // 复用：MapScene.tryInteract 范式 + DOM hint（参照 oldTree）+ Graphics 视觉 + AudioSystem.play
+  // 红线：不新建 FishingManager/FishingSaveSystem/FishingInventory/FishingUIManager
+  /** 钓鱼状态机当前状态（idle=未钓鱼，可触发；其余=钓鱼中） */
+  private fishingState: 'idle' | 'casting' | 'waiting' | 'fakeBite' | 'realBite' | 'success' | 'fail' = 'idle';
+  /** 本次钓鱼的鱼种（Phase 3：甩竿时按时段+概率选定，决定行为与收获） */
+  private currentFish: keyof typeof MapScene.FISH_KINDS = 'qinghe_crucian';
+  /** 钓点位置（当前场景当前激活钓点；S6 老河堤长椅 (6,15) 西侧水边） */
+  private fishingSpotPos: { x: number; y: number } = { x: 0, y: 0 };
+  /** 浮漂位置（水中，钓点西侧水面） */
+  private floatPos: { x: number; y: number } = { x: 0, y: 0 };
+  /** 多钓点表（2026-08-14 钓鱼扩展：town 普通 / farm 稀有）。
+   *  key=场景，pos=玩家站钓点、floatPos=浮漂落点、tier='common'普通水域 / 'rare'稀有钓点（可钓高级鱼）。 */
+  private static readonly FISHING_SPOTS: Record<string, { pos: { x: number; y: number }; floatPos: { x: number; y: number }; tier: 'common' | 'rare' }> = {
+    town: { pos: { x: 5.5 * TILE_SIZE, y: 12 * TILE_SIZE + TILE_SIZE / 2 }, floatPos: { x: 3 * TILE_SIZE + TILE_SIZE / 2, y: 13 * TILE_SIZE + TILE_SIZE / 2 }, tier: 'common' },
+    farm: { pos: { x: 31 * TILE_SIZE + TILE_SIZE / 2, y: 18 * TILE_SIZE + TILE_SIZE / 2 }, floatPos: { x: 32 * TILE_SIZE + TILE_SIZE / 2, y: 20 * TILE_SIZE + TILE_SIZE / 2 }, tier: 'rare' },
+  };
+  /**
+   * 表现层实验（2026-08-14 制作人方向：Phaser 视觉上限验证，先于 Godot 判断）。
+   * 四项：① 夜晚压暗 overlay + 火光 Add 光 ② 火星/萤火虫粒子 ③ 前景遮挡 ④ 镜头呼吸微动。
+   * 范围：town 夜晚 + 阿风烤鱼交换已触发；验收通过后推广为统一视觉语言。
+   */
+  private static readonly NIGHT_VISUAL_EXPERIMENT = true;
+  /** 钓鱼视觉容器（浮漂/鱼线/水花/鱼跳出，钓鱼中存在，结束清理） */
+  private fishingVisuals: Phaser.GameObjects.Container | null = null;
+  /** 钓点水面常驻标识（浮漂/涟漪/光斑；钓鱼开始时隐藏避免与钓鱼浮漂重叠） */
+  private fishingSpotWaterMark: Phaser.GameObjects.Container | null = null;
+  /** 钓鱼靠近提示（DOM，会话级） */
+  private fishingInteractHint: HTMLDivElement | null = null;
+  /** 钓鱼中收竿窗口提示（DOM，仅在 realBite 状态显示） */
+  private fishingReelHint: HTMLDivElement | null = null;
+  // ═══════════ 钓鱼老人 老姜（氛围锚点，2026-08-14 制作人拍板）═══════════
+  // 定位：青禾镇最后一个还坚持每天去河边坐一下午的人。不是任务机器。
+  // 视觉：程序绘制草帽大叔（零素材，见 setupRiverbankLife ⑬）；场景锚定交互（非 NPCSystem 注册）。
+  // 作息：13:00-17:00 在 S6 河堤坐着钓鱼，其余时段收竿回家（视觉显隐 + 交互门禁）。
+  // 功能：教学（简单直白）/ 鱼种评价（一次性每种）/ 《钓鱼修行》小事件（三鱼入门 → 旧鱼竿）/ 复兴台词 / 老婆轻吐槽。
+  private laoJiangGfx: Phaser.GameObjects.Graphics | null = null;
+  private laoJiangLabel: Phaser.GameObjects.Text | null = null;
+  private laoJiangHint: HTMLDivElement | null = null;
+  private readonly laoJiangPos = { x: 84, y: 232 };
+  private static readonly LAO_JIANG_RANGE = 30;
+  /** 老姜当前显隐状态（避免 update 每帧重复 setVisible） */
+  private laoJiangPresent = false;
+  // ═══════════ 阶段3 光照：town 黄昏暖光（2026-08-14，执行方案 §3 光照表现）═══════════
+  // 依据《青禾镇美术质感升级执行方案-v0.1》阶段3 + 《钓鱼点宣传级美术方向》17:00 暖黄夕阳。
+  // 范围：仅 town，17:00-19:00 生效；全屏暖橙 ADD overlay（depth 4.5，盖地面/装饰≤4，不盖 NPC/玩家，同 farm 范式）
+  // + 顶部天空渐变（ADD）+ 河面暖光斑呼吸（"水面上有光"）。
+  private townDuskOverlay: Phaser.GameObjects.Rectangle | null = null;
+  private townDuskSkyGlow: Phaser.GameObjects.Graphics | null = null;
+  private townDuskGlints: Phaser.GameObjects.Graphics | null = null;
+  /** 夜晚月光冷色（normal blend 压暗 + 偏冷；depth 4.5，不盖 NPC/玩家） */
+  private townNightCool: Phaser.GameObjects.Rectangle | null = null;
+  /** 白天太阳方向感：左上→右下暖色渐变（极弱，ADD），模拟单一光源方向 */
+  private townDaySun: Phaser.GameObjects.Graphics | null = null;
+  private townDuskLastHour = -1;
+  // ═══════════ 小镇计划·星光艺术展（Feature-XXX，2026-08-15 制作人拍板）═══════════
+  // 定位：小镇第一次主动准备迎接外界目光的生活事件；验证循环「生活事件 → 玩家参与 → 世界变化 → 永久留下痕迹」。
+  // 零新系统：状态走 MapSceneFlags（随存档） + triggerOnce；面板/演出/物件全部程序化。
+  private artShowUnlocked = false;
+  private artShowEnvStage = 0;        // 0-3：展台→灯光→花艺
+  private artShowMaterialsDone = false; // 鱼（晚餐食材）已备
+  private artShowHeld = false;
+  private artShowPerm = false;
+  private inArtShowCutscene = false;
+  private artShowSprites: Phaser.GameObjects.GameObject[] = [];
+  private artShowBox: Phaser.GameObjects.Container | null = null; // 素材箱（交付点）
+  private artShowXiya: Phaser.GameObjects.Sprite | null = null;   // 筹备期广场夏雅（策划）
+  private artShowHint: HTMLDivElement | null = null;              // 素材箱/夏雅靠近提示
+  // 星光艺术展余波：旅人回访（艺术展办完后，白天/傍晚坐艺术角长椅看自己的展品）
+  private artShowTravelerGfx: Phaser.GameObjects.Graphics | null = null;
+  private artShowTravelerLabel: Phaser.GameObjects.Text | null = null;
+  private artShowTravelerHint: HTMLDivElement | null = null;
+  private readonly artShowTravelerPos = { x: 516, y: 322 };       // 长椅 (512,322) 上落座
+  private townPlanPanel: HTMLDivElement | null = null;            // 「小镇计划」只读面板
+  // 第一章 P2 生活采集 Phase 1（2026-08-14 设计稿 v0.1）：
+  // 5 种采集物（蒲公英/野莓/野蘑菇/小野花/小树枝）× farm/town/forest 三场景手工分布。
+  // 视觉：程序合成小群落（2-4 株），不均匀刷点（§七/§八）；零资产。
+  // 存档：复用 triggerOnce 持久化每个采集点"已采"状态，不新增顶层字段（§十五）。
+  /** 当前场景的采集点实例（视觉容器 + 已采状态，会话级；状态由 triggerOnce 持久化） */
+  private gatherNodes: {
+    def: GatherPointDef;
+    container: Phaser.GameObjects.Container;
+    collected: boolean;
+  }[] = [];
+  /** 采集靠近提示（DOM，会话级；对齐 fishingInteractHint 范式） */
+  private gatherInteractHint: HTMLDivElement | null = null;
+  /** 当前靠近中的采集点索引（tryInteract 时定位用；-1=无） */
+  private nearestGatherIdx: number = -1;
   /** 需求板引导（首次靠近提示，会话级，不入档） */
   private residentBoardHintShown = false;
   // 教程：大门墙壁（物理矩形，钥匙使用后销毁）
@@ -397,6 +511,24 @@ export class MapScene extends Phaser.Scene {
   private elderVisitSprite: Phaser.GameObjects.Sprite | null = null;
   private elderVisitLabel: Phaser.GameObjects.Text | null = null;
   private ch1ElderVisitDay = 0;
+  /** 钓鱼 Phase 4：夏雅交换果干当天（次日河边长椅小场景判断用） */
+  private fishXiyaExchangeDay = 0;
+  /** 钓鱼放生彩蛋 v1.2：首次放生天数（-1=未放生；随 mapFlags 入档，读档保持） */
+  private fishReleaseDay = -1;
+  /** 放生 2 天后的河面鱼影（town 装饰，随场景重建） */
+  private releasedFishGfx: Phaser.GameObjects.Container | null = null;
+  // 采集流向扩展：世界变化 Graphics 运行时引用（非存档；幂等渲染 + 探针验证用）
+  private gatherBerryBasketGfx: Phaser.GameObjects.Graphics | null = null;
+  private xiyaWindowFlowerGfx: Phaser.GameObjects.Graphics | null = null;
+  private gatherMushroomDryingGfx: Phaser.GameObjects.Graphics | null = null;
+  private gatherDandelionPatchGfx: Phaser.GameObjects.Graphics | null = null;   // 阿风收蒲公英 → town 河岸蒲公英丛
+  private gatherWoodenStarlingGfx: Phaser.GameObjects.Graphics | null = null;   // 老周收树枝 → farm 老屋旁小木鸟
+  // 种植升级 v2 切片A：萝卜赠予 → 河边腌萝卜罐（幂等渲染 + 探针验证用）
+  private cropLifeLeftoverGfx: Phaser.GameObjects.Graphics | null = null;
+  /** 种植升级 v2 切片B：番茄架视觉（crop_tomato_xiya_seen 后 farm 农田北缘；随场景重建，读档由事件状态自动恢复） */
+  private tomatoTrellisGfx: Phaser.GameObjects.Graphics | null = null;
+  /** 土地回应系统 v1.4：农田"活过来"后的蝴蝶/蜜蜂（farm 装饰容器，随场景重建） */
+  private fieldLifeGfx: Phaser.GameObjects.Container | null = null;
   private elderVisitDone = false;
   /** P1-2 村长来访态度：'help' 愿意帮忙 / 'unsure' 还没想好（随 flags 入档，集市恢复消费） */
   private ch1ElderChoice: 'help' | 'unsure' | undefined = undefined;
@@ -465,7 +597,8 @@ export class MapScene extends Phaser.Scene {
     restored: boolean;
     /** 是否已清理场地（资源交付完成，ch1_market_cleared）——清理后进入布置态 */
     cleared: boolean;
-    debris: Phaser.GameObjects.Graphics[];
+    // 2026-08-14 放宽为 GameObject[]：摊位改用 sprite（Image）替代 Graphics 绘制
+    debris: Phaser.GameObjects.GameObject[];
     mark: Phaser.GameObjects.Text | null;
     pos: { x: number; y: number };
     // Phase 2 布置玩法：3 个布置点（摊位类型 + 像素坐标 + 当前标记，标记随布置销毁；placed 防重复摆放）
@@ -480,6 +613,16 @@ export class MapScene extends Phaser.Scene {
   // 路线 C：不扩 tileset，修复态用独立 sprite（增删切换，不碰 tile）。仅 town 场景。
   // 记录所有 Phase 3 挂载的 GameObject（探针验证数量/位置/显隐）
   private phase3Objects: Phaser.GameObjects.GameObject[] = [];
+  // 集市摊主（2026-08-14 制作人拍板：摊位旁要有老板，增加活人感/真实感）：
+  // 集市开张后生成 3 个摊主精灵（复用 npc_miner/npc_gardener/npc_girl 贴图，独立于 7 主 NPC 日程）。
+  // 不进 phase3Objects（探针数量断言约束），独立数组管理，场景 shutdown 自动销毁。
+  private marketStallKeepers: Phaser.GameObjects.Container[] = [];
+  // 摊主闲聊台词（2026-08-14，D-017 文风护栏：具体情境 + 生活废话额度，不漂亮堆砌）
+  private static readonly STALL_KEEPER_LINES: Record<string, string> = {
+    老张: '锄头都摆好了，趁赶集人多，看看有没有人要。',
+    小梅: '我这摊子靠中间，香味能飘出去老远。你来尝尝？',
+    夏雅: '花都是今早现剪的。你要是不急着走，挑一盆放窗台上。',
+  };
   // Phase 3 §四 S6 老河堤水声：位置触发状态缓存（防止每帧重复调用 setRiverProximity）
   private riverSoundNear = false;
   // FEATURE-037 后山道路修复（forest 底部 farm 入口上方的空地通道）
@@ -573,6 +716,8 @@ export class MapScene extends Phaser.Scene {
   // 花田支线：花田视觉（荒废态容器 / 提示标记；盛开态直接 build 无需存引用，场景 shutdown 自动销毁）
   private gardenerFieldRuin: Phaser.GameObjects.Container | null = null;
   private gardenerFieldMark: Phaser.GameObjects.Text | null = null;
+  // 第一章 v0.11 图鉴墙（制作人 2026-08-14 拍板）：花田旁的昆虫标本墙，按 ch1_natural_record_1/2/3 幂等挂卡
+  private insectWall: Phaser.GameObjects.Container | null = null;
   // D-011 夏雅《春深有信·一》剧情专线场景级对象（花田边剧情夏雅 + 花苗/记录交互点；destroy 时清理）
   private letterXiya: Phaser.GameObjects.Sprite | null = null;
   private letterXiyaLabel: Phaser.GameObjects.Text | null = null;
@@ -694,6 +839,13 @@ export class MapScene extends Phaser.Scene {
       eveningXiyaDay: inst.eveningXiyaDay,
       ch1ElderVisitDay: inst.ch1ElderVisitDay,
       ch1ElderChoice: inst.ch1ElderChoice,
+      fishXiyaExchangeDay: inst.fishXiyaExchangeDay,
+      fishReleaseDay: inst.fishReleaseDay,
+      artShowUnlocked: inst.artShowUnlocked,
+      artShowEnvStage: inst.artShowEnvStage,
+      artShowMaterialsDone: inst.artShowMaterialsDone,
+      artShowHeld: inst.artShowHeld,
+      artShowPerm: inst.artShowPerm,
     };
   }
 
@@ -747,6 +899,13 @@ export class MapScene extends Phaser.Scene {
       this.eveningXiyaDay = saved.eveningXiyaDay ?? 0;
       this.ch1ElderVisitDay = saved.ch1ElderVisitDay ?? 0;
       this.ch1ElderChoice = saved.ch1ElderChoice;
+      this.fishXiyaExchangeDay = saved.fishXiyaExchangeDay ?? 0;
+      this.fishReleaseDay = saved.fishReleaseDay ?? -1;
+      this.artShowUnlocked = saved.artShowUnlocked ?? false;
+      this.artShowEnvStage = saved.artShowEnvStage ?? 0;
+      this.artShowMaterialsDone = saved.artShowMaterialsDone ?? false;
+      this.artShowHeld = saved.artShowHeld ?? false;
+      this.artShowPerm = saved.artShowPerm ?? false;
     }
   }
 
@@ -790,6 +949,14 @@ export class MapScene extends Phaser.Scene {
     this.clearRobots();
     // 后山老树交互提示清理
     this.hideOldTreeHint();
+    // 老屋整理提示清理（DOM，场景切换时销毁防残留）
+    this.hideHouseTidyHint();
+    // 钓鱼 Phase 1 资源清理（视觉 + DOM hint + 状态机复位）
+    this.cleanupFishing();
+    // 生活采集 Phase 1 资源清理（视觉 + DOM hint；已采状态已由 triggerOnce 持久化）
+    this.cleanupGathering();
+    // 星光艺术展余波：旅人回访清理（视觉 + label + DOM hint，场景切换防残留）
+    this.cleanupArtShowTraveler();
     // 镇长家提示物品清理
     this.clearElderHouseHint();
     // 灯塔探索交互点清理（场景切换时销毁，防止残留）
@@ -837,11 +1004,11 @@ export class MapScene extends Phaser.Scene {
     if (this.mapKey === 'farm' && !this.textures.exists('farm_plot')) {
       this.load.spritesheet('farm_plot', 'assets/sprites/farm_plot.png', { frameWidth: 16, frameHeight: 16 });
     }
-    // 砍树贴图：树1（阔叶）/树2（松树）/大树（2 格）/树桩（农场场景）
-    if (this.mapKey === 'farm') {
-      if (!this.textures.exists('tree1')) this.load.image('tree1', 'assets/sprites/tree1.png');
-      if (!this.textures.exists('tree2')) this.load.image('tree2', 'assets/sprites/tree2.png');
-      if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprites/tree_big.png');
+// 砍树贴图：树1（阔叶）/树2（松树）/大树（2 格）/树桩（农场 + 生命化改造·河岸树列）
+if (this.mapKey === 'farm' || this.mapKey === 'town') {
+if (!this.textures.exists('tree1')) this.load.image('tree1', 'assets/sprites/tree1.png');
+if (!this.textures.exists('tree2')) this.load.image('tree2', 'assets/sprites/tree2.png');
+if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprites/tree_big.png');
       if (!this.textures.exists('stump')) this.load.image('stump', 'assets/sprites/stump.png');
     }
     // Phase 3 修复态资产（2026-08-13，青禾镇Phase3美术升级-拍板基线-v1.0.md §三）：
@@ -851,6 +1018,25 @@ export class MapScene extends Phaser.Scene {
       if (!this.textures.exists('spr_sign')) this.load.image('spr_sign', 'assets/sprites/sign_hung.png');
       if (!this.textures.exists('spr_bench')) this.load.image('spr_bench', 'assets/sprites/bench.png');
       if (!this.textures.exists('spr_window')) this.load.image('spr_window', 'assets/sprites/window_lamp.png');
+      // 集市摊位 sprite（2026-08-14 Gemini 出图 → sprite_process.py 入库；白底/黑底均兼容）
+      // tool=白底红棕 / food=黑底红 / flower=黑底粉
+      if (!this.textures.exists('spr_stall_tool')) this.load.image('spr_stall_tool', 'assets/sprites/market_stall_tool.png');
+      if (!this.textures.exists('spr_stall_food')) this.load.image('spr_stall_food', 'assets/sprites/market_stall_food.png');
+      if (!this.textures.exists('spr_stall_flower')) this.load.image('spr_stall_flower', 'assets/sprites/market_stall_flower.png');
+    }
+    // 镇子生活杂物/环境 sprite：town + gate 共用（gate 庄园大门也是玩家第一印象，资产精修同步覆盖）
+    if (this.mapKey === 'town' || this.mapKey === 'gate') {
+      if (!this.textures.exists('decor_woodpile')) this.load.image('decor_woodpile', 'assets/sprites/decor_woodpile.png');
+      if (!this.textures.exists('decor_pot')) this.load.image('decor_pot', 'assets/sprites/decor_pot.png');
+      if (!this.textures.exists('decor_bucket')) this.load.image('decor_bucket', 'assets/sprites/decor_bucket.png');
+      if (!this.textures.exists('decor_crate')) this.load.image('decor_crate', 'assets/sprites/decor_crate.png');
+      if (!this.textures.exists('decor_clothesline')) this.load.image('decor_clothesline', 'assets/sprites/decor_clothesline.png');
+      if (!this.textures.exists('decor_cart')) this.load.image('decor_cart', 'assets/sprites/decor_cart.png');
+      if (!this.textures.exists('decor_stool')) this.load.image('decor_stool', 'assets/sprites/decor_stool.png');
+      if (!this.textures.exists('decor_broom')) this.load.image('decor_broom', 'assets/sprites/decor_broom.png');
+      if (!this.textures.exists('decor_rock')) this.load.image('decor_rock', 'assets/sprites/decor_rock.png');
+      if (!this.textures.exists('decor_grass')) this.load.image('decor_grass', 'assets/sprites/decor_grass.png');
+      if (!this.textures.exists('decor_fg_grass')) this.load.image('decor_fg_grass', 'assets/sprites/decor_fg_grass.png');
     }
     // spr_flowerbed：town 集市花坛（Phase3）+ farm 春深有信·一 完成后花田花苗（P1 世界反馈，2026-08-13 制作人拍板）
     if (this.mapKey === 'town' || this.mapKey === 'farm') {
@@ -1070,6 +1256,21 @@ export class MapScene extends Phaser.Scene {
     albumBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.hudDom.appendChild(albumBtn);
 
+    // 小镇计划入口（Feature-XXX，2026-08-15）：春日大集后出现；只读观察"小镇正在发生什么"
+    if (this.artShowUnlocked || (isChapterAtLeast(CHAPTER_1) && hasTriggered('ch1_spring_fair'))) {
+      const planBtn = document.createElement('div');
+      planBtn.id = 'town-plan-btn';
+      planBtn.style.cssText =
+        'position:absolute;top:104px;left:8px;pointer-events:auto;cursor:pointer;' +
+        'background:rgba(20,24,46,0.75);border:1px solid rgba(216,184,120,0.5);border-radius:6px;' +
+        'color:#e8d8a8;font-size:12px;padding:3px 8px;text-shadow:1px 1px 0 #000;' +
+        'user-select:none;-webkit-user-select:none';
+      planBtn.textContent = '🗓 小镇计划';
+      planBtn.addEventListener('click', () => this.openTownPlan());
+      planBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      this.hudDom.appendChild(planBtn);
+    }
+
     // 声音总开关（2026-08-13 制作人：游戏音乐暂时屏蔽 + 重新打开开关）
     // 全端可见可点（hudDom 桌面/移动端统一挂载）；safe-area 适配刘海屏；避开 StoryDialogue 右上 Skip/回顾
     const soundBtn = document.createElement('div');
@@ -1114,6 +1315,8 @@ export class MapScene extends Phaser.Scene {
       this.setupFarmTiles();
       // 砍树：创建树木精灵 + 兼容旧存档赠送斧头
       this.setupTrees();
+      // 树视觉升级：成片装饰树丛（多树种，集中成林，纯视觉）
+      this.setupFarmTreeGroves();
       if (isTutorialDone() && getItemCount('old_axe') === 0) {
         addItem('old_axe', 1);
       }
@@ -1133,10 +1336,17 @@ export class MapScene extends Phaser.Scene {
       this.plotHighlight = this.add.graphics();
       this.plotHighlight.setDepth(8);
       this.plotHighlight.setVisible(false);
+      // 第一章 P2 钓鱼扩展（2026-08-14）：farm 池塘稀有钓点（靠水边按 E 钓鱼，见 setupFishingSpot）
+      this.setupFishingSpot();
     }
 
     // 出口指示箭头（所有地图场景，帮助玩家找到出口）
     this.setupExitIndicators();
+
+    // 第一章 P2 生活采集 Phase 1（2026-08-14 设计稿 v0.1）：
+    // farm/town/forest 三场景手工采集点，程序合成小群落视觉（零资产）。
+    // setupGatherPoints 内部通过 getGatherPointsForScene 判断，无采集点的场景自动跳过。
+    this.setupGatherPoints();
 
     // 创建当前场景的 NPC（根据 TimeSystem 时间判定 location）
     this.setupNPCs();
@@ -1151,13 +1361,19 @@ export class MapScene extends Phaser.Scene {
     if (this.mapKey === 'farm') {
       this.setupFarmAmbience();
       // 西侧海湾已撤除（2026-08-11 制作人反馈"灯塔影子效果不好"）：石墙堵回，灯塔不可见；
+      // 2026-08-14 灯塔"世界回应"线（制作人拍板）：春日集后远处灯塔亮起（不拆墙、不开放入口）
+      this.setupLighthouseDistant();
       // 未来开放时恢复海湾+灯塔远景（见 docs/design/灯塔未来内容预埋方案-v1.0.md 恢复点）
     }
 
-    // 镇长家室内氛围（暖炉辉光/浮尘/门口柔光，零资源纯代码）
-    if (this.mapKey === 'elder_house') {
-      this.setupElderHouseAmbience();
-    }
+// 镇长家室内氛围（暖炉辉光/浮尘/门口柔光，零资源纯代码）
+if (this.mapKey === 'elder_house') {
+this.setupElderHouseAmbience();
+// 钓鱼 Phase 4：老张收黄昏鱼后，夜晚老张家灯亮（暖光）
+this.setupElderNightLamp();
+// 采集流向扩展：老张收野蘑菇后，老家门口晾蘑菇串（世界变化，见 setupGatherMushroomDrying）
+this.setupGatherMushroomDrying();
+}
 
     // 灯塔轻量版（2026-08-10 制作人解冻）：探索交互点（航海日志/铭牌/望远镜）
     if (this.mapKey === 'lighthouse') {
@@ -1183,7 +1399,34 @@ export class MapScene extends Phaser.Scene {
       this.setupMarketSquare();
       // 第一章 P3 春日集：集市恢复后的夜晚进 town，镇上重新聚起人（克制版，见 trySpringFairSequence）
       this.time.delayedCall(1000, () => this.trySpringFairSequence());
-    }
+// 第一章 P2 钓鱼 Phase 1（2026-08-14 制作人 Decision Override 启动）：
+// S6 老河堤钓点交互物（靠近按 E 进入钓鱼状态机），见 setupFishingSpot
+this.setupFishingSpot();
+// 钓鱼放生彩蛋 v1.2：放生 2 天后河面鱼影（世界记得你的行为，见 setupReleasedFishShadows）
+this.setupReleasedFishShadows();
+// 钓鱼 Phase 4：阿风收黄昏鱼后，晚上河边生火烤鱼（"这次不会糊"，见 setupAdventurerCampfire）
+this.setupAdventurerCampfire();
+// 采集流向扩展：阿风收蒲公英后，河岸草丛冒出小蒲公英丛（世界变化，见 setupGatherDandelionPatch）
+this.setupGatherDandelionPatch();
+// 表现层实验：夜晚河边火堆四项视觉强化（见 setupNightCampfireVisuals）
+this.setupNightCampfireVisuals();
+// 生命化改造·河岸段：生活痕迹 + 岸线层次 + 前景芦苇（见 setupRiverbankLife）
+this.setupRiverbankLife();
+// 生命化改造·场景密度：空旷草地区补装饰簇（见 setupTownDensityClusters）
+this.setupTownDensityClusters();
+// 阶段4 中央广场生活化：石井 / 石凳 / 踩踏痕迹 / 夜晚灯柱（见 setupCentralPlaza）
+this.setupCentralPlaza();
+// 小镇计划·星光艺术展：筹备/活动/永久状态挂载（见 setupArtShow）
+this.setupArtShow();
+// 种植升级 v2：萝卜赠予后的河边腌萝卜罐（世界留下痕迹）
+this.setupCropLifeLeftovers();
+// 居民需求系统升级：镇长灯笼 / 阿风小灶 / 老姜鱼篓（交付后世界变化）
+this.setupReqLantern();
+this.setupReqStove();
+this.setupReqFishBasket();
+// 阶段3 光照：town 黄昏暖光（17:00-19:00，全屏暖橙 + 河面光斑）
+this.setupTownDuskOverlay();
+}
 
     // gate 庄园大门美术升级（生活杂物/小动物/夜间门灯，零资源纯代码；教程逻辑零触碰）
     if (this.mapKey === 'gate') {
@@ -1203,11 +1446,13 @@ export class MapScene extends Phaser.Scene {
     // 第一章 P1-1 老屋整理：4 个整理交互点（章节门禁 chapter ≥ 1，见 setupHouseTidy）
     if (this.mapKey === 'house') {
       this.setupHouseTidy();
-      // 第一章 P1-2 村长来访：老屋整理完成后的下一晚，进老屋触发（见 tryElderVisitSequence）
-      this.tryElderVisitSequence();
-      // 第一章 P1-3 夏雅《旧日留影》：老屋整理完成后，柜子位置出现翻柜子标记（见 trySideXiyaOldShadow）
-      this.setupXiyaOldShadow();
-    }
+// 第一章 P1-2 村长来访：老屋整理完成后的下一晚，进老屋触发（见 tryElderVisitSequence）
+this.tryElderVisitSequence();
+// 第一章 P1-3 夏雅《旧日留影》：老屋整理完成后，柜子位置出现翻柜子标记（见 trySideXiyaOldShadow）
+this.setupXiyaOldShadow();
+// 钓鱼 Phase 4：老张收黄昏鱼后，老屋门轴修好（小视觉）
+this.setupFishDoorHinge();
+}
 
     // M1-3 爷爷旧花园恢复点（玩家清理荒废角落 → 环境变化 + 存档持久化）
     if (this.mapKey === 'farm') {
@@ -1221,12 +1466,27 @@ export class MapScene extends Phaser.Scene {
       this.setupXiyaPhoto();
     }
 
-    // P2 农场复兴视觉化（菜园层次/工具区/树荫/碎石小路，荒废→复兴两态，与 FEATURE-037 联动）
-    if (this.mapKey === 'farm') {
-      this.setupFarmDecorations();
-      // 花田支线：farm 左上角花田（荒废/盛开两态，读档恢复）
-      this.setupGardenerField();
-    }
+// P2 农场复兴视觉化（菜园层次/工具区/树荫/碎石小路，荒废→复兴两态，与 FEATURE-037 联动）
+if (this.mapKey === 'farm') {
+this.setupFarmDecorations();
+// 花田支线：farm 左上角花田（荒废/盛开两态，读档恢复）
+this.setupGardenerField();
+// 钓鱼 Phase 4：小梅收河虾后，花田旁摆小饭桌
+this.setupFishTable();
+// 采集流向扩展：小梅收野莓后，花田旁摆野莓篮（世界变化，见 setupGatherBerryBasket）
+this.setupGatherBerryBasket();
+// 采集流向扩展：夏雅收小野花后，老屋窗台插花（世界变化，见 setupXiyaWindowFlower）
+this.setupXiyaWindowFlower();
+// 采集流向扩展：老周收小树枝后，老屋门口挂小木鸟（世界变化，见 setupGatherWoodenStarlingToy）
+this.setupGatherWoodenStarlingToy();
+// 种植升级 v2 切片B：番茄×夏雅「她记得」后，农田北缘番茄架（植物改变空间）
+this.setupTomatoTrellis();
+// 居民需求系统升级：小梅木材交付后花田旁花架；老周木材交付后老屋门框修好
+this.setupReqFlowerTrellis();
+this.setupReqDoorFrame();
+// 土地回应系统 v1.4：农田"活过来"后的蝴蝶/蜜蜂（世界回应，读档恢复）
+this.setupFieldLife();
+}
 
     // day2 清晨「岛屿的第一声回应」：睡醒后切场景/重进 farm 时尝试触发（trySleep 挂钩点在睡觉时）
     if (this.mapKey === 'farm') {
@@ -1234,6 +1494,8 @@ export class MapScene extends Phaser.Scene {
       // D-025 时序红线（2026-08-11）：当前 Demo 全为第0章《归星》，观星夜之后才进第1章 → 显示 CHAPTER 0
       // 一次性：triggerOnce('chapter1_arrival') 持久化判重（key 保留避免旧档重复触发）；文案制作人定稿，不扩写。
       this.time.delayedCall(450, () => {
+        // 章节门禁：仅第0章（观星夜前）首次踏入归星岛弹 Banner；第一章不再显示 CHAPTER 0 标识（Dev Hub 跳档同理）
+        if (isChapterAtLeast(CHAPTER_1)) return;
         triggerOnce('chapter1_arrival', () => {
           showChapterBanner({
             chapter: 'CHAPTER 0',
@@ -1572,6 +1834,19 @@ export class MapScene extends Phaser.Scene {
       return;
     }
 
+    // 星光艺术展演出期间：冻结玩家移动/交互，只放行对白推进（同观星夜范式）
+    if (this.inArtShowCutscene) {
+      this.player.setVelocity(0, 0);
+      this.inputManager.clearAction();
+      if (this.storyDialogue?.isOpen()) {
+        this.inputManager.update();
+        if (this.inputManager.consumeAction()) {
+          this.storyDialogue.advance();
+        }
+      }
+      return;
+    }
+
     // 归星录·相簿打开：冻结玩家移动/交互，只响应关闭（Esc 或按钮）
     if (this.photoAlbumPanel?.isOpen()) {
       this.player.setVelocity(0, 0);
@@ -1765,6 +2040,23 @@ export class MapScene extends Phaser.Scene {
 
     // 后山老树交互检测
     this.checkOldTreeInteract();
+    // 老屋整理靠近提示（仅 house 场景，距离 + 对话状态门禁）
+    this.checkHouseTidyHint();
+    // 钓鱼老人老姜：作息显隐 + 靠近提示（优先级高于钓鱼提示，避免双提示叠屏）
+    this.checkLaoJiangInteract();
+    // 小镇计划·星光艺术展：素材箱/广场夏雅靠近提示 + 活动触发检测
+    this.checkArtShowProximity();
+    this.checkArtShowAuto();
+    // 星光艺术展余波：旅人回访靠近提示（白天/傍晚在艺术角时）
+    this.checkArtShowTravelerProximity();
+    // 阶段3 光照：town 黄昏暖光按小时切换（小时内幂等）
+    this.updateTownDuskOverlay();
+    // 钓鱼 Phase 1 靠近提示（仅 town 场景，S6 老河堤钓点附近 + 非钓鱼中 + 无对话）
+    this.checkFishingHint();
+    // 生活采集 Phase 1 靠近提示（farm/town/forest 三场景，存在未采点 + 无对话）
+    this.checkGatherHint();
+    // 钓鱼 Phase 4：夏雅交换果干后，次日靠近河边长椅 → 小场景 + 相簿
+    this.checkFishRiverside();
 
     // 后山观景台：靠近一次性触发环境铺垫对白
     this.checkForestLookout();
@@ -2196,7 +2488,7 @@ export class MapScene extends Phaser.Scene {
    * 4 个整理交互点（旧床/灯/书桌/收音机），程序绘制、零新资产、零新增存档字段。
    * 状态由 EventManager.triggerOnce('ch1_*_done') 持久化（随存档的 triggeredEvents）：
    *   - 已完成（hasTriggered）→ 画"整理后"视觉（drawTidyDone），不挂交互提示
-   *   - 未完成 → 呼吸光晕 + 文字标签（参照 setupMusicBox 范式），靠近按 E 整理
+   *   - 未完成 → 呼吸光晕（视觉吸引），靠近时通过 DOM hint 提示"按 [E] 整理"
    * 4 点位置已核验两两间距 > 48px（交互判定不重叠，且均不在床睡觉判定邻近格内）。
    */
   private setupHouseTidy(): void {
@@ -2218,10 +2510,9 @@ export class MapScene extends Phaser.Scene {
         this.drawTidyDone(p.key, g);
         this.houseTidy.push({ key: p.key, pos: { x: p.x, y: p.y }, mark: null, done: g, glow: null });
       } else {
-        // 交互标记（呼吸光晕 + 文字标签）
+        // 交互标记（仅呼吸光晕，无文字标签——靠近时通过 DOM hint 提示）
         // B-3 焦点优先：只有"下一个该整理的"呼吸最强，其余点弱亮——第一眼先被一个点吸引
         const isFocus = ORDER.find((k) => !hasTriggered(`ch1_${k}_done`)) === p.key;
-        const labelText = p.key === 'bed' ? '整理床' : p.key === 'lamp' ? '整理灯' : p.key === 'desk' ? '整理书桌' : '整理收音机';
         const mark = this.add.container(p.x, p.y).setDepth(4);
         const glow = this.add.ellipse(0, 0, 26, 20, 0xffd98a, isFocus ? 0.18 : 0.1);
         mark.add(glow);
@@ -2232,14 +2523,6 @@ export class MapScene extends Phaser.Scene {
           yoyo: true,
           repeat: -1,
         });
-        const label = this.add.text(0, -14, labelText, {
-          fontSize: '10px',
-          color: '#e8d8a8',
-          stroke: '#000000',
-          strokeThickness: 2,
-        }).setOrigin(0.5);
-        if (!isFocus) label.setAlpha(0.55); // 非焦点点标签弱化，聚焦窗内的"当前一件"
-        mark.add(label);
         this.houseTidy.push({ key: p.key, pos: { x: p.x, y: p.y }, mark, done: null, glow });
       }
     }
@@ -2375,6 +2658,3066 @@ export class MapScene extends Phaser.Scene {
     return false;
   }
 
+  /**
+   * 老屋整理靠近提示检测（DOM 提示，对齐 oldTreeInteractHint 范式）。
+   * 仅 house 场景 + 无对话打开时检测；距离 < 48px（与 tryHouseTidyInteract 判定一致）
+   * 且存在未完成点 → 显示提示；否则隐藏。
+   * 设计：地图上仅保留呼吸光晕（视觉吸引），文字提示靠近时浮现——
+   * 避免地图上 4 个"整理床/灯/书桌/收音机"文字标签拥挤。
+   */
+  private checkHouseTidyHint(): void {
+    if (this.mapKey !== 'house' || !this.houseTidy || this.storyDialogue?.isOpen()) {
+      this.hideHouseTidyHint();
+      return;
+    }
+    let nearest = false;
+    for (const item of this.houseTidy) {
+      if (!item.mark) continue; // 已完成的点不显示提示
+      const dx = this.player.x - item.pos.x;
+      const dy = this.player.y - item.pos.y;
+      if (dx * dx + dy * dy < 48 * 48) {
+        nearest = true;
+        break;
+      }
+    }
+    if (nearest) this.showHouseTidyHint();
+    else this.hideHouseTidyHint();
+  }
+
+  /** 显示老屋整理交互提示（DOM） */
+  private showHouseTidyHint(): void {
+    if (this.houseTidyInteractHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffffff', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」整理' : '按 [E] 整理';
+    document.body.appendChild(hint);
+    this.houseTidyInteractHint = hint;
+  }
+
+  /** 隐藏老屋整理交互提示 */
+  private hideHouseTidyHint(): void {
+    if (this.houseTidyInteractHint) {
+      this.houseTidyInteractHint.remove();
+      this.houseTidyInteractHint = null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第一章 P2 生活采集 Phase 1（2026-08-14 设计稿 v0.1）
+  // 依据：《归星物语》生活采集与探索收集系统设计 v0.1
+  // 范围：5 种采集物 × farm/town/forest 三场景手工采集点
+  // 红线：零新系统 / 零新存档字段 / 零新素材；triggerOnce 持久化"已采"状态
+  // 复用：MapScene.tryInteract 范式 + DOM hint（参照 fishing/oldTree）+ Graphics 视觉 + AudioSystem.play
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * 生活采集点设置（设计稿 §六/§七/§八）。
+   * - 从 Gathering.ts 读取当前场景采集点定义
+   * - 跳过已采点（hasTriggered 判断，已采点不创建视觉，符合 §十三"采完了"）
+   * - 程序合成小群落视觉：每株独立 Graphics（主色+高光+接地阴影），整体放在 Container 中
+   * - 呼吸光晕轻量（避免视觉过载）：alpha 0.04→0.12 缓慢呼吸
+   */
+  private setupGatherPoints(): void {
+    const defs = getGatherPointsForScene(this.mapKey);
+    if (defs.length === 0) return;
+    for (const def of defs) {
+      const eventKey = gatherEventKey(this.mapKey, def.id);
+      if (hasTriggered(eventKey)) continue; // 已采：不创建视觉（"采完了"）
+      const container = this.createGatherCluster(def);
+      container.setDepth(4);
+      this.gatherNodes.push({ def, container, collected: false });
+    }
+  }
+
+  /**
+   * 程序合成一个小群落（2-4 株），位置围绕 def 中心点小范围散布（§七"本来长在那里"）。
+   * 种子驱动，每次刷新视觉位置一致（不闪烁）。
+   */
+  private createGatherCluster(def: GatherPointDef): Phaser.GameObjects.Container {
+    const visual = GATHER_VISUAL[def.kind];
+    const container = this.add.container(def.x, def.y);
+    const seed = this.hashStr(def.id);
+    for (let i = 0; i < def.clusterSize; i++) {
+      const ox = (this.pseudoRand(seed + i * 97) - 0.5) * 6;   // -3~+3 px
+      const oy = (this.pseudoRand(seed + i * 131) - 0.5) * 4;  // -2~+2 px
+      const plant = this.add.graphics();
+      this.drawGatherSprite(plant, visual);
+      plant.setPosition(ox, oy);
+      container.add(plant);
+    }
+    // 呼吸光晕：极轻量，提示"这里有东西可看"（参照 setupFishingSpot 的水面光晕）
+    const glow = this.add.ellipse(0, 0, 16, 10, 0xffffff, 0.06);
+    container.add(glow);
+    this.tweens.add({
+      targets: glow,
+      alpha: { from: 0.04, to: 0.12 },
+      duration: 1800,
+      yoyo: true,
+      repeat: -1,
+    });
+    return container;
+  }
+
+  /** 绘制单株采集物（主色矩形 + 高光 + 接地阴影，零资产） */
+  private drawGatherSprite(g: Phaser.GameObjects.Graphics, v: GatherVisualConfig): void {
+    // 接地阴影（深色短矩形，模拟接地暗面）
+    g.fillStyle(v.shadow, 0.5);
+    g.fillRect(-v.width / 2 - 1, v.height / 2 - 1, v.width + 2, 2);
+    // 主色调（株身）
+    g.fillStyle(v.color, 1);
+    g.fillRect(-v.width / 2, -v.height / 2, v.width, v.height);
+    // 高光（左上角小亮块，模拟受光面）
+    g.fillStyle(v.highlight, 0.85);
+    g.fillRect(-v.width / 2, -v.height / 2, Math.max(1, v.width - 2), Math.max(1, v.height - 4));
+  }
+
+  /** 极简字符串哈希（视觉种子用，避免每次刷新位置抖动） */
+  private hashStr(s: string): number {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) {
+      h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+  }
+
+  /** 极简伪随机（0~1，种子驱动，无状态） */
+  private pseudoRand(seed: number): number {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  }
+
+  /**
+   * 采集靠近提示检测（对齐 checkFishingHint 范式）。
+   * 存在未采点 + 无对话 → 找最近未采点（距离 < GATHER_INTERACT_RANGE）→ 显示提示
+   */
+  private checkGatherHint(): void {
+    if (this.gatherNodes.length === 0 || this.storyDialogue?.isOpen()) {
+      this.nearestGatherIdx = -1;
+      this.hideGatherHint();
+      return;
+    }
+    let nearest = -1;
+    let nearestDistSq = GATHER_INTERACT_RANGE * GATHER_INTERACT_RANGE;
+    for (let i = 0; i < this.gatherNodes.length; i++) {
+      const node = this.gatherNodes[i];
+      if (node.collected) continue;
+      const dx = this.player.x - node.def.x;
+      const dy = this.player.y - node.def.y;
+      const dsq = dx * dx + dy * dy;
+      if (dsq < nearestDistSq) {
+        nearestDistSq = dsq;
+        nearest = i;
+      }
+    }
+    this.nearestGatherIdx = nearest;
+    if (nearest >= 0) this.showGatherHint();
+    else this.hideGatherHint();
+  }
+
+  /** 显示采集靠近提示（DOM） */
+  private showGatherHint(): void {
+    if (this.gatherInteractHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffffff', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」采集' : '按 [E] 采集';
+    document.body.appendChild(hint);
+    this.gatherInteractHint = hint;
+  }
+
+  /** 隐藏采集靠近提示 */
+  private hideGatherHint(): void {
+    if (this.gatherInteractHint) {
+      this.gatherInteractHint.remove();
+      this.gatherInteractHint = null;
+    }
+  }
+
+  /**
+   * 采集交互入口（tryInteract 调用，对齐 tryFishingInteract 范式）。
+   * - 存在靠近的未采点 → triggerOnce(eventKey, fn)（先执行 fn 后标记，EventManager 契约）→
+   *   fn 内：背包+1 / 音效 / 视觉淡出 / 一行文字反馈
+   * - 反馈时长 0.4s（§六 0.3~0.8s 完整反馈目标）
+   */
+  private tryGatherInteract(): boolean {
+    if (this.nearestGatherIdx < 0) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const node = this.gatherNodes[this.nearestGatherIdx];
+    if (!node || node.collected) return false;
+    // 二次距离校验（防 update 与 tryInteract 之间玩家移出范围）
+    const dx = this.player.x - node.def.x;
+    const dy = this.player.y - node.def.y;
+    if (dx * dx + dy * dy > GATHER_INTERACT_RANGE * GATHER_INTERACT_RANGE) return false;
+
+    const itemId = gatherKindToItem(node.def.kind);
+    const eventKey = gatherEventKey(this.mapKey, node.def.id);
+    // triggerOnce 契约（docs/dev/EventSystem.md）：先执行 fn 后标记。
+    // fn 内放采集副作用（背包/音效/视觉/文字），保证标记与副作用原子一致。
+    const first = triggerOnce(eventKey, () => {
+      addItem(itemId, 1);
+      play('gather');
+      this.tweens.add({
+        targets: node.container,
+        alpha: 0,
+        scaleX: 0.6,
+        scaleY: 0.6,
+        duration: 400,
+        onComplete: () => node.container.destroy(),
+      });
+      this.showDialogueText(`采到了 ${getItemDef(itemId).name}。`);
+    });
+    if (!first) return false; // 已采过（双重保险：update 检测应已跳过此点）
+
+    // 本地状态同步（fn 已执行，标记已落库）
+    node.collected = true;
+    this.nearestGatherIdx = -1;
+    this.hideGatherHint();
+    this.inputManager.clearAction();
+    return true;
+  }
+
+  /** 生活采集资源清理（视觉 + DOM hint；已采状态由 triggerOnce 持久化） */
+  private cleanupGathering(): void {
+    for (const node of this.gatherNodes) {
+      node.container.destroy();
+    }
+    this.gatherNodes = [];
+    this.hideGatherHint();
+    this.nearestGatherIdx = -1;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第一章 P2 钓鱼 Phase 1（2026-08-14，制作人 Decision Override 启动）
+  // 依据：《钓鱼MVP-设计与施工规范-v0.1》+ 任务卡 v0.1
+  // 范围：1 钓点（S6 老河堤）+ 1 鱼（青禾鲫）+ 纯手感循环
+  // 红线：零新系统 / 零新存档字段 / 零新素材；参数集中不散落写死
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * 钓鱼可调参数（任务卡 §四 + 施工规范 §十四）。
+   * 集中一处，禁止散落写死。Phase 2 实机手感调整时改这里。
+   */
+  private static readonly FISHING_CONFIG = {
+    biteDelayMin: 2.0,             // 等待阶段最短（秒）
+    biteDelayMax: 5.0,             // 等待阶段最长（秒）
+    fakeBiteProbability: 0.30,     // 出现试探假动作的概率（行为 B）
+    realBiteWindow: 0.8,           // 真咬钩收竿窗口（秒）
+    successFeedbackDuration: 0.7,  // 成功反馈时长（秒）
+    castDuration: 0.8,            // 甩竿动画时长（秒，0.5~1s 中值）
+    fakeBiteDuration: 0.4,         // 试探时浮漂轻下沉持续时间（秒）
+    fakeBiteRecoverDuration: 0.3,  // 试探后浮漂恢复时间（秒）
+    failFeedbackDuration: 0.4,     // 失败反馈时长（秒）
+    interactRange: 32,             // 钓点交互距离（px，比 oldTree 60 小，钓点更聚焦）
+    fryChance: 0.15,               // 生态分层 v1.3：普通钓点钓到小鱼苗（低概率特殊事件）的概率
+  } as const;
+
+  /**
+   * 鱼种行为表（钓鱼 Phase 3，2026-08-14 制作人拍板）。
+   * 《施工规范》§十九：河虾 = 更容易出现试探；黄昏鱼 = 更晚咬钩 / 更长等待。
+   * 基础值对齐 FISHING_CONFIG（青禾鲫 = 手感基准）。
+   */
+  private static readonly FISH_KINDS = {
+    qinghe_crucian: { name: '青禾鲫', fakeBiteProbability: 0.30, biteDelayMin: 2.0, biteDelayMax: 5.0 },
+    river_shrimp: { name: '河虾', fakeBiteProbability: 0.45, biteDelayMin: 2.0, biteDelayMax: 5.0 },
+    dusk_fish: { name: '黄昏鱼', fakeBiteProbability: 0.30, biteDelayMin: 4.0, biteDelayMax: 7.0 },
+    moon_bass: { name: '月光鲈', fakeBiteProbability: 0.50, biteDelayMin: 3.0, biteDelayMax: 6.0 },
+    // 普通特殊鱼（生态可重复，v1.3 制作人拍板）：河鳗=夜行且多试探 / 鲤鱼=常客中规中矩 / 大青鱼=咬得急要多稳
+    river_eel: { name: '河鳗', fakeBiteProbability: 0.55, biteDelayMin: 3.0, biteDelayMax: 6.5 },
+    common_carp: { name: '鲤鱼', fakeBiteProbability: 0.35, biteDelayMin: 2.0, biteDelayMax: 5.0 },
+    big_blue_fish: { name: '大青鱼', fakeBiteProbability: 0.50, biteDelayMin: 2.5, biteDelayMax: 6.0 },
+    qinghe_fry: { name: '青禾鱼苗', fakeBiteProbability: 0.40, biteDelayMin: 1.8, biteDelayMax: 4.0 },
+  } as const;
+
+  /**
+   * 按时段 + 概率挑选本次鱼种（Phase 3，《可流动资源设计》§3.3 鱼类表）：
+   *   青禾鲫：全天 55%｜河虾：08:00-17:00 30%｜黄昏鱼：17:00-20:00 15%
+   */
+  /**
+   * 按时段 + 概率挑选本次鱼种（Phase 3，《可流动资源设计》§3.3 鱼类表）。
+   * 2026-08-14 分层扩展：
+   *   普通钓点（town 河堤，tier=common）：青禾鲫 全天 55%｜河虾 08:00-17:00 30%｜黄昏鱼 17:00-20:00 15%
+   *   稀有钓点（farm 池塘，tier=rare）：月光鲈 全天 65%｜河虾 08:00-17:00 25%｜青禾鲫 全天 10%（少量低级鱼）
+   */
+  private pickCurrentFish(): void {
+    const spot = MapScene.FISHING_SPOTS[this.mapKey];
+    const h = getTime().hour;
+    if (spot?.tier === 'rare') {
+      const r = Math.random();
+      if (r < 0.65) {
+        this.currentFish = 'moon_bass';
+      } else if (h >= 8 && h < 17 && r < 0.90) {
+        this.currentFish = 'river_shrimp';
+      } else {
+        this.currentFish = 'qinghe_crucian';
+      }
+      return;
+    }
+    // 生态分层 v1.3（制作人拍板方向）：普通钓点（town 河流）15% 小鱼苗特殊生态事件，
+    // 其余 85% 普通鱼（青禾鲫/河虾/黄昏鱼）。鱼苗不直接进背包，弹「放回河里/带回去」。
+    // 独立随机：鱼苗判定与物种判定互不影响，保持原物种概率表不变。
+    if (Math.random() < MapScene.FISHING_CONFIG.fryChance) {
+      this.currentFish = 'qinghe_fry';
+      return;
+    }
+    // 普通钓点（town）物种表（v1.3 生态分层 + 普通特殊鱼，制作人 2026-08-15 拍板）：
+    //   鲤鱼：全天低概率 8%（生态常客）
+    //   河鳗：夜间 19:00-23:00 为主（55%）
+    //   大青鱼：黄昏 17:00-19:00（35%）；黄昏鱼 15%；河虾 15%
+    //   白天 8-17：河虾 30%；其余时段青禾鲫兜底
+    const r = Math.random();
+    if (r < 0.08) {
+      this.currentFish = 'common_carp'; // 鲤鱼：全天低概率
+      return;
+    }
+    if (h >= 19 && h < 23) {
+      this.currentFish = r < 0.55 ? 'river_eel' : 'qinghe_crucian';
+      return;
+    }
+    if (h >= 17 && h < 19) {
+      if (r < 0.35) this.currentFish = 'big_blue_fish';
+      else if (r < 0.50) this.currentFish = 'dusk_fish';
+      else if (r < 0.65) this.currentFish = 'river_shrimp';
+      else this.currentFish = 'qinghe_crucian';
+      return;
+    }
+    if (h >= 17 && h < 20 && r < 0.15) {
+      this.currentFish = 'dusk_fish';
+    } else if (h >= 8 && h < 17 && r < 0.30) {
+      this.currentFish = 'river_shrimp';
+    } else {
+      this.currentFish = 'qinghe_crucian';
+    }
+  }
+
+  /**
+   * 钓鱼 Phase 4：NPC 交换配置（一对一、单跳、每 NPC 一次性；《可流动资源设计》§4.2）。
+   * 回报：夏雅=次日河边小场景+相簿；商店=归星记录热汤；小梅=farm 花田旁小饭桌；老张=house 门轴+elder_house 夜灯。
+   */
+  private static readonly FISH_EXCHANGES: Record<string, { item: ItemType; eventId: string }> = {
+    xiya: { item: 'qinghe_crucian', eventId: 'fish_exchange_xiya' },
+    shopkeeper: { item: 'qinghe_crucian', eventId: 'fish_exchange_shop' },
+    gardener: { item: 'river_shrimp', eventId: 'fish_exchange_gardener' },
+    miner: { item: 'dusk_fish', eventId: 'fish_exchange_miner' },
+    adventurer: { item: 'dusk_fish', eventId: 'fish_exchange_adventurer' },
+  };
+
+  /**
+   * 采集物交换配置（第一章「复苏」玩法升级：采集 → 换/送/用网络）。
+   * 依据：《核心玩法循环优化-v1.0》采集缺口（5 种自然物此前只有"卖"一条流向）。
+   * 复用钓鱼「可流动资源」模板：一对一、单跳、每 NPC 一次性、回报含非数值内容（世界变化）。
+   * 覆盖（制作人 2026-08-15 拍板）：全部 5 种采集物各 ≥1 个"送给居民→世界小变化"出口——
+   *   野莓→小梅（farm 野莓篮）/ 野蘑菇→老张（老宅晾蘑菇串）/ 小野花→夏雅（老屋窗台花，特殊路径）
+   *   / 蒲公英→阿风（town 河岸蒲公英丛）/ 树枝→木匠老周（farm 老屋旁木鸟小件）。
+   * 特殊 NPC 不走 showDialogue（夏雅由 tryXiyaFlowerExchange 处理），故本配置只列 gardener/miner/adventurer/carpenter。
+   */
+  private static readonly GATHER_EXCHANGES: Record<string, { item: ItemType; eventId: string }> = {
+    gardener: { item: 'wild_berry', eventId: 'ch1_gather_exchange_gardener' },
+    miner: { item: 'wild_mushroom', eventId: 'ch1_gather_exchange_miner' },
+    adventurer: { item: 'dandelion', eventId: 'ch1_gather_exchange_adventurer' },
+    carpenter: { item: 'twig', eventId: 'ch1_gather_exchange_carpenter' },
+  };
+
+  /**
+   * 钓点交互物设置（S6 老河堤）。
+   * 位置参照：town 西侧 cols0-4 是河（gid4 水，碰撞），长椅在 (6,15)。
+   * 钓点 = 长椅北侧水边 (5.5, 12)，玩家站此处面水甩竿。
+   * 浮漂落点 = 河中央 (3, 13)，视觉上从钓点斜向甩入水中。
+   * 零新资产：仅用 Graphics 画呼吸光晕吸引注意（参照 setupMusicBox），无文字标签——
+   * 靠近时通过 DOM hint 提示"按 [E] 钓鱼"。
+   */
+  private setupFishingSpot(): void {
+    const spot = MapScene.FISHING_SPOTS[this.mapKey];
+    if (!spot) return; // 非钓点地图不设置
+    this.fishingSpotPos = { ...spot.pos };
+    this.floatPos = { ...spot.floatPos };
+
+    // ═══════════ 钓点视觉（2026-08-14 美术增强：水岸一体，更显眼）═══════════
+    // 岸上：木桩 + 斜插钓竿 + 鱼线垂向水面（"这里可以钓鱼"）
+    const bank = this.add.container(this.fishingSpotPos.x, this.fishingSpotPos.y).setDepth(4);
+    const marker = this.add.graphics();
+    // 木桩（深棕，桩顶高光 + 桩底阴影）
+    marker.fillStyle(0x5b4226, 1); marker.fillRect(-8, -13, 4, 15);
+    marker.fillStyle(0x6e4a2c, 1); marker.fillRect(-7, -13, 3, 2);
+    marker.fillStyle(0x3a2a18, 0.55); marker.fillRect(-7, 0, 3, 3);
+    // 斜插钓竿（竿身向右上斜，鱼线垂下）
+    marker.fillStyle(0x8a6a45, 1); marker.fillRect(-2, -15, 2, 12);
+    marker.fillStyle(0xa8825a, 1); marker.fillRect(0, -16, 2, 2);
+    marker.lineStyle(1, 0xe8e8e8, 0.55); marker.lineBetween(1, -16, 9, -7);
+    marker.fillStyle(0xc8c8c8, 0.95); marker.fillTriangle(8, -6, 6, -8, 10, -8);
+    bank.add(marker);
+    // 岸边草簇（生活感，锚定岸线）
+    const bankGrass = this.add.graphics();
+    bankGrass.fillStyle(0x5a8a4a, 1); bankGrass.fillRect(-13, 3, 2, 5);
+    bankGrass.fillRect(-15, 2, 2, 4); bankGrass.fillRect(-10, 4, 2, 4);
+    bankGrass.fillStyle(0x6a9a56, 0.8); bankGrass.fillRect(-14, 3, 1, 3);
+    bank.add(bankGrass);
+
+    // 水面：常驻红白浮漂 + 涟漪 + 光斑（浮漂落点；钓鱼开始后隐藏，避免与钓鱼浮漂重叠）
+    const water = this.add.container(this.floatPos.x, this.floatPos.y).setDepth(5);
+    this.fishingSpotWaterMark = water;
+    const bob = this.add.container(0, 0);
+    bob.add(this.add.ellipse(0, 0, 6, 6, 0xffffff, 1));
+    bob.add(this.add.ellipse(0, -3, 4, 3, 0xd03020, 1));
+    water.add(bob);
+    this.tweens.add({ targets: bob, y: { from: -1, to: 1 }, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    // 常驻小涟漪
+    const ripple = this.add.ellipse(0, 1, 12, 4, 0x88c8e0, 0.16);
+    water.add(ripple);
+    this.tweens.add({
+      targets: ripple,
+      scaleX: { from: 0.8, to: 1.4 }, scaleY: { from: 0.7, to: 1.1 },
+      alpha: { from: 0.16, to: 0.02 },
+      duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.easeOut',
+    });
+    // 周期性扩散脉冲（"水里有东西"）
+    const pulse = this.add.ellipse(0, 0, 8, 3, 0xa8d8e8, 0.35);
+    pulse.setVisible(false);
+    water.add(pulse);
+    this.time.addEvent({ delay: 2600, loop: true, callback: () => {
+      pulse.setVisible(true).setAlpha(0.35).setScale(0.6, 0.6);
+      this.tweens.add({
+        targets: pulse, scaleX: 3, scaleY: 2.2, alpha: 0,
+        duration: 1200, ease: 'Sine.easeOut', onComplete: () => pulse.setVisible(false),
+      });
+    } });
+    // 水面光斑（间歇闪烁）
+    const glints = this.add.graphics();
+    glints.fillStyle(0xfff4d8, 0.8);
+    glints.fillRect(-7, -5, 1, 1); glints.fillRect(6, 5, 1, 1);
+    glints.fillRect(3, -8, 1, 1); glints.fillRect(-4, 7, 1, 1);
+    water.add(glints);
+    this.tweens.add({ targets: glints, alpha: { from: 0.12, to: 0.85 }, duration: 900, yoyo: true, repeat: -1, delay: 400 });
+  }
+
+  /**
+   * 钓鱼靠近提示检测（对齐 checkOldTreeInteract / checkHouseTidyHint 范式）。
+   * 仅 town 场景 + 非钓鱼中 + 无对话打开 + 距离钓点 < interactRange → 显示提示。
+   */
+  private checkFishingHint(): void {
+    if (!MapScene.FISHING_SPOTS[this.mapKey] || this.fishingState !== 'idle' || this.storyDialogue?.isOpen()) {
+      this.hideFishingHint();
+      return;
+    }
+    const dx = this.player.x - this.fishingSpotPos.x;
+    const dy = this.player.y - this.fishingSpotPos.y;
+    const range = MapScene.FISHING_CONFIG.interactRange;
+    if (dx * dx + dy * dy < range * range) {
+      this.showFishingHint();
+    } else {
+      this.hideFishingHint();
+    }
+  }
+
+  /** 显示钓鱼靠近提示（DOM） */
+  private showFishingHint(): void {
+    if (this.fishingInteractHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffffff', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」钓鱼' : '按 [E] 钓鱼';
+    document.body.appendChild(hint);
+    this.fishingInteractHint = hint;
+  }
+
+  /** 隐藏钓鱼靠近提示 */
+  private hideFishingHint(): void {
+    if (this.fishingInteractHint) {
+      this.fishingInteractHint.remove();
+      this.fishingInteractHint = null;
+    }
+  }
+
+  /** 显示收竿窗口提示（DOM，仅 realBite 状态） */
+  private showFishingReelHint(): void {
+    if (this.fishingReelHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffd98a', fontSize: '15px',
+      background: 'rgba(0,0,0,0.75)', padding: '8px 20px', borderRadius: '6px',
+      zIndex: '401', pointerEvents: 'none',
+      textShadow: '0 0 6px rgba(255,180,80,0.6)',
+      fontWeight: 'bold',
+    });
+    hint.textContent = isMobileLayout() ? '快点击「交互」收竿！' : '快按 [E] 收竿！';
+    document.body.appendChild(hint);
+    this.fishingReelHint = hint;
+  }
+
+  /** 隐藏收竿窗口提示 */
+  private hideFishingReelHint(): void {
+    if (this.fishingReelHint) {
+      this.fishingReelHint.remove();
+      this.fishingReelHint = null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 钓鱼老人 老姜（氛围锚点，2026-08-14 制作人拍板）
+  // 依据：《钓鱼老人NPC-氛围锚点设计-v0.2》
+  // 定位：最后一个还坚持每天去河边坐一下午的人；无感叹号、无任务图标、不强制触发。
+  // 功能：教学（简单直白）/ 鱼种评价（一次性每种）/ 《钓鱼修行》小事件（三鱼入门 → 旧鱼竿）/ 复兴台词 / 老婆轻吐槽
+  // 红线：零新系统 / 零新顶层存档字段（全部 triggerOnce + Inventory）/ 台词不解释系统
+  // ═══════════════════════════════════════════════════════════════
+
+  /** 老姜靠近检测（update 调用）：作息显隐 + 靠近提示（优先级高于钓鱼提示，避免双提示叠屏） */
+  private checkLaoJiangInteract(): void {
+    if (this.mapKey !== 'town') return;
+    const present = getTime().hour >= 13 && getTime().hour < 17;
+    if (this.laoJiangGfx && present !== this.laoJiangPresent) {
+      this.laoJiangPresent = present;
+      this.laoJiangGfx.setVisible(present);
+      this.laoJiangLabel?.setVisible(present);
+    }
+    if (!present || this.storyDialogue?.isOpen()) {
+      this.hideLaoJiangHint();
+      return;
+    }
+    const dx = this.player.x - this.laoJiangPos.x;
+    const dy = this.player.y - this.laoJiangPos.y;
+    if (dx * dx + dy * dy < MapScene.LAO_JIANG_RANGE * MapScene.LAO_JIANG_RANGE) {
+      this.showLaoJiangHint();
+      this.hideFishingHint(); // 老姜提示优先：人比钓点近时先说话
+    } else {
+      this.hideLaoJiangHint();
+    }
+  }
+
+  /** 显示老姜靠近提示（DOM，对齐 fishingInteractHint 范式） */
+  private showLaoJiangHint(): void {
+    if (this.laoJiangHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffd98a', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」和老姜聊聊' : '按 [E] 和老姜聊聊';
+    document.body.appendChild(hint);
+    this.laoJiangHint = hint;
+  }
+
+  /** 隐藏老姜靠近提示 */
+  private hideLaoJiangHint(): void {
+    if (this.laoJiangHint) {
+      this.laoJiangHint.remove();
+      this.laoJiangHint = null;
+    }
+  }
+
+  /**
+   * 老姜交互入口（tryInteract 调用，钓鱼之前——人在旁边时先说话，站到水边才钓鱼）。
+   * 一次性事件链全部走 triggerOnce 持久化（EventSystem 契约：fn 先执行 → save 在其后）。
+   */
+  private tryLaoJiangInteract(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.laoJiangGfx?.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const dx = this.player.x - this.laoJiangPos.x;
+    const dy = this.player.y - this.laoJiangPos.y;
+    if (dx * dx + dy * dy >= MapScene.LAO_JIANG_RANGE * MapScene.LAO_JIANG_RANGE) return false;
+    const lines = this.buildLaoJiangDialogue();
+    if (!lines.length) return false;
+    this.hideLaoJiangHint();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(lines, () => {
+      this.updateHUD();
+    });
+    return true;
+  }
+
+  /**
+   * 老姜对白构建（build 模式，含一次性事件副作用 + 存档）：
+   * ① 教学（fisher_teach_done）——简单直白，不故弄玄虚
+   * ② 鱼种评价（laojiang_see_*，一次性每种）——钓到什么 = 被老姜记住
+   * ③ 《钓鱼修行》完成（laojiang_practice_done）——三鱼入门 → 送出旧鱼竿（含老婆轻吐槽）
+   * ④ 复兴台词变体（laojiang_revival_line，一次性）
+   * ⑤ 日常台词（话少、慢、带老婆轻吐槽；按天轮换）
+   */
+  private buildLaoJiangDialogue(): DialogueLine[] {
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    const persist = (): void => {
+      save({
+        x: this.player.x, y: this.player.y,
+        scene: this.mapKey, facing: this.player.facing,
+        dailyQuest: getDailyQuestSaveData(),
+      } as any);
+    };
+
+    // ① 教学（一次性）：NPC 教，不弹窗。话要短、要实，先讲怎么收竿。
+    if (!hasTriggered('fisher_teach_done')) {
+      triggerOnce('fisher_teach_done', () => { /* 仅标记；教学无奖励 */ });
+      persist();
+      return [
+        narrator('（老姜坐在河边，草帽压得很低。你走近，他抬了抬帽檐。）'),
+        { speaker: '老姜', color: COLORS.laojiang, text: '年轻人，也来看水？' },
+        { speaker: '林澈', color: COLORS.linche, text: '……想学钓鱼。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '钓鱼啊，不难。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '抛竿下去，盯着浮漂。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '浮漂一沉，就收竿。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '收早了鱼会跑，等它咬实了再拉。多试几次，手就有数了。' },
+      ];
+    }
+
+    // ② 鱼种评价（一次性每种）：背包有对应鱼 + 未给老姜看过 → 评价（不消耗鱼）
+    const fishSeen: Array<[ItemType, string, string, string]> = [
+      ['qinghe_crucian', 'laojiang_see_qinghe', '青禾鲫', '小鲫鱼，小时候我天天吃。'],
+      ['river_shrimp', 'laojiang_see_shrimp', '河虾', '河虾啊……以前河边一捞就是一碗。'],
+      ['dusk_fish', 'laojiang_see_dusk', '黄昏鱼', '黄昏鱼？这个点来钓，会钓鱼。'],
+      // 普通特殊鱼（v1.3，制作人 2026-08-15 台词定稿：老姜不是图鉴系统，是"见过这条河变化的人"；
+      // 每句带一点"以前什么样 / 现在回来了一点"，人话化定稿如下）
+      ['river_eel', 'laojiang_see_eel', '河鳗', '河鳗啊，夜里才出来。以前河边夜钓的人，等的就是它。'],
+      ['common_carp', 'laojiang_see_carp', '鲤鱼', '鲤鱼，老河里的常客。前些年少见了，没想到现在又能看见。'],
+      ['big_blue_fish', 'laojiang_see_big', '大青鱼', '大青鱼？好些年没见这么大的了。'],
+    ];
+    for (const [item, evt, name, line] of fishSeen) {
+      if (getItemCount(item) > 0 && !hasTriggered(evt)) {
+        triggerOnce(evt, () => { /* 仅标记：钓到什么被老姜记住 */ });
+        persist();
+        return [
+          narrator(`（你从背包里拿出${name}，给老姜看了看。）`),
+          { speaker: '老姜', color: COLORS.laojiang, text: line },
+        ];
+      }
+    }
+
+    // ③ 《钓鱼修行》完成（一次性）：三种鱼都给老姜看过 → 入门完成，送出旧鱼竿
+    if (
+      hasTriggered('fisher_teach_done') &&
+      hasTriggered('laojiang_see_qinghe') &&
+      hasTriggered('laojiang_see_shrimp') &&
+      hasTriggered('laojiang_see_dusk') &&
+      !hasTriggered('laojiang_practice_done')
+    ) {
+      triggerOnce('laojiang_practice_done', () => {
+        addItem('old_fishing_rod', 1);
+      });
+      persist();
+      return [
+        narrator('（老姜看了看你钓上来的鱼，点了点头。）'),
+        { speaker: '老姜', color: COLORS.laojiang, text: '青禾鲫、河虾、黄昏鱼——三种都见过了。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '算你入了门。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '这根竿子跟了我大半辈子，送你。以后河边修行，就咱俩了。' },
+        { speaker: '林澈', color: COLORS.linche, text: '……老姜，你老伴儿不念叨你吗？' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '念叨。说我整天跟鱼过不去，不务正业。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '……鱼也没说什么。' },
+        narrator('（你收下了老姜的旧鱼竿。握把上缠着的旧布，已经磨得发亮。）'),
+      ];
+    }
+
+    // ④ 复兴台词变体（一次性）：集市恢复后
+    if (isRestored('marketSquare') && !hasTriggered('laojiang_revival_line')) {
+      triggerOnce('laojiang_revival_line', () => { /* 仅标记 */ });
+      persist();
+      return [
+        narrator('（今天河边比往常热闹。老姜看着远处，没回头。）'),
+        { speaker: '老姜', color: COLORS.laojiang, text: '集市又开起来了……河边也热闹了。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '年轻时候嫌吵。老了才知道，没人吵才是真的安静。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '……不过，热闹点也好。' },
+      ];
+    }
+
+    // ④.5 放生彩蛋台词（一次性）：放生 2 天后，河面鱼变多——世界记得放生的行为
+    if (this.fishShadowsActive() && !hasTriggered('laojiang_release_line')) {
+      triggerOnce('laojiang_release_line', () => { /* 仅标记 */ });
+      persist();
+      return [
+        narrator('（老姜盯着水面，看了好一会儿。）'),
+        { speaker: '老姜', color: COLORS.laojiang, text: '最近河里的小家伙，好像多起来了。' },
+      ];
+    }
+
+    // ⑤ 日常台词：话少、慢、带老婆轻吐槽（轻微，不尖锐）
+    const day = getTime().day;
+    if (day % 2 === 0) {
+      return [
+        narrator('（老姜盯着浮漂，半天没说话。）'),
+        { speaker: '老姜', color: COLORS.laojiang, text: '我那口子说我这是不务正业。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '……她说她的，我钓我的。' },
+      ];
+    }
+    return [
+      narrator('（水面上浮漂轻轻晃了一下。老姜没动。）'),
+      { speaker: '老姜', color: COLORS.laojiang, text: '坐得住，才钓得到。' },
+    ];
+  }
+
+  /**
+   * 钓鱼交互入口（tryInteract 调用）。
+   * - idle 状态 + 靠近钓点 → 启动钓鱼循环
+   * - 钓鱼中按 E → 收竿判定（成功 / 过早失败）
+   */
+  private tryFishingInteract(): boolean {
+    if (!MapScene.FISHING_SPOTS[this.mapKey]) return false;
+
+    // 钓鱼中：按 E = 收竿判定
+    if (this.fishingState !== 'idle') {
+      // 仅 realBite / fakeBite 状态收竿有效（其它状态忽略）
+      if (this.fishingState === 'realBite') {
+        this.inputManager.clearAction();
+        this.onFishingSuccess();
+        return true;
+      }
+      if (this.fishingState === 'fakeBite') {
+        // 试探期间收竿 = 过早（鱼跑掉）
+        this.inputManager.clearAction();
+        this.onFishingFail('early');
+        return true;
+      }
+      // casting / waiting / success / fail 期间按 E 忽略（避免打断动画）
+      return false;
+    }
+
+    // idle：检测靠近钓点
+    const dx = this.player.x - this.fishingSpotPos.x;
+    const dy = this.player.y - this.fishingSpotPos.y;
+    const range = MapScene.FISHING_CONFIG.interactRange;
+    if (dx * dx + dy * dy > range * range) return false;
+
+    // 对话打开时不启动钓鱼
+    if (this.storyDialogue?.isOpen()) return false;
+
+    this.inputManager.clearAction();
+    this.startFishing();
+    return true;
+  }
+
+  /**
+   * 启动钓鱼循环：idle → casting。
+   * 创建视觉容器 + 播放甩竿音效 + 0.8s 后进入 waiting。
+   */
+  private startFishing(): void {
+    this.fishingState = 'casting';
+    this.hideFishingHint();
+    this.pickCurrentFish();
+    // 钓点常驻水面标识隐藏，避免与钓鱼浮漂重叠（endFishing 恢复）
+    this.fishingSpotWaterMark?.setVisible(false);
+    play('fish_cast');
+
+    // 创建钓鱼视觉容器（浮漂 + 鱼线）
+    const container = this.add.container(this.floatPos.x, this.floatPos.y).setDepth(5);
+    // 浮漂（红白色小圆点）
+    const float = this.add.ellipse(0, 0, 6, 6, 0xffffff, 1);
+    const floatTop = this.add.ellipse(0, -3, 4, 3, 0xd03020, 1);
+    // 浮漂轻微上下浮动（"等待中的轻微变化"——施工规范 §8.1）
+    this.tweens.add({
+      targets: float,
+      y: { from: 0, to: -1 },
+      duration: 1200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+    container.add([float, floatTop]);
+
+    // 鱼线（从钓点到浮漂的细线）
+    const line = this.add.graphics();
+    line.lineStyle(1, 0xffffff, 0.3);
+    line.lineBetween(
+      this.fishingSpotPos.x - this.floatPos.x,
+      this.fishingSpotPos.y - this.floatPos.y,
+      0, 0,
+    );
+    container.add(line);
+
+    // 水面波纹（浮漂周围，钓鱼中常驻）
+    const ripple = this.add.ellipse(0, 0, 14, 5, 0x88c8e0, 0.15);
+    this.tweens.add({
+      targets: ripple,
+      scaleX: { from: 0.8, to: 1.4 },
+      scaleY: { from: 0.5, to: 0.8 },
+      alpha: { from: 0.15, to: 0.02 },
+      duration: 1500,
+      yoyo: true,
+      repeat: -1,
+    });
+    container.add(ripple);
+
+    this.fishingVisuals = container;
+
+    // 0.8s 后进入等待
+    this.time.delayedCall(MapScene.FISHING_CONFIG.castDuration * 1000, () => {
+      if (this.fishingState === 'casting') this.enterWaiting();
+    });
+  }
+
+  /** 进入等待状态：随机 2~5s 后决定 fakeBite(30%) 或 realBite(70%) */
+  private enterWaiting(): void {
+    this.fishingState = 'waiting';
+    const kind = MapScene.FISH_KINDS[this.currentFish];
+    const delayMs = (kind.biteDelayMin + Math.random() * (kind.biteDelayMax - kind.biteDelayMin)) * 1000;
+    this.time.delayedCall(delayMs, () => {
+      if (this.fishingState !== 'waiting') return; // 状态已被打断（切场景等）
+      if (Math.random() < kind.fakeBiteProbability) {
+        this.enterFakeBite();
+      } else {
+        this.enterRealBite();
+      }
+    });
+  }
+
+  /**
+   * 试探假动作（行为 B）：浮漂轻下沉 0.4s → 恢复 0.3s → 真咬钩。
+   * 期间玩家收竿 = 过早失败（鱼跑了）。
+   */
+  private enterFakeBite(): void {
+    this.fishingState = 'fakeBite';
+    play('fish_fake_bite');
+    // 浮漂轻下沉（动画）
+    const float = this.fishingVisuals?.getAt(0) as Phaser.GameObjects.Ellipse | null;
+    if (float) {
+      this.tweens.add({
+        targets: float,
+        y: 4,
+        duration: MapScene.FISHING_CONFIG.fakeBiteDuration * 1000,
+        ease: 'Sine.easeIn',
+      });
+    }
+    // 0.4s 下沉 + 0.3s 恢复 = 0.7s 后转真咬钩
+    this.time.delayedCall(
+      (MapScene.FISHING_CONFIG.fakeBiteDuration + MapScene.FISHING_CONFIG.fakeBiteRecoverDuration) * 1000,
+      () => {
+        if (this.fishingState !== 'fakeBite') return; // 玩家已收竿（失败）或状态被打断
+        // 浮漂恢复原位
+        if (float) {
+          this.tweens.add({
+            targets: float,
+            y: 0,
+            duration: MapScene.FISHING_CONFIG.fakeBiteRecoverDuration * 1000,
+            ease: 'Sine.easeOut',
+          });
+        }
+        this.enterRealBite();
+      },
+    );
+  }
+
+  /**
+   * 真咬钩：浮漂明显下沉 + 显示收竿提示 + 0.8s 收竿窗口。
+   * - 窗口内玩家收竿 → 成功
+   * - 窗口结束未收 → 失败（鱼跑了）
+   */
+  private enterRealBite(): void {
+    this.fishingState = 'realBite';
+    play('fish_real_bite');
+    // 浮漂明显下沉
+    const float = this.fishingVisuals?.getAt(0) as Phaser.GameObjects.Ellipse | null;
+    if (float) {
+      this.tweens.add({
+        targets: float,
+        y: 8,
+        duration: 200,
+        ease: 'Sine.easeIn',
+      });
+    }
+    // 显示收竿提示
+    this.showFishingReelHint();
+    // 0.8s 收竿窗口
+    this.time.delayedCall(MapScene.FISHING_CONFIG.realBiteWindow * 1000, () => {
+      if (this.fishingState === 'realBite') {
+        // 窗口结束未收竿 = 失败（鱼跑了）
+        this.onFishingFail('timeout');
+      }
+    });
+  }
+
+  /**
+   * 钓鱼成功：普通鱼 Inventory +1 + 0.7s 反馈（水花/鱼跳出/音效） → idle。
+   * 生态分层 v1.3（制作人拍板方向）：小鱼苗（qinghe_fry）不直接进背包——弹「放回河里/带回去」，
+   * 不再每次收竿都做选择（普通鱼直接收下，只有低概率鱼苗事件才暂停）。
+   */
+  private onFishingSuccess(): void {
+    this.fishingState = 'success';
+    this.hideFishingReelHint();
+    play('fish_success');
+
+    // 生态分层 v1.3：鱼苗不直接进背包（走特殊事件）；普通鱼 Inventory +1
+    const isFry = this.currentFish === 'qinghe_fry';
+    if (!isFry) {
+      addItem(this.currentFish, 1);
+    }
+
+    // 视觉反馈：浮漂快速下沉 + 水花扩散 + 鱼跳出
+    const container = this.fishingVisuals;
+    if (container) {
+      const float = container.getAt(0) as Phaser.GameObjects.Ellipse | null;
+      if (float) {
+        this.tweens.add({
+          targets: float,
+          y: 14,
+          duration: 150,
+          ease: 'Sine.easeIn',
+        });
+      }
+      // 水花扩散（两个圆环先后扩散消失）
+      const splash1 = this.add.ellipse(0, 0, 10, 4, 0xa8d8e8, 0.7);
+      container.add(splash1);
+      this.tweens.add({
+        targets: splash1,
+        scaleX: 3, scaleY: 2,
+        alpha: 0,
+        duration: 400,
+        ease: 'Sine.easeOut',
+      });
+      const splash2 = this.add.ellipse(0, 0, 8, 3, 0x88c8e0, 0.5);
+      container.add(splash2);
+      this.tweens.add({
+        targets: splash2,
+        scaleX: 4, scaleY: 2.5,
+        alpha: 0,
+        duration: 500,
+        delay: 100,
+        ease: 'Sine.easeOut',
+      });
+      // 鱼跳出水面（按鱼种配色的鱼形：青禾鲫银灰/河虾橙红/黄昏鱼橙金/月光鲈银白带月晕/河鳗青黑/鲤鱼金红/大青鱼青蓝/鱼苗半透明青白）
+      const FISH_BODY: Record<string, { body: number; stripe?: number }> = {
+        qinghe_crucian: { body: 0xc8c8d0 },
+        river_shrimp: { body: 0xe08a50 },
+        dusk_fish: { body: 0xf0a030 },
+        moon_bass: { body: 0xd8e8f0, stripe: 0x88c8e8 },
+        river_eel: { body: 0x4a5a3a },
+        common_carp: { body: 0xe0a030, stripe: 0xc87820 },
+        big_blue_fish: { body: 0x4a6a8a },
+        qinghe_fry: { body: 0xbfe0e0 },
+      };
+      const fc = FISH_BODY[this.currentFish] ?? { body: 0xc0c0c0 };
+      const fish = this.add.graphics();
+      fish.fillStyle(fc.body, 1);
+      fish.fillEllipse(0, 0, 9, 4);          // 鱼身
+      fish.fillTriangle(-5, -1, -8, 0, -5, 1); // 尾鳍
+      fish.fillStyle(0x202020, 0.9);
+      fish.fillCircle(3.5, -0.5, 0.7);       // 眼睛
+      if (fc.stripe) {
+        fish.fillStyle(fc.stripe, 0.7);
+        fish.fillRect(-3, -1.5, 1.5, 3);     // 月光鲈月晕纹
+      }
+      container.add(fish);
+      this.tweens.add({
+        targets: fish,
+        y: -20,
+        duration: 300,
+        yoyo: true,
+        ease: 'Sine.easeOut',
+        onComplete: () => {
+          fish.destroy();
+        },
+      });
+    }
+
+    if (isFry) {
+      // 小鱼苗特殊事件：不弹"钓到"浮字，0.32s 后弹「放回河里/带回去」（生态分层 v1.3）
+      this.time.delayedCall(320, () => {
+        if (this.fishingState !== 'success') return; // 已被打断（切场景等）
+        this.presentFryReleaseChoice();
+      });
+    } else {
+      // 获得提示浮字（任务卡 §十 P1：小型获得提示）
+      this.showDialogueText(`钓到一条${MapScene.FISH_KINDS[this.currentFish].name}。`);
+    }
+
+    // 0.7s 后回到 idle（可立即重试）
+    this.time.delayedCall(MapScene.FISHING_CONFIG.successFeedbackDuration * 1000, () => {
+      this.endFishing();
+    });
+  }
+
+  /**
+   * 钓鱼失败：reason='early'（试探期间收竿）/ 'timeout'（错过收竿窗口）。
+   * 任务卡 §二.5 + §九 + §十二：失败不扣血/金币/鱼饵/冷却，立即允许重试。
+   */
+  private onFishingFail(reason: 'early' | 'timeout'): void {
+    this.fishingState = 'fail';
+    this.hideFishingReelHint();
+
+    // 失败反馈：浮漂恢复 + 简短水花 + 极轻音效（施工规范 §九 情况 A）
+    // reason 区分：early=试探期间收竿 / timeout=错过窗口（视觉差异化，见下 tween）
+    const container = this.fishingVisuals;
+    if (container) {
+      const float = container.getAt(0) as Phaser.GameObjects.Ellipse | null;
+      if (float) {
+        // early=浮漂快速抖动（玩家太急）/ timeout=浮漂缓慢沉下（鱼游走）——视觉区分失败原因
+        if (reason === 'early') {
+          this.tweens.add({
+            targets: float,
+            y: -3,
+            duration: 80,
+            yoyo: true,
+            repeat: 1,
+            ease: 'Sine.easeOut',
+            onComplete: () => { float.y = 0; },
+          });
+        } else {
+          this.tweens.add({
+            targets: float,
+            y: 0,
+            duration: 200,
+            ease: 'Sine.easeOut',
+          });
+        }
+      }
+      const splash = this.add.ellipse(0, 0, 6, 2, 0x88c8e0, 0.4);
+      container.add(splash);
+      this.tweens.add({
+        targets: splash,
+        scaleX: 2, scaleY: 1.5,
+        alpha: 0,
+        duration: 300,
+        ease: 'Sine.easeOut',
+      });
+    }
+
+    // 0.4s 后回到 idle（立即允许重试）
+    this.time.delayedCall(MapScene.FISHING_CONFIG.failFeedbackDuration * 1000, () => {
+      this.endFishing();
+    });
+  }
+
+  /**
+   * 结束钓鱼循环：清理视觉 + 复位状态机。
+   * 玩家保持原地，可立即再次按 E 钓鱼（任务卡 §二.5：失败立即允许重试；成功亦同）。
+   */
+  private endFishing(): void {
+    // 恢复钓点常驻水面标识
+    this.fishingSpotWaterMark?.setVisible(true);
+    if (this.fishingVisuals) {
+      // 淡出后销毁
+      const v = this.fishingVisuals;
+      this.tweens.add({
+        targets: v,
+        alpha: 0,
+        duration: 200,
+        onComplete: () => v.destroy(),
+      });
+      this.fishingVisuals = null;
+    }
+    this.fishingState = 'idle';
+  }
+
+  /**
+   * 放生当前鱼（钓鱼生态化 v1.3）：仅小鱼苗事件调用——首次放生记天（mapFlags 持久）→ 2 天后河面鱼影 + 老姜台词。
+   * 零奖励、纯氛围——世界记得玩家的行为（《可流动资源设计》放生流向；制作人拍板 v1.2 第 3 项）。
+   */
+  private releaseCurrentFish(): void {
+    const kind = MapScene.FISH_KINDS[this.currentFish];
+    setItemCount(this.currentFish, Math.max(0, getItemCount(this.currentFish) - 1));
+    if (this.fishReleaseDay < 0) {
+      this.fishReleaseDay = getTime().day; // 首次放生记天（EventSystem 契约：flag 先写，save 在后）
+    }
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+    } as any);
+    // 放生水花（浮漂位置，小圆扩散）
+    if (this.fishingVisuals) {
+      const ripple = this.add.ellipse(0, 0, 10, 4, 0xa8d8e8, 0.5);
+      this.fishingVisuals.add(ripple);
+      this.tweens.add({ targets: ripple, scaleX: 3, scaleY: 2, alpha: 0, duration: 500, ease: 'Sine.easeOut' });
+    }
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(
+      [
+        { speaker: '', color: COLORS.system, text: `（你把${kind.name}放回河里。它摆了一下尾巴，游走了。）` },
+      ],
+      () => this.updateHUD(),
+    );
+    this.updateHUD();
+  }
+
+  /**
+   * 小鱼苗特殊事件（生态分层 v1.3）：钓到还没准备好离开河流的小鱼 → 玩家决定它的去向。
+   * 放回 → 记天（世界记得）；带走 → 收藏/研究（青禾鱼苗进背包，不可售，无惩罚）。
+   * 关键：没有正确答案——两种选择都是"参与了这个世界"。
+   */
+  private presentFryReleaseChoice(): void {
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(
+      [
+        { speaker: '', color: COLORS.system, text: '（手里的小鱼还很小，好像还没准备好离开河流。）' },
+        { speaker: '', color: COLORS.system, text: '', options: ['放回河里', '带回去'] },
+      ],
+      () => this.updateHUD(),
+      (index: number) => {
+        if (index === 0) {
+          this.releaseCurrentFish();
+        } else {
+          this.keepCurrentFry();
+        }
+      },
+    );
+  }
+
+  /** 小鱼苗「带回去」：青禾鱼苗进背包（收藏/研究，不可售），不记放生天、无惩罚 */
+  private keepCurrentFry(): void {
+    addItem('qinghe_fry', 1);
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+    } as any);
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play(
+      [
+        { speaker: '', color: COLORS.system, text: '（你小心地把小鱼苗放进水罐。它的尾巴轻轻晃了晃。）' },
+      ],
+      () => this.updateHUD(),
+    );
+    this.updateHUD();
+  }
+
+  /** 放生彩蛋生效判定：已放生且满 2 天（河面鱼影 + 老姜台词开启） */
+  private fishShadowsActive(): boolean {
+    return this.fishReleaseDay >= 0 && getTime().day - this.fishReleaseDay >= 2;
+  }
+
+  /**
+   * 放生彩蛋世界反馈（town create 调用）：放生 2 天后，S6 河堤水面出现 4 条小鱼影缓慢游动。
+   * 零素材 Graphics 纯装饰无碰撞；玩家看到"河里的小家伙多起来了"（世界记得你的行为）。
+   */
+  private setupReleasedFishShadows(): void {
+    if (this.mapKey !== 'town') return;
+    if (!this.fishShadowsActive()) return;
+    if (this.releasedFishGfx) return; // 幂等：同一场景实例内不重复创建
+    const T = TILE_SIZE;
+    const container = this.add.container(0, 0).setDepth(4);
+    // 河面鱼影位置（S6 老河堤水面，避开浮漂/钓点交互物）
+    const spots: Array<{ x: number; y: number; speed: number; phase: number }> = [
+      { x: 2.6 * T, y: 13.2 * T, speed: 3400, phase: 0 },
+      { x: 3.6 * T, y: 14.0 * T, speed: 4200, phase: 1.2 },
+      { x: 2.0 * T, y: 14.6 * T, speed: 3000, phase: 2.1 },
+      { x: 4.0 * T, y: 12.6 * T, speed: 3800, phase: 0.6 },
+    ];
+    for (const s of spots) {
+      const fish = this.add.graphics();
+      fish.fillStyle(0x2a4a5a, 0.35);
+      fish.fillEllipse(0, 0, 8, 3);            // 鱼身（水影）
+      fish.fillTriangle(-4, -1, -7, 0, -4, 1); // 尾鳍
+      fish.setPosition(s.x, s.y);
+      container.add(fish);
+      // 缓慢左右游动 + 轻微上下（"水里的影子"）
+      this.tweens.add({
+        targets: fish,
+        x: { from: s.x - 5, to: s.x + 5 },
+        y: { from: s.y - 1, to: s.y + 1 },
+        duration: s.speed,
+        yoyo: true,
+        repeat: -1,
+        delay: s.phase * 800,
+        ease: 'Sine.easeInOut',
+      });
+    }
+    this.releasedFishGfx = container;
+  }
+
+  /**
+   * 钓鱼资源清理（shutdown 调用）：视觉容器销毁 + DOM hint 移除 + 状态机复位。
+   * 防场景切换残留（与 hideOldTreeHint / hideHouseTidyHint 同范式）。
+   */
+  private cleanupFishing(): void {
+    this.fishingState = 'idle';
+    if (this.fishingVisuals) {
+      this.fishingVisuals.destroy();
+      this.fishingVisuals = null;
+    }
+    this.hideFishingHint();
+    this.hideFishingReelHint();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 第一章 P2 钓鱼 Phase 4「生活系统」（2026-08-14 制作人拍板）
+  // 依据：《钓鱼-可流动资源设计-v0.1.md》v0.2 §4.2（换/送/世界变化）
+  // 红线：零新系统 / 零新顶层存档字段 / 一对一单跳一次性 / 台词方向稿待制作人"人话化"定稿
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * NPC 交换入口（showDialogue 最高优先级注入）。
+   * 条件：该 NPC 有交换配置 + 未换过 + 背包有对应鱼。
+   * 对白已定稿（制作人 2026-08-14 拍板）：NPC 先作为"人"对鱼做反应，不解释交换系统。
+   */
+  private buildFishExchangeDialogue(npc: NPC): { lines: DialogueLine[]; onChoice: (i: number) => void } | null {
+    const ex = MapScene.FISH_EXCHANGES[npc.id];
+    if (!ex) return null;
+    if (hasTriggered(ex.eventId)) return null;
+    if (getItemCount(ex.item) <= 0) return null;
+
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    let intro: DialogueLine[];
+    if (npc.id === 'xiya') {
+      // 发现时刻（隐藏 P0）——定稿：夏雅注意到鱼，交换理由是"她手里刚好有东西"，不是系统需求
+      intro = [
+        narrator('（夏雅看见你手里的鱼，走了过来。）'),
+        { speaker: '夏雅', color: COLORS.xiya, text: '刚钓的？' },
+        { speaker: '林澈', color: COLORS.linche, text: '嗯。' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '我那晒了点果干……要不，拿鱼换？反正我一个人也吃不完。' },
+      ];
+    } else if (npc.id === 'shopkeeper') {
+      // 定稿：交易（给我鱼，明天兑现热汤）——与夏雅"交换"形成关系差异
+      intro = [
+        narrator('（老板接过鱼，掂了掂。）'),
+        { speaker: '商店老板', color: '#8ac8a0', text: '哟，这鱼新鲜。搁我这，明天给你留碗热汤。' },
+      ];
+    } else if (npc.id === 'gardener') {
+      // 定稿：小梅只反应"河虾刚好能吃"；小饭桌是玩家自己发现的世界变化（"你等下再来看"）
+      intro = [
+        narrator('（小梅接过河虾，眼睛亮了。）'),
+        { speaker: '花匠小梅', color: COLORS.gardener, text: '呀，河虾！' },
+        { speaker: '林澈', color: COLORS.linche, text: '拿着吧，今天刚捞的。' },
+        { speaker: '花匠小梅', color: COLORS.gardener, text: '嗯，谢谢。……你等下再来看。' },
+      ];
+    } else if (npc.id === 'miner') {
+      // 定稿：老张话少直接；"往老屋看一眼"是暗示不是信息
+      intro = [
+        narrator('（老张接过黄昏鱼，掂了掂。）'),
+        { speaker: '矿工老张', color: COLORS.miner, text: '这鱼不错。晚上来家里吃。' },
+        narrator('（老张转身往老屋方向看了一眼，没再说话。）'),
+      ];
+    } else {
+      // 定稿（2026-08-14）：阿风 = 儿时的旧友（非冒险家）——黄昏鱼勾起小时候河边烤鱼的共同记忆；
+      // 回报是晚上河边生火烤鱼（世界变化，见 setupAdventurerCampfire）
+      intro = [
+        narrator('（阿风看见你手里的鱼，眼睛一亮。）'),
+        { speaker: '阿风', color: COLORS.adventurer, text: '哟，今天钓的？' },
+        { speaker: '林澈', color: COLORS.linche, text: '嗯。' },
+        { speaker: '阿风', color: COLORS.adventurer, text: '小时候咱们在河边烤过鱼，还记得不？' },
+        { speaker: '林澈', color: COLORS.linche, text: '记得。糊了。' },
+        { speaker: '阿风', color: COLORS.adventurer, text: '……这次不会糊。晚上来。' },
+      ];
+    }
+    const lines: DialogueLine[] = [
+      ...intro,
+      { speaker: '', color: COLORS.system, text: '', options: ['换', '算了'] },
+    ];
+    return {
+      lines,
+      onChoice: (i: number) => {
+        if (i === 0) this.doFishExchange(npc.id);
+      },
+    };
+  }
+
+  /** 执行交换：扣鱼 + 一次性事件（fn=回报）+ 存档（EventSystem 契约：save 放 triggerOnce 返回之后） */
+  private doFishExchange(npcId: string): void {
+    const ex = MapScene.FISH_EXCHANGES[npcId];
+    if (!ex || hasTriggered(ex.eventId)) return;
+    const have = getItemCount(ex.item);
+    if (have <= 0) return;
+    setItemCount(ex.item, have - 1);
+    triggerOnce(ex.eventId, () => {
+      if (npcId === 'xiya') {
+        // 记交换日 → 次日河边长椅小场景 + 相簿（见 checkFishRiverside）
+        this.fishXiyaExchangeDay = getTime().day;
+      } else if (npcId === 'shopkeeper') {
+        triggerTag('fish_tomorrow_soup');
+      }
+      // gardener → farm 小饭桌；miner → house 门轴 + elder_house 夜灯：对应场景 create 时按事件条件渲染
+    });
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+  }
+
+  /**
+   * 采集物交换入口（showDialogue 注入，与 buildFishExchangeDialogue 并列，优先级低于鱼交换）。
+   * 条件：该 NPC 有采集交换配置 + 未换过 + 背包有对应采集物。
+   * 台词为草案（制作人定稿前可替换；按钓鱼定稿标准：NPC 先作为"人"对采集物反应，不解释系统）。
+   */
+  private buildGatherExchangeDialogue(npc: NPC): { lines: DialogueLine[]; onChoice: (i: number) => void } | null {
+    const ex = MapScene.GATHER_EXCHANGES[npc.id];
+    if (!ex) return null;
+    if (hasTriggered(ex.eventId)) return null;
+    if (getItemCount(ex.item) <= 0) return null;
+
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    let intro: DialogueLine[];
+    if (npc.id === 'gardener') {
+      // 小梅收野莓：花匠身份的自然反应 → 花田旁野莓篮（世界变化，见 setupGatherBerryBasket）
+      intro = [
+        narrator('（小梅接过野莓，捻起一颗端详。）'),
+        { speaker: '花匠小梅', color: COLORS.gardener, text: '呀，野莓！你摘的？' },
+        { speaker: '林澈', color: COLORS.linche, text: '河边摘的，你尝尝。' },
+        { speaker: '花匠小梅', color: COLORS.gardener, text: '嗯……甜。小时候我常去林子里摘，嘴都染紫了。' },
+        { speaker: '花匠小梅', color: COLORS.gardener, text: '你等下再来看。' },
+      ];
+    } else if (npc.id === 'miner') {
+      // 老张收野蘑菇：矿工/老屋主人的直接反应 → 老家门口晾蘑菇串（世界变化，见 setupGatherMushroomDrying）
+      intro = [
+        narrator('（老张接过野蘑菇，凑近闻了闻。）'),
+        { speaker: '矿工老张', color: COLORS.miner, text: '野蘑菇？这东西认人。' },
+        { speaker: '林澈', color: COLORS.linche, text: '认人？' },
+        { speaker: '矿工老张', color: COLORS.miner, text: '认我。放心，晚上炖锅汤。' },
+      ];
+    } else if (npc.id === 'adventurer') {
+      // 阿风收蒲公英：儿时旧友，吹绒纪念童年 → town 河岸蒲公英丛（世界变化，见 setupGatherDandelionPatch）
+      intro = [
+        narrator('（阿风接过蒲公英，放到嘴边鼓起气。）'),
+        { speaker: '阿风', color: COLORS.adventurer, text: '蒲公英？小时候在河边吹过，还记得不？' },
+        { speaker: '林澈', color: COLORS.linche, text: '记得。你说要许愿。' },
+        { speaker: '阿风', color: COLORS.adventurer, text: '（一吹，绒毛四散）……那就许一个吧。让风带个信儿。' },
+      ];
+    } else {
+      // 老周收小树枝：木匠手艺人的直接反应 → farm 老屋旁小木鸟（世界变化，见 setupGatherWoodenStarlingToy）
+      intro = [
+        narrator('（老周接过小树枝，掂了掂，笑了。）'),
+        { speaker: '木匠老周', color: '#c89860', text: '这枯枝，削两下能当木钉使。别小看它。' },
+        { speaker: '林澈', color: COLORS.linche, text: '那我多捡几根来？' },
+        { speaker: '木匠老周', color: '#c89860', text: '一根就够。我给你削个小东西，回头挂老屋门口。' },
+      ];
+    }
+    const lines: DialogueLine[] = [
+      ...intro,
+      { speaker: '', color: COLORS.system, text: '', options: ['收下吧', '算了'] },
+    ];
+    return {
+      lines,
+      onChoice: (i: number) => {
+        if (i === 0) this.doGatherExchange(npc.id);
+      },
+    };
+  }
+
+  /** 执行采集交换：扣采集物 + 一次性事件 + 存档（EventSystem 契约：save 放 triggerOnce 返回之后） */
+  private doGatherExchange(npcId: string): void {
+    const ex = MapScene.GATHER_EXCHANGES[npcId];
+    if (!ex || hasTriggered(ex.eventId)) return;
+    const have = getItemCount(ex.item);
+    if (have <= 0) return;
+    setItemCount(ex.item, have - 1);
+    triggerOnce(ex.eventId, () => {
+      // 世界变化由各场景 create 按 hasTriggered 渲染：
+      //   gardener → farm 花田旁野莓篮（setupGatherBerryBasket）
+      //   miner → elder_house 老家门口晾蘑菇串（setupGatherMushroomDrying）
+      //   adventurer → town 河岸蒲公英丛（setupGatherDandelionPatch）
+      //   carpenter → farm 老屋门口小木鸟（setupGatherWoodenStarlingToy）
+    });
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+  }
+
+  /**
+   * 采集物交换·夏雅（小野花）：特殊 NPC（不走 showDialogue），由清晨/傍晚交互路径调用。
+   * 背包有小野花且未换过 → 播放交换对白（选项 收下吧/算了），返回 true；否则 false。
+   * 回报：farm 老屋窗台插花（世界变化，见 setupXiyaWindowFlower）。
+   */
+  private tryXiyaFlowerExchange(cleanup: () => void): boolean {
+    const EVENT = 'ch1_gather_exchange_xiya';
+    if (hasTriggered(EVENT)) return false;
+    if (getItemCount('small_flower') <= 0) return false;
+    cleanup();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    this.storyDialogue.play(
+      [
+        narrator('（夏雅接过小野花，捧在手心看了很久。）'),
+        { speaker: '夏雅', color: COLORS.xiya, text: '这花……是林间的小野花吧？' },
+        { speaker: '林澈', color: COLORS.linche, text: '嗯，路上采的。' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '谢谢。我把它放在窗台上，风会记得来看它。' },
+        { speaker: '', color: COLORS.system, text: '', options: ['收下吧', '算了'] },
+      ],
+      () => this.updateHUD(),
+      (i: number) => {
+        if (i === 0) {
+          const have = getItemCount('small_flower');
+          if (have > 0) {
+            setItemCount('small_flower', have - 1);
+            triggerOnce(EVENT, () => {
+              // 世界变化：farm 老屋窗台插花（setupXiyaWindowFlower 按 hasTriggered 渲染）
+            });
+          }
+        }
+        save({
+          x: this.player.x, y: this.player.y,
+          scene: this.mapKey, facing: this.player.facing,
+          dailyQuest: getDailyQuestSaveData(),
+        } as any);
+        this.updateHUD();
+      },
+    );
+    return true;
+  }
+  private tryXiyaFishExchange(cleanup: () => void): boolean {
+    const fishEx = this.buildFishExchangeDialogue({ id: 'xiya' } as NPC);
+    if (!fishEx) return false;
+    cleanup();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    this.storyDialogue.play(fishEx.lines, () => this.updateHUD(), (i: number) => {
+      if (i === 0) this.doFishExchange('xiya');
+      this.updateHUD();
+    });
+    return true;
+  }
+
+  /** 钓鱼 Phase 4：夏雅交换果干后，次日靠近河边长椅 → 小场景 + 相簿（一次性） */
+  private checkFishRiverside(): void {
+    if (this.mapKey !== 'town') return;
+    if (!hasTriggered('fish_exchange_xiya')) return;
+    if (hasTriggered('fish_xiya_riverside')) return;
+    if (getTime().day <= this.fishXiyaExchangeDay) return;
+    if (this.storyDialogue?.isOpen()) return;
+    const T = TILE_SIZE;
+    const bx = 5 * T + T / 2, by = 15 * T + T / 2; // S6 长椅 (5,15)
+    const dx = this.player.x - bx, dy = this.player.y - by;
+    if (dx * dx + dy * dy > 56 * 56) return;
+    triggerOnce('fish_xiya_riverside', () => {
+      unlockPhoto('xiya_dried_fruit');
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      this.storyDialogue.play([
+        { speaker: '', color: COLORS.system, text: '（第二天。长椅旁，夏雅已经坐在那里了。）' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '来了？坐。' },
+        { speaker: '林澈', color: COLORS.linche, text: '（坐下来，接过果干咬了一口）嗯，甜。' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '（笑）晒的时候放了一点盐。' },
+      ]);
+    });
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+    } as any);
+  }
+
+  /** 钓鱼 Phase 4：小梅收河虾后，farm 花田旁摆小饭桌（Graphics 程序绘制，零素材） */
+  private setupFishTable(): void {
+    if (!hasTriggered('fish_exchange_gardener')) return;
+    const T = TILE_SIZE;
+    const x = 31 * T + T / 2, y = 10 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    g.fillStyle(0x8a5a30, 1); g.fillRect(x - 12, y - 2, 24, 3);        // 桌面
+    g.fillStyle(0x6e4624, 1); g.fillRect(x - 11, y - 5, 2, 3); g.fillRect(x + 9, y - 5, 2, 3); // 桌腿
+    g.fillStyle(0xe08040, 1); g.fillRect(x - 8, y - 5, 3, 3); g.fillRect(x - 2, y - 6, 3, 3); g.fillRect(x + 4, y - 5, 3, 3); // 果干
+    g.fillStyle(0x9a6a3a, 1); g.fillRect(x + 17, y - 1, 8, 2);          // 小凳
+  }
+
+  /**
+   * 采集流向扩展：小梅收野莓后，farm 花田旁摆一篮野莓（世界变化，零素材 Graphics）。
+   * 位置：花田 (3,7) 右侧空地 (5,8)，避开昆虫墙 (6,6)/野莓采集点 (8,4)/花田本体。
+   * 玩家路过看到小梅的野莓篮——"我摘的东西留在了花田边"。
+   */
+  private setupGatherBerryBasket(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!hasTriggered('ch1_gather_exchange_gardener')) return;
+    if (this.gatherBerryBasketGfx) return; // 幂等：同一场景实例内不重复创建
+    const T = TILE_SIZE;
+    const x = 5 * T + T / 2, y = 8 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    g.fillStyle(0x8a5a30, 1); g.fillRect(x - 6, y - 2, 12, 4);          // 篮身
+    g.fillStyle(0x6e4624, 1); g.fillRect(x - 7, y - 5, 14, 3);          // 篮沿
+    g.fillStyle(0x6e4624, 1); g.fillRect(x - 1, y - 9, 2, 4);           // 提手
+    // 野莓（三颗错开）
+    g.fillStyle(0xc62828, 1); g.fillCircle(x - 4, y - 3, 1.6);
+    g.fillStyle(0xef5350, 1); g.fillCircle(x, y - 3, 1.6);
+    g.fillStyle(0x7f0000, 1); g.fillCircle(x + 4, y - 3, 1.6);
+    // 几片叶（"刚摘的"）
+    g.fillStyle(0x6d9a3a, 1); g.fillRect(x - 6, y - 6, 3, 1); g.fillRect(x + 3, y - 6, 3, 1);
+    this.gatherBerryBasketGfx = g;
+  }
+
+  /**
+   * 采集流向扩展：夏雅收小野花后，farm 老屋窗台插花（世界变化，零素材 Graphics）。
+   * 位置：老屋 (11,20) 右侧窗台 (13,20)，避开恢复态灯笼/门前花/交互点。
+   * 老屋荒废或恢复都成立——"屋里也有花"，镇子在慢慢回来。
+   */
+  private setupXiyaWindowFlower(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!hasTriggered('ch1_gather_exchange_xiya')) return;
+    if (this.xiyaWindowFlowerGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 13 * T + T / 2, y = 20 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    // 小花瓶（陶瓶）
+    g.fillStyle(0x8a7a5a, 1); g.fillRect(x - 2, y - 3, 4, 6);
+    g.fillStyle(0xa89a78, 1); g.fillRect(x - 2, y - 3, 4, 2);
+    // 花茎 + 花头（三朵错开）
+    g.fillStyle(0x5a8a3a, 1); g.fillRect(x - 4, y - 8, 1, 5); g.fillRect(x + 3, y - 9, 1, 6);
+    g.fillStyle(0xec407a, 1); g.fillCircle(x - 4, y - 10, 1.8);
+    g.fillStyle(0xf48fb1, 1); g.fillCircle(x + 3, y - 11, 1.8);
+    g.fillStyle(0xffd166, 1); g.fillCircle(x + 3, y - 11, 0.8);
+    this.xiyaWindowFlowerGfx = g;
+  }
+
+  /**
+   * 采集流向扩展：老张收野蘑菇后，老张家（elder_house）门口晾蘑菇串（世界变化，零素材 Graphics）。
+   * 位置：老张家窗边 (6,4)，与夜灯 (5,4) 错开——老张收蘑菇后"晚上炖锅汤"有了挂念。
+   */
+  private setupGatherMushroomDrying(): void {
+    if (this.mapKey !== 'elder_house') return;
+    if (!hasTriggered('ch1_gather_exchange_miner')) return;
+    if (this.gatherMushroomDryingGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 6 * T + T / 2, y = 4 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    // 麻绳
+    g.lineStyle(1, 0x6e4a2a, 0.9); g.lineBetween(x - 8, y - 8, x + 8, y - 8);
+    // 三朵蘑菇串在绳上
+    g.fillStyle(0xa1887f, 1); g.fillCircle(x - 5, y - 5, 2.2); g.fillStyle(0xd7ccc8, 1); g.fillCircle(x - 5, y - 5, 1);
+    g.fillStyle(0x8a7a6a, 1); g.fillCircle(x, y - 4, 2); g.fillStyle(0xc8b8a8, 1); g.fillCircle(x, y - 4, 0.9);
+    g.fillStyle(0xa1887f, 1); g.fillCircle(x + 5, y - 5, 1.8); g.fillStyle(0xd7ccc8, 1); g.fillCircle(x + 5, y - 5, 0.8);
+    // 绳头小结
+    g.fillStyle(0x6e4a2a, 1); g.fillCircle(x - 8, y - 8, 1); g.fillCircle(x + 8, y - 8, 1);
+    this.gatherMushroomDryingGfx = g;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 居民需求系统升级：需求交付 → 世界变化（第一章 P0「世界反馈」，零素材纯 Graphics）
+  // 每条需求交付后，对应场景 create 按 isRequestDone 渲染可见痕迹（幂等，读档自动恢复）
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /** 小梅木材交付后：farm 花田旁搭起花架（爬藤 + 横杆），"花架终于搭起来了" */
+  private setupReqFlowerTrellis(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!isRequestDone('resident_req_gardener_wood')) return;
+    if (this.reqFlowerTrellisGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 5 * T + T / 2, y = 7 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    // 两根立杆 + 一道横杆（竹色）
+    g.fillStyle(0x8a6a42, 1); g.fillRect(x - 8, y - 14, 3, 16);
+    g.fillRect(x + 6, y - 14, 3, 16);
+    g.fillStyle(0xa88355, 1); g.fillRect(x - 8, y - 14, 3, 3); g.fillRect(x + 6, y - 14, 3, 3);
+    g.fillStyle(0xa88355, 1); g.fillRect(x - 9, y - 14, 18, 3); // 横杆
+    // 爬藤（绿卷须，从杆脚爬到横杆）
+    g.fillStyle(0x6d9a3a, 1); g.fillRect(x - 5, y - 8, 1, 2); g.fillRect(x - 4, y - 10, 1, 3);
+    g.fillRect(x + 3, y - 9, 1, 3); g.fillRect(x + 2, y - 12, 1, 2);
+    // 几朵小花（"等花开"）
+    g.fillStyle(0xff9e80, 1); g.fillCircle(x - 4, y - 11, 1.4);
+    g.fillStyle(0xe8a0c8, 1); g.fillCircle(x + 2, y - 13, 1.4);
+    g.fillStyle(0xffd166, 1); g.fillCircle(x + 2, y - 13, 0.7);
+    // 投影
+    g.fillStyle(0x2e2e34, 0.18); g.fillEllipse(x, y + 2, 20, 4);
+    this.reqFlowerTrellisGfx = g;
+  }
+
+  /** 老周木材交付后：farm 老屋门口门框修好（立框 + 横梁 + 新门面），"修东西的人不能绝" */
+  private setupReqDoorFrame(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!isRequestDone('resident_req_carpenter_wood')) return;
+    if (this.reqDoorFrameGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 11 * T + T / 2, y = 21 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    // 门框（新木色，立框 + 横梁）
+    g.fillStyle(0x9a7a4a, 1); g.fillRect(x - 7, y - 10, 3, 12);      // 左框
+    g.fillRect(x + 4, y - 10, 3, 12);                                 // 右框
+    g.fillStyle(0xb8945c, 1); g.fillRect(x - 8, y - 12, 16, 3);      // 横梁
+    // 新门面（浅木色 + 把手）
+    g.fillStyle(0xc8a868, 1); g.fillRect(x - 4, y - 9, 8, 10);
+    g.fillStyle(0xa8844c, 1); g.fillRect(x - 4, y - 9, 8, 2);
+    g.fillStyle(0x6e5230, 1); g.fillCircle(x + 2, y - 4, 0.9);       // 门把手
+    this.reqDoorFrameGfx = g;
+  }
+
+  /** 镇长灯笼交付后：town 挂起红灯笼（暖光呼吸），"夜里回来的人看得见镇子" */
+  private setupReqLantern(): void {
+    if (this.mapKey !== 'town') return;
+    if (!isRequestDone('resident_req_elder_lantern')) return;
+    if (this.reqLanternGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 23 * T + T / 2, y = 8 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    // 挂绳 + 红灯笼
+    g.lineStyle(1, 0x6a4a2a, 0.9); g.lineBetween(x, y - 16, x, y - 8);
+    g.fillStyle(0xcf3a2a, 1); g.fillRoundedRect(x - 4, y - 8, 8, 10, 3);
+    g.fillStyle(0xffd166, 1); g.fillCircle(x, y - 3, 1.4);           // 灯芯
+    // 暖光（呼吸，ADD）
+    const glow = this.add.ellipse(x, y - 3, 40, 30, 0xffc878, 0.2).setDepth(2);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: glow, alpha: { from: 0.12, to: 0.26 }, duration: 1400, yoyo: true, repeat: -1 });
+    this.reqLanternGfx = g;
+  }
+
+  /** 阿风食物交付后：town 河边小灶（石灶 + 小锅 + 火苗），"河边煮一锅热乎的" */
+  private setupReqStove(): void {
+    if (this.mapKey !== 'town') return;
+    if (!isRequestDone('resident_req_adventurer_food')) return;
+    if (this.reqStoveGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 6 * T + T / 2, y = 16 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    // 石头灶（三块石围一圈）
+    g.fillStyle(0x9a9aa2, 1); g.fillCircle(x - 6, y, 2.6);
+    g.fillCircle(x + 6, y, 2.6);
+    g.fillCircle(x, y + 4, 3);
+    // 小锅（铁黑 + 边缘）
+    g.fillStyle(0x3a3a42, 1); g.fillRoundedRect(x - 4, y - 6, 8, 5, 2);
+    g.fillStyle(0x5a5a64, 1); g.fillRect(x - 5, y - 7, 10, 2);
+    // 火苗（灶内）
+    g.fillStyle(0xe07030, 1); g.fillCircle(x, y + 1, 2.4);
+    g.fillStyle(0xffa040, 1); g.fillCircle(x, y, 1.6);
+    g.fillStyle(0xffe080, 1); g.fillCircle(x, y - 1, 0.8);
+    this.reqStoveGfx = g;
+  }
+
+  /** 老姜鱼获交付后：town 河边鱼篓（竹篓 + 鱼干挂绳），"河虾配酒" */
+  private setupReqFishBasket(): void {
+    if (this.mapKey !== 'town') return;
+    if (!isRequestDone('resident_req_laojiang_fish')) return;
+    if (this.reqFishBasketGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 6 * T + T / 2, y = 12 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    // 竹篓（圆篓 + 编织线）
+    g.fillStyle(0xb8985a, 1); g.fillRoundedRect(x - 5, y - 4, 10, 9, 3);
+    g.fillStyle(0x8a6a42, 1); g.lineStyle(0.8, 0x8a6a42, 0.9);
+    g.lineBetween(x - 4, y - 2, x + 4, y - 2);
+    g.lineBetween(x - 4, y + 1, x + 4, y + 1);
+    // 篓口 + 提手
+    g.fillStyle(0xd8b878, 1); g.fillRect(x - 5, y - 5, 10, 2);
+    g.fillStyle(0x8a6a42, 1); g.fillRect(x - 1, y - 9, 2, 4);
+    // 一条小鱼干挂篓边（"河虾配酒"）
+    g.fillStyle(0xd8a878, 1); g.fillEllipse(x + 7, y - 1, 5, 3);
+    g.fillStyle(0xc89868, 1); g.fillTriangle(x + 9, y - 1, x + 11, y - 2, x + 10, y);
+    this.reqFishBasketGfx = g;
+  }
+
+  /**
+   * 采集流向扩展：阿风收蒲公英后，town 河岸草丛冒出一小丛蒲公英（世界变化，零素材 Graphics）。
+   * 位置：town 河西岸 (42,15)，与既有河岸蒲公英采集点 (40,14) 错开——"风吹去的种子落了地"。
+   * 阿风把蒲公英吹散后，过段时间河岸边多了一丛野生的——玩家路过能认出"这是我给阿风的"。
+   */
+  private setupGatherDandelionPatch(): void {
+    if (this.mapKey !== 'town') return;
+    if (!hasTriggered('ch1_gather_exchange_adventurer')) return;
+    if (this.gatherDandelionPatchGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 42 * T + 8, y = 15 * T + 8;
+    const g = this.add.graphics().setDepth(3);
+    // 一小丛蒲公英（三株错落，花 + 几朵已散落的种子小白点）
+    for (const [dx, dy] of [[-3, 0], [1, 1], [4, 0]]) {
+      const px = x + dx * 2, py = y + dy * 2;
+      g.fillStyle(0x5a8a3a, 1); g.fillRect(px - 0.6, py - 6, 1.2, 6);   // 茎
+      g.fillStyle(0xffeb3b, 1); g.fillCircle(px, py - 9, 2.2);          // 花冠
+      g.fillStyle(0xfff9c4, 1); g.fillCircle(px, py - 9, 0.9);          // 花心高光
+    }
+    // 风留下的几颗种子小点（飘散在草地上）
+    g.fillStyle(0xf5f0dc, 1); g.fillCircle(x + 10, y - 2, 0.9);
+    g.fillStyle(0xf5f0dc, 1); g.fillCircle(x - 8, y - 3, 0.8);
+    g.fillStyle(0xf5f0dc, 1); g.fillCircle(x + 2, y + 3, 0.7);
+    this.gatherDandelionPatchGfx = g;
+  }
+
+  /**
+   * 采集流向扩展：老周（木匠）收小树枝后，farm 老屋门口挂一只削的小木鸟（世界变化，零素材 Graphics）。
+   * 位置：老屋 (11,20) 门口旁 (8,21)，与老屋窗台花 (13,20) 错开——老周说的"挂老屋门口"。
+   * 玩家再路过老屋，能看见那根枯枝被老周削成了一只小木鸟："我给的东西，变成了有人会做的东西。"
+   */
+  private setupGatherWoodenStarlingToy(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!hasTriggered('ch1_gather_exchange_carpenter')) return;
+    if (this.gatherWoodenStarlingGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const x = 8 * T + 4, y = 21 * T + 6;
+    const g = this.add.graphics().setDepth(4);
+    // 细绳吊挂的木鸟（圆身 + 小喙 + 尾羽）
+    g.lineStyle(0.8, 0x8a6a45, 0.9); g.lineBetween(x, y - 10, x, y - 4); // 绳
+    g.fillStyle(0xa0805a, 1); g.fillCircle(x, y, 2.6);                   // 鸟身
+    g.fillStyle(0xc8a878, 1); g.fillCircle(x, y - 0.6, 1.1);             // 腹高光
+    g.fillStyle(0x8a6a45, 1); g.fillTriangle(x + 2.4, y - 0.4, x + 4, y - 1, x + 2.6, y + 1.4); // 喙
+    g.fillStyle(0xa0805a, 1); g.fillTriangle(x - 1.8, y + 0.8, x - 4, y + 1.5, x - 1.6, y + 2.4); // 尾
+    g.fillStyle(0x3a2a18, 1); g.fillCircle(x - 0.8, y - 0.8, 0.4);       // 眼睛
+    this.gatherWoodenStarlingGfx = g;
+  }
+
+  /** 钓鱼 Phase 4：老张收黄昏鱼后，house 老屋门轴修好（门旁暖色木钮 + 微光） */
+  private setupFishDoorHinge(): void {
+    if (!hasTriggered('fish_exchange_miner')) return;
+    const T = TILE_SIZE;
+    const x = 10 * T + T / 2, y = 13.5 * T;
+    const g = this.add.graphics().setDepth(4);
+    g.fillStyle(0xc8a060, 1); g.fillCircle(x, y, 3);
+    g.fillStyle(0xffe0a0, 0.45); g.fillCircle(x, y, 5);
+  }
+
+  /** 钓鱼 Phase 4：阿风收黄昏鱼后，晚上河边生火烤鱼（"这次不会糊"；零素材 Graphics，S6 老河堤岸线） */
+  private setupAdventurerCampfire(): void {
+    if (!hasTriggered('fish_exchange_adventurer')) return;
+    const h = getTime().hour;
+    if (h >= 6 && h < 18) return; // 阿风说"晚上来"——夜晚才出现
+    const T = TILE_SIZE;
+    // S6 老河堤岸线（长椅 (5,15) 附近草地）
+    const x = 7 * T + T / 2, y = 16 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    g.fillStyle(0x4a3626, 1); g.fillRect(x - 7, y + 1, 14, 3);          // 柴堆底
+    g.fillStyle(0x6e4624, 1); g.fillRect(x - 4, y - 2, 2, 4); g.fillRect(x + 2, y - 2, 2, 4); // 立柴
+    g.fillStyle(0xe07030, 1); g.fillCircle(x, y - 3, 3);                // 火苗外圈
+    g.fillStyle(0xffa040, 1); g.fillCircle(x, y - 4, 2);                // 火苗中
+    g.fillStyle(0xffe080, 1); g.fillCircle(x, y - 5, 1);                // 火苗心
+    const glow = this.add.ellipse(x, y - 2, 44, 30, 0xffa050, 0.18).setDepth(2);
+    this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.24 }, duration: 800, yoyo: true, repeat: -1 });
+  }
+
+  /**
+   * 表现层实验：夜晚河边火堆场景（2026-08-14）。
+   * 四项：① 夜晚压暗 overlay + 火光 Add 混合暖光（呼吸）② 火星/萤火虫粒子（零素材 generateTexture）
+   *       ③ 前景草叶遮挡（屏幕固定，scrollFactor 0）④ 玩家靠近火堆时镜头呼吸微动。
+   * 实验范围：town 夜晚 + 阿风烤鱼交换已触发；通过后推广为统一视觉语言。
+   */
+  private setupNightCampfireVisuals(): void {
+    if (!MapScene.NIGHT_VISUAL_EXPERIMENT) return;
+    if (this.mapKey !== 'town') return;
+    if (!hasTriggered('fish_exchange_adventurer')) return;
+    const h = getTime().hour;
+    if (h >= 6 && h < 18) return;
+
+    const T = TILE_SIZE;
+    const fx = 7 * T + T / 2, fy = 16 * T + T / 2; // 火堆位置
+
+    // ① 夜晚压暗（屏幕固定，UI 之下；火光在它之上形成暖池）
+    const dark = this.add.rectangle(
+      this.scale.width / 2, this.scale.height / 2,
+      this.scale.width, this.scale.height, 0x0a1428, 0.34,
+    ).setScrollFactor(0).setDepth(190);
+    dark.setInteractive(false);
+
+    // ② 火光：Add 混合暖光（呼吸，范围大于基础光晕）
+    const glow = this.add.ellipse(fx, fy, 130, 90, 0xffa050, 0.30).setDepth(191);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: glow,
+      alpha: { from: 0.16, to: 0.36 }, scaleX: { from: 0.9, to: 1.08 }, scaleY: { from: 0.85, to: 1.05 },
+      duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+
+    // 火星粒子（零素材：Graphics → generateTexture）
+    const sparkTex = this.make.graphics({ x: 0, y: 0 }, false);
+    sparkTex.fillStyle(0xffd080, 1); sparkTex.fillCircle(2, 2, 2);
+    sparkTex.generateTexture('fx_fire_spark', 4, 4);
+    this.add.particles(fx, fy, 'fx_fire_spark', {
+      speed: { min: 20, max: 55 },
+      angle: { min: 240, max: 300 },
+      scale: { start: 1, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: { min: 700, max: 1400 },
+      frequency: 120,
+      blendMode: Phaser.BlendModes.ADD,
+      emitting: true,
+    }).setDepth(191);
+
+    // 萤火虫（河边慢飘 + 闪烁）
+    const fireflyTex = this.make.graphics({ x: 0, y: 0 }, false);
+    fireflyTex.fillStyle(0xe8ffb0, 1); fireflyTex.fillCircle(2, 2, 2);
+    fireflyTex.generateTexture('fx_firefly', 4, 4);
+    this.add.particles(0, 0, 'fx_firefly', {
+      x: { min: 70, max: 210 }, y: { min: 205, max: 295 },
+      speed: { min: 6, max: 16 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.7, end: 1.1 },
+      alpha: { start: 1, end: 0.15 },
+      lifespan: { min: 1800, max: 2600 },
+      frequency: 800,
+      quantity: 1,
+      blendMode: Phaser.BlendModes.ADD,
+    }).setDepth(191);
+
+    // ③ 前景遮挡：屏幕底部草叶剪影（scrollFactor 0，产生空间层次）
+    const fg = this.add.graphics().setScrollFactor(0).setDepth(196);
+    fg.fillStyle(0x0d1a0c, 0.92);
+    for (let i = 0; i < 20; i++) {
+      const bx = i * 68 + (i % 3) * 10;
+      const bh = 26 + (i % 4) * 10;
+      fg.fillTriangle(bx, this.scale.height, bx + 26, this.scale.height - bh, bx + 52, this.scale.height);
+      fg.fillRect(bx + 4, this.scale.height - 8, 44, 8);
+    }
+    fg.fillRect(0, this.scale.height - 4, this.scale.width, 4);
+
+    // ④ 镜头微动：玩家靠近火堆时轻微呼吸缩放（1.00 ± 0.015）
+    const near = Math.hypot(this.player.x - fx, this.player.y - fy) < 150;
+    if (near) {
+      this.tweens.add({
+        targets: this.cameras.main,
+        zoom: { from: 0.99, to: 1.015 },
+        duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+    }
+  }
+
+  /**
+   * 生命化改造·河岸段（2026-08-14，D-030 方向）：生活痕迹 + 岸线层次 + 前景芦苇。
+   * 全部 Graphics 程序绘制（路线 C：零 tile 修改 / 零新素材 / 零存档字段）。
+   * 目标：S6 河堤从"水 + 岸线"变成"有人生活过的河岸"。
+   */
+  private setupRiverbankLife(): void {
+    if (this.mapKey !== 'town') return;
+    const T = TILE_SIZE;
+    const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
+
+    // ① 拴船桩 + 绳子（旧木桩，绳垂向水面——"这里有人靠过船"）
+    {
+      const [x, y] = px(6, 14);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x5b4226, 1); g.fillRect(x - 2, y - 6, 4, 9);
+      g.fillStyle(0x6e4a2c, 1); g.fillRect(x - 1, y - 6, 2, 2);
+      g.fillStyle(0x3a2a18, 0.6); g.fillRect(x - 1, y + 2, 3, 2);
+      g.lineStyle(1.5, 0xb8a878, 0.85); g.lineBetween(x + 2, y - 2, x - 8, y + 8);
+    }
+    // ② 旧木桶（路边遗弃物）
+    {
+      const [x, y] = px(7, 18);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x7a5a33, 1); g.fillRoundedRect(x - 4, y - 3, 8, 7, 2);
+      g.lineStyle(1, 0x4c3618, 0.9); g.strokeRoundedRect(x - 4, y - 3, 8, 7, 2);
+      g.lineStyle(1.5, 0x5b4226, 0.9); g.lineBetween(x - 4, y, x + 4, y);
+    }
+    // ③ 渔网一角（晾在岸石上）
+    {
+      const [x, y] = px(5, 20);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x8a8a92, 1); g.fillRect(x - 5, y - 2, 10, 4);
+      g.lineStyle(1, 0xb8c8b8, 0.55);
+      g.lineBetween(x - 8, y - 1, x + 8, y - 1);
+      for (let i = 0; i < 5; i++) g.lineBetween(x - 8 + i * 4, y - 3, x - 6 + i * 3, y + 4);
+    }
+    // ④ 石子滩（水边碎石，岸线层次）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [cx, cy, s] of [[5.1, 10, 2], [5.5, 13, 1.5], [5.3, 15, 2], [5.6, 17, 1.5], [5.2, 19, 1.5]]) {
+        const [x, y] = px(cx, cy);
+        g.fillStyle(0x9a9aa2, 1); g.fillCircle(x, y, s);
+        g.fillStyle(0xb8b8c0, 0.7); g.fillCircle(x - s * 0.4, y - s * 0.4, s * 0.4);
+      }
+    }
+    // ⑤ 碎花/草簇（岸线生活痕迹）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [cx, cy, col] of [[7, 13, 0xd860a0], [7.5, 16, 0xe8b040], [7, 19, 0xd860a0], [7.8, 21, 0xe8b040]]) {
+        const [x, y] = px(cx, cy);
+        g.fillStyle(0x5a8a4a, 1); g.fillRect(x - 1, y - 1, 2, 3);
+        g.fillStyle(col, 1); g.fillRect(x - 2, y - 3, 1, 1); g.fillRect(x + 1, y - 3, 1, 1); g.fillRect(x, y - 4, 1, 1);
+      }
+    }
+    // ⑥ 前景芦苇（水缘，depth 高于玩家——走过时轻微遮挡，形成空间层次）
+    {
+      const g = this.add.graphics().setDepth(12);
+      for (const [cx, cy, h] of [[4.2, 13, 10], [4.1, 16, 13], [4.3, 19, 11], [4.0, 21, 14]]) {
+        const [x, y] = px(cx, cy);
+        g.fillStyle(0x2e4a18, 1); g.fillRect(x - 1, y - h, 2, h);
+        g.fillStyle(0x6a4a2a, 1); g.fillRect(x - 2, y - h - 2, 4, 3);
+      }
+    }
+    // ⑦ 散步路径感：岸线内侧轻微踩踏痕迹（低透明暗绿，提示"有人常走这里"）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [cx, cy] of [[6.3, 13], [6.5, 15], [6.2, 17], [6.5, 19], [6.2, 21]]) {
+        const [x, y] = px(cx, cy);
+        g.fillStyle(0x3a5a30, 0.16);
+        g.fillEllipse(x, y, 12, 5);
+      }
+    }
+    // ⑧ 河岸树列（内侧 x7.5-8.5，错落；纯视觉 sprite 不参与碰撞，形成"水岸的框"）
+    {
+      const trees: [number, number, string][] = [
+        [7.5, 11, 'tree1'], [8.5, 13, 'tree_big'], [7.5, 15, 'tree2'],
+        [8.5, 17, 'tree1'], [8.5, 19, 'tree2'], [8.5, 21, 'tree_big'], [7.5, 23, 'tree1'],
+      ];
+      for (const [cx, cy, key] of trees) {
+        const [x, y] = px(cx, cy);
+        const s = this.add.image(x, y, key).setScale(0.5).setDepth(4);
+        if (key === 'tree_big') s.setOrigin(0.5, 1);
+      }
+    }
+    // ⑨ 旧木栈台（水缘小幅延伸的磨损木台——"有人在这儿坐了很久"）
+    {
+      const [x0, y0] = px(3.8, 14.7);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x8a6a45, 1); g.fillRect(x0, y0, 22, 3);                 // 台面
+      g.fillStyle(0x9a7a52, 0.9); g.fillRect(x0 + 7, y0, 3, 3); g.fillRect(x0 + 15, y0, 3, 3);
+      g.fillStyle(0x5b4226, 1); g.fillRect(x0, y0 - 1, 22, 1);             // 板缝暗线
+      g.fillStyle(0x6e5633, 1); g.fillRect(x0 + 2, y0 + 3, 2, 5); g.fillRect(x0 + 18, y0 + 3, 2, 5); // 支柱
+      g.fillStyle(0x000000, 0.10); g.fillRect(x0 - 1, y0 + 3, 24, 3);      // 水面投影
+    }
+    // ⑩ 钓鱼装备簇（竹竿斜靠 + 鱼篓 + 鱼饵盒 + 保温茶壶——"江叔的装备"）
+    {
+      const [bx, by] = px(7.2, 16);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x8a9a3a, 1); g.fillRect(bx - 2, by - 18, 2, 20);         // 竹竿
+      g.fillStyle(0xa8b858, 1); g.fillRect(bx - 2, by - 18, 1, 20);
+      g.fillStyle(0xb89858, 1); g.fillRect(bx + 5, by - 8, 8, 7);           // 鱼篓
+      g.fillStyle(0x9a7a3a, 1); g.fillRect(bx + 6, by - 8, 6, 2);
+      g.fillStyle(0x8a6a45, 1); g.fillRect(bx + 1, by - 4, 5, 3);           // 鱼饵盒
+      g.fillStyle(0x9a9aa2, 1); g.fillRect(bx - 7, by - 6, 5, 5);           // 保温茶壶
+      g.fillStyle(0xb8b8c0, 0.8); g.fillRect(bx - 6, by - 6, 3, 2);
+      g.fillStyle(0x8a8a92, 1); g.fillRect(bx - 7, by - 7, 2, 1);
+    }
+    // ⑪ 大石步（不规则天然落脚石，升级石子滩）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [cx, cy, s] of [[5.3, 14, 3], [5.4, 16, 2.5], [5.2, 18, 3]]) {
+        const [x, y] = [cx * T + T / 2, cy * T + T / 2];
+        g.fillStyle(0x8a8a92, 1); g.fillEllipse(x, y, s * 3, s * 2);
+        g.fillStyle(0xa8a8b0, 0.8); g.fillEllipse(x - 1, y - 1, s * 2, s);
+      }
+    }
+    // ⑫ 水草（水缘暗绿簇，"水里有东西"）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [cx, cy] of [[3.3, 14], [3.6, 16], [3.1, 18], [3.8, 15]]) {
+        const [x, y] = [cx * T + T / 2, cy * T + T / 2];
+        g.fillStyle(0x3a5a30, 0.8);
+        g.fillRect(x - 2, y - 4, 1, 5); g.fillRect(x, y - 6, 1, 6); g.fillRect(x + 2, y - 3, 1, 4);
+      }
+    }
+    // ⑬ 老姜（钓鱼老人）视觉锚点：草帽大叔，坐在水岸小板凳上、靛蓝旧衫（深描边，与草地/木色拉开）、竹竿垂向水面、脚边茶杯。
+    // 依据《钓鱼老人NPC-氛围锚点设计-v0.2》（制作人 2026-08-14 拍板：名字老姜 / 草帽大叔外观）。
+    // 作息：13:00-17:00 在场（update 按小时切换显隐），其余时段"收竿回家"。
+    // 交互：靠近按 E 对话（教学 / 鱼种评价 / 《钓鱼修行》/ 老婆轻吐槽），见 buildLaoJiangDialogue。
+    {
+      const [x, y] = [84, 232]; // 世界 (84,232)：钓点南侧岸线（距钓点 32px，交互范围不打架），面朝西侧水面
+      const g = this.add.graphics().setDepth(4);
+      // 脚底投影（先把人"压"在地面上，再谈细节——草地上的立身锚点）
+      g.fillStyle(0x14240f, 0.34); g.fillEllipse(x, y + 7, 22, 5);
+      // 小板凳（深色轮廓 + 旧木坐面/腿）
+      g.fillStyle(0x2e2012, 1); g.fillRect(x - 5, y + 1, 11, 6);
+      g.fillStyle(0x9a6a38, 1); g.fillRect(x - 4, y + 2, 9, 2);
+      g.fillStyle(0x6e4a24, 1); g.fillRect(x - 4, y + 4, 2, 3); g.fillRect(x + 3, y + 4, 2, 3);
+      // 身体：深色描边 + 靛蓝旧衫（与草地绿 / 木台棕错开）+ 衣领高光 + 深灰裤
+      g.fillStyle(0x26303e, 1); g.fillRect(x - 4, y - 8, 9, 11);
+      g.fillStyle(0x4a5a78, 1); g.fillRect(x - 3, y - 7, 7, 9);
+      g.fillStyle(0x5a6a88, 1); g.fillRect(x - 2, y - 7, 2, 4);
+      g.fillStyle(0x2e2e3a, 1); g.fillRect(x - 3, y - 2, 3, 4); g.fillRect(x + 1, y - 2, 3, 4);
+      // 手臂 + 竹竿（暗线垫底 = 描边，亮竹绿在上；竿斜向左上伸向水面，鱼线垂落——老姜面朝西侧河流）
+      g.fillStyle(0x4a5a78, 1); g.fillRect(x - 2, y - 7, 3, 3);
+      g.lineStyle(2, 0x2e3014, 1); g.lineBetween(x - 1, y - 6, x - 11, y - 14);
+      g.lineStyle(1.3, 0xa0b048, 1); g.lineBetween(x - 1, y - 6, x - 11, y - 14);
+      g.lineStyle(1, 0x6a7a28, 0.8); g.lineBetween(x - 11, y - 14, x - 14, y - 8);
+      g.lineStyle(0.8, 0xf0f0f0, 0.6); g.lineBetween(x - 14, y - 8, x - 12, y + 2);
+      // 头 + 草帽（暖肤 + 亮草帽，帽檐压低——"他在看水，不看玩家"）
+      g.fillStyle(0x26303e, 1); g.fillCircle(x, y - 10, 4);
+      g.fillStyle(0xe8b088, 1); g.fillCircle(x, y - 10, 3);
+      g.fillStyle(0x2e2012, 1); g.fillEllipse(x, y - 13, 12, 4);
+      g.fillStyle(0xe8c878, 1); g.fillEllipse(x, y - 13, 10, 3);
+      g.fillStyle(0x8a6a2a, 1); g.fillRect(x - 1, y - 14, 3, 2);   // 帽带
+      g.fillStyle(0x2e2012, 1); g.fillRect(x - 2, y - 17, 5, 4);   // 帽顶描边
+      g.fillStyle(0xd8a848, 1); g.fillRect(x - 1, y - 16, 3, 3);   // 帽顶
+      // 脚边茶杯（深边 + 浅杯身，杯口冒一点热气）
+      g.fillStyle(0x3a3a3a, 1); g.fillRect(x + 4, y - 2, 5, 4);
+      g.fillStyle(0xd0d0d0, 1); g.fillRect(x + 5, y - 1, 3, 2);
+      g.fillStyle(0xffffff, 0.4); g.fillRect(x + 6, y - 3, 1, 2);
+      // 名字标牌（老姜；与 NPC 标牌同范式，depth 5）
+      this.laoJiangLabel = this.add.text(x, y - 22, '老姜', {
+        fontSize: '11px', color: '#f0c860',
+        stroke: '#000000', strokeThickness: 3,
+        backgroundColor: 'rgba(0,0,0,0.45)',
+        padding: { x: 2, y: 1 },
+      }).setOrigin(0.5).setDepth(5);
+      // 竿尖轻点（"有动静"的呼吸感，不改坐标）
+      this.tweens.add({
+        targets: g,
+        angle: { from: 0, to: 0.6 },
+        duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+      // 作息：13:00-17:00 在场（初始状态按当前时间）
+      this.laoJiangGfx = g;
+      this.laoJiangPresent = getTime().hour >= 13 && getTime().hour < 17;
+      g.setVisible(this.laoJiangPresent);
+      this.laoJiangLabel.setVisible(this.laoJiangPresent);
+    }
+  }
+
+  /**
+   * 生命化改造·场景密度（2026-08-14）：在空旷草地区补装饰簇（草簇/小花/小灌木/石），
+   * 打破"大片单色地面"的空旷感。零素材 Graphics、无碰撞、不挡路。
+   * 位置按 town 地面栅格人工避让：道路/石板/建筑/NPC 站位/出口/集市区。
+   */
+  private setupTownDensityClusters(): void {
+    if (this.mapKey !== 'town') return;
+    const T = TILE_SIZE;
+    const clusters: [number, number][] = [
+      [12, 9], [22, 9], [28, 9], [37, 9], [43, 10], [45, 8],
+      [8, 22], [9, 21], [10, 20], [16, 19], [30, 19], [28, 13],
+      [43, 19], [12, 21], [18, 23], [26, 24],
+    ];
+    for (const [cx, cy] of clusters) {
+      const x = cx * T + T / 2, y = cy * T + T / 2;
+      const g = this.add.graphics().setDepth(3);
+      // 草簇（2-3 株，竖线）
+      g.fillStyle(0x5a8a4a, 1);
+      for (let i = 0; i < 3; i++) g.fillRect(x - 6 + i * 4, y - 1, 1, 5 + (i % 2) * 2);
+      const kind = (cx + cy) % 4;
+      if (kind === 0) {
+        // 黄花
+        g.fillStyle(0xe8b040, 1); g.fillRect(x + 3, y - 2, 1, 1); g.fillRect(x + 6, y - 1, 1, 1);
+      } else if (kind === 1) {
+        // 粉花
+        g.fillStyle(0xd860a0, 1); g.fillRect(x - 8, y - 2, 1, 1); g.fillRect(x + 4, y - 3, 1, 1);
+      } else if (kind === 2) {
+        // 小灌木
+        g.fillStyle(0x4a7a38, 1); g.fillCircle(x + 5, y, 3);
+        g.fillStyle(0x639922, 0.9); g.fillCircle(x + 6, y - 1, 2);
+      } else {
+        // 石头
+        g.fillStyle(0x9a9aa2, 1); g.fillCircle(x - 5, y, 2);
+        g.fillStyle(0xb8b8c0, 0.7); g.fillCircle(x - 6, y - 1, 1);
+      }
+    }
+  }
+
+  /**
+   * 阶段4 中央广场生活化（2026-08-14，执行方案 P1 中央广场：装饰物 + 夜晚灯光 + 生活痕迹）。
+   * 定位：石板十字广场 = 青禾镇视觉中心（P0 已石板化，7 NPC 站场）；这里补"有人在这里停留"的物件。
+   * 零素材纯 Graphics、无碰撞、不挡路、避开 NPC 站位（town SPOTS）与路带：
+   *   ① 西北角石井（记忆点：老井 = 广场的历史）
+   *   ② 东南/西南角石凳 ×2（歇脚点，强化聚集感）
+   *   ③ 石板踩踏斑驳 + 落叶（"有人走"的生活痕迹）
+   *   ④ 东北角灯柱（夜晚暖光呼吸，广场夜晚灯光）
+   */
+  private setupCentralPlaza(): void {
+    if (this.mapKey !== 'town') return;
+    const T = TILE_SIZE;
+    const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
+
+    // ① 西北角石井（世界 344,256：NW 石角，距木匠站位 28px）
+    {
+      const [x, y] = px(21, 15.5);
+      const g = this.add.graphics().setDepth(3);
+      // 井台（石环：外圈灰 + 内孔暗 + 高光）
+      g.fillStyle(0x8a8a92, 1); g.fillEllipse(x, y, 20, 13);
+      g.fillStyle(0x6a6a72, 1); g.fillEllipse(x, y + 1, 16, 10);
+      g.fillStyle(0x26262c, 1); g.fillEllipse(x, y + 1, 10, 6);   // 井口
+      g.fillStyle(0xa8a8b0, 0.8); g.fillEllipse(x - 4, y - 3, 6, 3); // 石沿高光
+      // 绞架（两根立柱 + 横梁 + 绳）
+      g.fillStyle(0x6e4a24, 1); g.fillRect(x - 8, y - 11, 2, 12); g.fillRect(x + 6, y - 11, 2, 12);
+      g.fillStyle(0x7a5a33, 1); g.fillRect(x - 8, y - 13, 16, 3);
+      g.lineStyle(0.8, 0x9a8a6a, 0.9); g.lineBetween(x + 6, y - 12, x + 4, y - 2);
+      g.fillStyle(0x8a6a45, 1); g.fillRect(x + 3, y - 2, 3, 2);    // 吊桶
+      // 井边小草（生活痕迹）
+      g.fillStyle(0x5a8a4a, 1); g.fillRect(x - 12, y + 5, 1, 3); g.fillRect(x + 11, y + 6, 1, 2);
+    }
+
+    // ② 石凳 ×2（东南 456,336 / 西南 328,336：避开花匠/阿风站位）
+    for (const [cx, cy] of [[28, 20.5], [20, 20.5]] as Array<[number, number]>) {
+      const [x, y] = px(cx, cy);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x4a4a52, 1); g.fillRect(x - 7, y - 3, 14, 3);   // 凳面
+      g.fillStyle(0x5a5a64, 1); g.fillRect(x - 7, y - 4, 14, 1);   // 面高光
+      g.fillStyle(0x3a3a42, 1); g.fillRect(x - 6, y, 2, 3); g.fillRect(x + 4, y, 2, 3); // 腿
+      g.fillStyle(0x2e2e34, 0.28); g.fillEllipse(x, y + 3, 18, 4);  // 脚底投影
+    }
+
+    // ③ 石板踩踏斑驳 + 落叶（非常克制——"有人走过"，不是污渍）
+    {
+      const g = this.add.graphics().setDepth(2);
+      g.fillStyle(0x3a3a30, 0.08);
+      g.fillEllipse(px(22, 15.8)[0], px(22, 15.8)[1], 14, 6);      // 井边小径
+      g.fillEllipse(px(27.2, 16.5)[0], px(27.2, 16.5)[1], 12, 5);  // 灯柱下
+      g.fillStyle(0xd8a858, 0.8);
+      g.fillRect(px(26.6, 15.4)[0], px(26.6, 15.4)[1], 2, 1);      // 落叶
+      g.fillRect(px(29.3, 15.8)[0], px(29.3, 15.8)[1], 2, 1);
+      g.fillStyle(0x8a9a3a, 0.7);
+      g.fillRect(px(20.4, 16.6)[0], px(20.4, 16.6)[1], 1, 2);
+    }
+
+    // ④ 东北角灯柱（世界 464,256：灯头暖光仅夜晚显示，呼吸）
+    {
+      const [x, y] = px(28.5, 15.5);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x3a3a44, 1); g.fillRect(x - 1, y - 14, 2, 15);   // 柱
+      g.fillStyle(0x4a4a56, 1); g.fillRect(x - 2, y - 15, 4, 2);    // 灯头托
+      g.fillStyle(0xffd98a, 1); g.fillRect(x - 2, y - 18, 4, 4);    // 灯头
+      g.fillStyle(0x2e2e34, 0.3); g.fillEllipse(x, y + 2, 10, 3);   // 柱底投影
+      const h = getTime().hour;
+      if (h >= 18 || h < 6) {
+        const glow = this.add.ellipse(x, y - 16, 46, 32, 0xffc878, 0.18).setDepth(3);
+        glow.setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.24 }, duration: 1600, yoyo: true, repeat: -1 });
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 小镇计划·星光艺术展（Feature-XXX，2026-08-15 制作人拍板）
+  // 依据：《星光艺术展-垂直切片设计稿-v0.2-拍板基线.md》+《任务卡 v0.1》
+  // 循环：解锁 → 筹备（环境/人际/素材）→ 当天（约 10 分钟演出）→ 永久变化（广场东侧艺术角）
+  // 红线：软期限无倒计时 / 面板只读观察 / 零新系统（MapSceneFlags + triggerOnce + 现有系统组合）
+  // ═══════════════════════════════════════════════════════════════
+
+  private static readonly ARTSHOW = {
+    corner: { x: 500, y: 285 },   // 展台
+    sign: { x: 484, y: 262 },     // 展示牌
+    bench: { x: 512, y: 322 },    // 长椅
+    box: { x: 526, y: 304 },      // 素材箱
+    xiya: { x: 492, y: 276 },     // 广场夏雅（筹备期策划）
+    plaza: { x: 400, y: 288 },    // 广场中心（活动触发判定）
+  };
+  /** 收获专属描述（v1.1 收获仪式感：让每种作物有自己的"手感"） */
+  private static readonly HARVEST_DESC: Record<CropType, string> = {
+    radish: '水灵灵的萝卜',
+    tomato: '熟透的番茄',
+    corn: '饱满的玉米',
+    strawberry: '红得发亮的草莓',
+  };
+  /** 会话级：环境物件已构建到第几阶段（幂等，避免重复 add） */
+  private artShowEnvBuilt = 0;
+
+  private artShowAvailable(): boolean {
+    return isChapterAtLeast(CHAPTER_1) && hasTriggered('ch1_spring_fair');
+  }
+
+  private artShowPeopleDone(): boolean {
+    return hasTriggered('artshow_xiya_plan')
+      && hasTriggered('artshow_elder_coord')
+      && hasTriggered('artshow_carpenter_photo')
+      && hasTriggered('artshow_gardener_flower');
+  }
+
+  private artShowReady(): boolean {
+    return this.artShowUnlocked && this.artShowEnvStage >= 3
+      && this.artShowPeopleDone() && this.artShowMaterialsDone && !this.artShowHeld;
+  }
+
+  /** create 挂载（town）：按状态重建艺术角/环境物件/素材箱/广场夏雅/永久变化 */
+  private setupArtShow(): void {
+    if (this.mapKey !== 'town' || !this.artShowUnlocked) return;
+    this.artShowEnvBuilt = 0;
+    this.buildArtShowEnvObjects();
+    this.buildArtShowBox();
+    this.spawnArtShowXiya();
+    if (this.artShowPerm) {
+      this.buildArtShowPermanent();
+      this.setupArtShowTraveler();
+    }
+  }
+
+  /** 环境物件（按 envStage 增量构建：展台→灯光→花艺） */
+  private buildArtShowEnvObjects(): void {
+    if (this.mapKey !== 'town') return;
+    const c = MapScene.ARTSHOW.corner;
+    if (this.artShowEnvStage >= 1 && this.artShowEnvBuilt < 1) {
+      this.artShowEnvBuilt = 1;
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x2e2e34, 0.25); g.fillEllipse(c.x, c.y + 6, 46, 7);   // 投影
+      g.fillStyle(0x6e4a24, 1); g.fillRect(c.x - 17, c.y, 3, 6); g.fillRect(c.x + 14, c.y, 3, 6); // 台脚
+      g.fillStyle(0x8a6a45, 1); g.fillRect(c.x - 18, c.y - 4, 36, 4);    // 台面
+      g.fillStyle(0x5b4226, 1); g.fillRect(c.x - 18, c.y - 5, 36, 1);    // 板缝
+      g.fillStyle(0x9a7a52, 0.9); g.fillRect(c.x - 12, c.y - 4, 3, 2); g.fillRect(c.x + 8, c.y - 4, 3, 2);
+      g.lineStyle(1.2, 0x7a5a33, 1); g.lineBetween(c.x + 8, c.y - 16, c.x + 4, c.y - 2); // 画架
+      g.lineBetween(c.x + 8, c.y - 16, c.x + 14, c.y - 2);
+    }
+    if (this.artShowEnvStage >= 2 && this.artShowEnvBuilt < 2) {
+      this.artShowEnvBuilt = 2;
+      const lx = c.x + 24, ly = c.y - 20;
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x3a3a44, 1); g.fillRect(lx - 1, ly, 2, 20);
+      g.fillStyle(0xffd98a, 1); g.fillRect(lx - 2, ly - 3, 4, 4);
+      const h = getTime().hour;
+      if (h >= 18 || h < 6) {
+        const glow = this.add.ellipse(lx, ly - 1, 44, 30, 0xffc878, 0.18).setDepth(3);
+        glow.setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.24 }, duration: 1600, yoyo: true, repeat: -1 });
+      }
+    }
+    if (this.artShowEnvStage >= 3 && this.artShowEnvBuilt < 3) {
+      this.artShowEnvBuilt = 3;
+      const g = this.add.graphics().setDepth(3);
+      for (const ox of [-26, 26]) {
+        g.fillStyle(0x9a6a3a, 1); g.fillRect(c.x + ox - 3, c.y + 1, 6, 5);
+        g.fillStyle(0xd860a0, 1); g.fillRect(c.x + ox - 1, c.y - 3, 2, 4);
+        g.fillStyle(0xe8b040, 1); g.fillRect(c.x + ox - 4, c.y - 2, 1, 2); g.fillRect(c.x + ox + 3, c.y - 2, 1, 2);
+        g.fillStyle(0x5a8a4a, 1); g.fillRect(c.x + ox - 1, c.y - 1, 1, 2);
+      }
+    }
+  }
+
+  /** 素材箱（艺术角交付点） */
+  private buildArtShowBox(): void {
+    const b = MapScene.ARTSHOW.box;
+    const c = this.add.container(b.x, b.y).setDepth(3);
+    const g = this.add.graphics();
+    g.fillStyle(0x8a6a45, 1); g.fillRect(-7, -5, 14, 8);
+    g.lineStyle(1, 0x4c3618, 0.9); g.strokeRect(-7, -5, 14, 8);
+    g.lineStyle(1, 0x5b4226, 0.9); g.lineBetween(-7, -1, 7, -1);
+    c.add(g);
+    this.add.text(b.x, b.y - 12, '征集箱', {
+      fontSize: '10px', color: '#e8d8a8', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(4);
+    this.artShowBox = c;
+  }
+
+  /** 筹备期广场夏雅（白天出现；策划事件未触发时） */
+  private spawnArtShowXiya(): void {
+    if (hasTriggered('artshow_xiya_plan')) return;
+    const t = getTime();
+    if (t.hour < 8 || t.hour >= 18) return;
+    const p = MapScene.ARTSHOW.xiya;
+    this.artShowXiya = this.add.sprite(p.x, p.y, 'npc_xiya');
+    this.artShowXiya.setScale(0.42).setDepth(5);
+    this.add.text(p.x, p.y - 24, '夏雅', {
+      fontSize: '12px', color: '#f0a050', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(6);
+  }
+
+  /** 永久变化：艺术角（展示牌/长椅/旅人作品/白天看展剪影） */
+  private buildArtShowPermanent(): void {
+    if (this.mapKey !== 'town') return;
+    const c = MapScene.ARTSHOW;
+    // 展示牌
+    const sign = this.add.graphics().setDepth(3);
+    sign.fillStyle(0x6e4a24, 1); sign.fillRect(c.sign.x - 1, c.sign.y - 12, 2, 14);
+    sign.fillStyle(0x8a6a45, 1); sign.fillRect(c.sign.x - 8, c.sign.y - 16, 16, 7);
+    sign.fillStyle(0xffe9b0, 0.9); sign.fillRect(c.sign.x - 6, c.sign.y - 14, 12, 3);
+    this.add.text(c.sign.x, c.sign.y - 18, '星光艺术展', {
+      fontSize: '9px', color: '#ffe9b0', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(4);
+    // 长椅
+    const bench = this.add.graphics().setDepth(3);
+    bench.fillStyle(0x2e2e34, 0.25); bench.fillEllipse(c.bench.x, c.bench.y + 3, 22, 4);
+    bench.fillStyle(0x4a4a52, 1); bench.fillRect(c.bench.x - 8, c.bench.y - 3, 16, 3);
+    bench.fillStyle(0x3a3a42, 1); bench.fillRect(c.bench.x - 7, c.bench.y, 2, 3); bench.fillRect(c.bench.x + 5, c.bench.y, 2, 3);
+    // 旅人作品（画架上的画："把星光留下"——深蓝画布 + 星光点）
+    const art = this.add.graphics().setDepth(3);
+    art.lineStyle(1.2, 0x7a5a33, 1);
+    art.lineBetween(c.corner.x + 8, c.corner.y - 16, c.corner.x + 4, c.corner.y - 2);
+    art.lineBetween(c.corner.x + 8, c.corner.y - 16, c.corner.x + 14, c.corner.y - 2);
+    art.fillStyle(0x3a4a5a, 1); art.fillRect(c.corner.x + 5, c.corner.y - 14, 6, 8);
+    art.fillStyle(0xffe9b0, 0.95); art.fillRect(c.corner.x + 6, c.corner.y - 13, 1, 1);
+    art.fillRect(c.corner.x + 8, c.corner.y - 11, 1, 1);
+    art.fillRect(c.corner.x + 9, c.corner.y - 8, 1, 1);
+    // 白天"有人坐艺术角"由可交互的旅人回访承担（见 setupArtShowTraveler）：
+    // 此处不再额外画静态剪影，避免与旅人精灵重叠（baseline §八.1「NPC 会在那里停留」）。
+  }
+
+  /**
+   * 星光艺术展余波·旅人回访：艺术展办完后，旅人艺术家回来坐艺术角长椅看自己的展品。
+   * 出现时段：晨/白天/傍晚（08-20 时）——"以后每年这段时间我再回来看看它"；
+   * 夜晚（20 点后）旅人歇息不出现，广场只剩灯和作品。
+   * 可交互：靠近 → 一句余波台词（一次性 `artshow_traveler_return`）。
+   * 零新系统：Graphics 旅人剪影（复用旅人 #c8a8e8 配色），复用现有 hint/对白范式。
+   */
+  private setupArtShowTraveler(): void {
+    if (this.mapKey !== 'town') return;
+    if (!this.artShowPerm) return;
+    if (this.artShowTravelerGfx) return; // 幂等
+    const h = getTime().hour;
+    if (h < 8 || h >= 20) return;       // 夜晚不在
+    const p = this.artShowTravelerPos;
+    const g = this.add.graphics().setDepth(5);
+    // 身形（坐在长椅上：腿放松、一手支着下巴看展）
+    g.fillStyle(0x2e2a3a, 1); g.fillCircle(p.x - 3, p.y - 9, 3.4);      // 头
+    g.fillStyle(0xc8a8e8, 0.9); g.fillCircle(p.x - 3, p.y - 9, 2.6);    // 肤色（旅人浅紫调）
+    g.fillStyle(0x3a3a48, 1); g.fillRect(p.x - 6, p.y - 5, 9, 5);       // 上身/外套
+    g.fillStyle(0x2e2a3a, 1); g.fillRect(p.x - 5, p.y - 2, 8, 2);       // 腿（坐姿，垂在凳前）
+    g.fillStyle(0x2e2a3a, 1); g.fillRect(p.x - 7, p.y - 9, 1, 3);       // 上扬手臂（支下巴）
+    // 身旁靠着一个画夹（"他还在画"）
+    g.fillStyle(0x4a3a2a, 1); g.fillRect(p.x + 5, p.y - 6, 2, 4);
+    // 名字标牌（旅人；与 NPC 标牌同范式，depth 5）
+    this.artShowTravelerLabel = this.add.text(p.x, p.y - 21, '旅人', {
+      fontSize: '11px', color: '#c8a8e8',
+      stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      padding: { x: 2, y: 1 },
+    }).setOrigin(0.5).setDepth(5);
+    this.artShowTravelerGfx = g;
+    // 轻微呼吸（"坐一会儿"的氛围）
+    this.tweens.add({
+      targets: g,
+      angle: { from: 0, to: 0.6 },
+      duration: 3600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+  }
+
+  /** 旅人回访交互入口（town，靠近长椅按 E） */
+  private tryArtShowTravelerInteract(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.artShowPerm) return false;
+    if (!this.artShowTravelerGfx?.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const h = getTime().hour;
+    if (h < 8 || h >= 20) return false; // 夜晚不在
+    const dx = this.player.x - this.artShowTravelerPos.x;
+    const dy = this.player.y - this.artShowTravelerPos.y;
+    if (dx * dx + dy * dy >= 42 * 42) return false;
+    this.hideArtShowTravelerHint();
+    this.inputManager.clearAction();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    // 余波台词（方向稿）：第一次回访一句，随后是日常看展句，都克制、具体。
+    const once = triggerOnce('artshow_traveler_return', () => { /* 仅标记回访已读过 */ });
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    const lines: DialogueLine[] = once ? [
+      narrator('（旅人坐在长椅上，正对着一幅画，一动不动。）'),
+      { speaker: '旅人', color: '#c8a8e8', text: '……回来了。你们的星光，我画下来的地方。' },
+      { speaker: '林澈', color: COLORS.linche, text: '还想再看看？' },
+      { speaker: '旅人', color: '#c8a8e8', text: '嗯。把它留在纸上，走到哪儿都能带着。' },
+    ] : [
+      narrator('（旅人又来看那幅画了。这一次，他带了个新的小本子。）'),
+      { speaker: '旅人', color: '#c8a8e8', text: '这镇子安静，画得下去。' },
+    ];
+    this.storyDialogue.play(lines, () => this.updateHUD());
+    return true;
+  }
+
+  /** 旅人回访靠近提示（update 调用，仅在白天/傍晚在此时显示；夜晚隐去） */
+  private checkArtShowTravelerProximity(): void {
+    if (this.mapKey !== 'town' || !this.artShowPerm) {
+      this.hideArtShowTravelerHint();
+      return;
+    }
+    // 时间显隐：夜晚（20 点后 / 晨间 8 点前）旅人不出现（他歇息，广场只剩灯和展品）
+    const h = getTime().hour;
+    const present = h >= 8 && h < 20;
+    if (this.artShowTravelerGfx) this.artShowTravelerGfx.setVisible(present);
+    if (this.artShowTravelerLabel) this.artShowTravelerLabel.setVisible(present);
+    if (!present) { this.hideArtShowTravelerHint(); return; }
+    const dx = this.player.x - this.artShowTravelerPos.x;
+    const dy = this.player.y - this.artShowTravelerPos.y;
+    if (dx * dx + dy * dy < 42 * 42 && !this.storyDialogue?.isOpen()) {
+      this.showArtShowTravelerHint();
+    } else {
+      this.hideArtShowTravelerHint();
+    }
+  }
+
+  private showArtShowTravelerHint(): void {
+    if (this.artShowTravelerHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffe9b0', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」对话' : '按 [E] 对话';
+    document.body.appendChild(hint);
+    this.artShowTravelerHint = hint;
+  }
+
+  private hideArtShowTravelerHint(): void {
+    if (this.artShowTravelerHint) {
+      this.artShowTravelerHint.remove();
+      this.artShowTravelerHint = null;
+    }
+  }
+
+  /** 清理旅人回访（场景切换时调用，防残留） */
+  private cleanupArtShowTraveler(): void {
+    this.artShowTravelerGfx?.destroy();
+    this.artShowTravelerGfx = null;
+    this.artShowTravelerLabel?.destroy();
+    this.artShowTravelerLabel = null;
+    this.hideArtShowTravelerHint();
+  }
+
+  /** 打开「小镇计划」面板（只读观察 + 素材放入动作；首次打开 = 解锁契机） */
+  private openTownPlan(): void {
+    if (this.townPlanPanel) { this.closeTownPlan(); return; }
+    const panel = document.createElement('div');
+    panel.id = 'town-plan-panel';
+    Object.assign(panel.style, {
+      position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+      width: 'min(380px, 88vw)', maxHeight: '84vh', overflowY: 'auto',
+      background: 'rgba(25,20,15,0.96)', border: '2px solid #8a6a45', borderRadius: '12px',
+      padding: '16px 18px', zIndex: '600', color: '#e0e0e0', fontSize: '13px', lineHeight: '1.7',
+    });
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:16px;font-weight:bold;color:#ffe9b0;margin-bottom:10px;';
+    title.textContent = '🗓 小镇计划';
+    panel.appendChild(title);
+    const content = document.createElement('div');
+    content.id = 'town-plan-content';
+    panel.appendChild(content);
+    const close = document.createElement('div');
+    close.style.cssText = 'margin-top:12px;text-align:center;color:#ffd98a;cursor:pointer;';
+    close.textContent = '关闭';
+    close.addEventListener('click', () => this.closeTownPlan());
+    panel.appendChild(close);
+    document.body.appendChild(panel);
+    this.townPlanPanel = panel;
+    // 首次打开：解锁 + 契机文本
+    if (!this.artShowUnlocked && this.artShowAvailable()) {
+      this.artShowUnlocked = true;
+      // 解锁后即时挂载：素材箱 / 环境物件 / 筹备期广场夏雅（幂等）
+      if (!this.artShowBox) this.buildArtShowBox();
+      this.buildArtShowEnvObjects();
+      this.spawnArtShowXiya();
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    }
+    this.refreshTownPlanPanel();
+  }
+
+  private closeTownPlan(): void {
+    if (this.townPlanPanel) {
+      this.townPlanPanel.remove();
+      this.townPlanPanel = null;
+    }
+  }
+
+  /** 刷新面板内容（状态 + 素材放入按钮） */
+  private refreshTownPlanPanel(): void {
+    const content = this.townPlanPanel?.querySelector('#town-plan-content');
+    if (!content) return;
+    content.innerHTML = '';
+    const addSection = (label: string, items: Array<{ ok: boolean; text: string }>): void => {
+      const sec = document.createElement('div');
+      sec.style.cssText = 'margin-bottom:10px;';
+      const h = document.createElement('div');
+      h.style.cssText = 'color:#d8b878;font-weight:bold;margin-bottom:4px;';
+      h.textContent = label;
+      sec.appendChild(h);
+      for (const it of items) {
+        const row = document.createElement('div');
+        row.style.cssText = `color:${it.ok ? '#8bc34a' : '#b0b0b0'};padding-left:10px;`;
+        row.textContent = `${it.ok ? '✔' : '○'} ${it.text}`;
+        sec.appendChild(row);
+      }
+      content.appendChild(sec);
+    };
+    const planName = this.artShowHeld ? '星光艺术展 · 已举办' : '星光艺术展 · 筹备中';
+    const head = document.createElement('div');
+    head.style.cssText = 'font-size:14px;color:#ffe9b0;margin-bottom:8px;';
+    head.textContent = planName;
+    content.appendChild(head);
+    if (!this.artShowUnlocked) {
+      const intro = document.createElement('div');
+      intro.style.cssText = 'color:#b0b0b0;margin-bottom:10px;white-space:pre-line;';
+      intro.textContent = '春日大集之后，镇上的人开始议论——\n"原来咱们还能热闹起来。"\n\n夏雅说：把现在的青禾镇摆出来，给大家看看。\n\n邮递员送来一封信：一位旅人艺术家听说这里，想来看一看。';
+      content.appendChild(intro);
+    }
+    if (this.artShowHeld) {
+      const done = document.createElement('div');
+      done.style.cssText = 'color:#8bc34a;margin-bottom:8px;';
+      done.textContent = '展览办完了。广场东侧多了个艺术角——以后路过，有人会坐在那里看一会儿。';
+      content.appendChild(done);
+      return;
+    }
+    addSection('环境', [
+      { ok: this.artShowEnvStage >= 1, text: '展台（木材×2）' },
+      { ok: this.artShowEnvStage >= 2, text: '灯光（矿石×1）' },
+      { ok: this.artShowEnvStage >= 3, text: '花艺（野花×2）' },
+    ]);
+    addSection('人际', [
+      { ok: hasTriggered('artshow_xiya_plan'), text: '夏雅 · 设计展区' },
+      { ok: hasTriggered('artshow_elder_coord'), text: '镇长 · 协调区域' },
+      { ok: hasTriggered('artshow_carpenter_photo'), text: '老周 · 旧照片' },
+      { ok: hasTriggered('artshow_gardener_flower'), text: '小梅 · 花艺' },
+    ]);
+    addSection('素材', [
+      { ok: this.artShowMaterialsDone, text: '晚餐食材（鱼×1）' },
+    ]);
+    // 素材放入按钮
+    if (!this.artShowReady()) {
+      const mat = document.createElement('div');
+      mat.style.cssText = 'margin-top:8px;';
+      const btnStyle = 'display:inline-block;margin:3px 6px 3px 0;padding:4px 10px;border-radius:6px;cursor:pointer;pointer-events:auto;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#e0e0e0;font-size:12px;';
+      const addBtn = (label: string, act: () => void, disabled: boolean): void => {
+        const b = document.createElement('span');
+        b.textContent = label;
+        b.style.cssText = btnStyle + (disabled ? 'opacity:0.4;cursor:default;' : '');
+        if (!disabled) b.addEventListener('click', () => { act(); this.refreshTownPlanPanel(); });
+        mat.appendChild(b);
+      };
+      addBtn('放入木材×2', () => this.artShowDeliver('wood', 2, () => { this.artShowEnvStage = Math.max(this.artShowEnvStage, 1); }), getItemCount('wood') < 2);
+      addBtn('放入矿石×1', () => this.artShowDeliverOre(), this.artShowOreCount() < 1);
+      addBtn('放入野花×2', () => this.artShowDeliverFlower(), this.artShowFlowerCount() < 2);
+      addBtn('放入鱼×1', () => this.artShowDeliver('qinghe_crucian', 1, () => { this.artShowMaterialsDone = true; }), getItemCount('qinghe_crucian') < 1);
+      const tip = document.createElement('div');
+      tip.style.cssText = 'color:#8a8a80;font-size:11px;margin-top:6px;';
+      tip.textContent = '素材从镇子四周带来——去采集、钓鱼、挖矿，带回来放进征集箱。';
+      mat.appendChild(tip);
+      content.appendChild(mat);
+    }
+  }
+
+  private artShowOreCount(): number {
+    return getItemCount('stone') + getItemCount('copper') + getItemCount('iron');
+  }
+
+  private artShowFlowerCount(): number {
+    return getItemCount('small_flower') + getItemCount('dandelion');
+  }
+
+  /** 交付素材：扣库存 → 状态变化 → 世界物件 → 存档 */
+  private artShowDeliver(item: 'wood' | 'qinghe_crucian', count: number, onChange: () => void): void {
+    if (getItemCount(item) < count) return;
+    setItemCount(item, getItemCount(item) - count);
+    onChange();
+    this.buildArtShowEnvObjects();
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    if (this.artShowReady()) this.showDialogueText('镇子说：都准备好了，明晚办展。');
+  }
+
+  private artShowDeliverOre(): void {
+    for (const id of ['stone', 'copper', 'iron'] as const) {
+      if (getItemCount(id) > 0) {
+        setItemCount(id, getItemCount(id) - 1);
+        break;
+      }
+    }
+    this.artShowEnvStage = Math.max(this.artShowEnvStage, 2);
+    this.buildArtShowEnvObjects();
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    if (this.artShowReady()) this.showDialogueText('镇子说：都准备好了，明晚办展。');
+  }
+
+  private artShowDeliverFlower(): void {
+    for (const id of ['small_flower', 'dandelion'] as const) {
+      const n = Math.min(getItemCount(id), 2);
+      if (n > 0) { setItemCount(id, getItemCount(id) - n); if (n >= 2) break; }
+    }
+    this.artShowEnvStage = Math.max(this.artShowEnvStage, 3);
+    this.buildArtShowEnvObjects();
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    if (this.artShowReady()) this.showDialogueText('镇子说：都准备好了，明晚办展。');
+  }
+
+  /** 人际准备注入（showDialogue 调用）：镇长协调 / 老周旧照片 / 小梅花艺 */
+  private buildArtShowDialogue(npc: NPC): DialogueLine[] | null {
+    if (!this.artShowUnlocked || this.artShowPeopleDone()) return null;
+    const map: Record<string, { evt: string; lines: DialogueLine[] }> = {
+      elder: {
+        evt: 'artshow_elder_coord',
+        lines: [
+          { speaker: '林澈', color: COLORS.linche, text: '镇长，展览的事……' },
+          { speaker: '镇长', color: COLORS.elder, text: '广场那块地，本来就是要给大家用的。办吧。' },
+          { speaker: '', color: COLORS.system, text: '（第二天，广场边上多了一张告示。）' },
+        ],
+      },
+      carpenter: {
+        evt: 'artshow_carpenter_photo',
+        lines: [
+          { speaker: '老周', color: '#c89860', text: '展览？我这儿有几张老照片。' },
+          { speaker: '', color: COLORS.system, text: '（老周翻出一叠泛黄的照片——都是年轻时候的镇子。）' },
+          { speaker: '老周', color: '#c89860', text: '……拿去摆吧。有人记得，就有人看。' },
+        ],
+      },
+      gardener: {
+        evt: 'artshow_gardener_flower',
+        lines: [
+          { speaker: '花匠小梅', color: COLORS.gardener, text: '花艺交给我吧。' },
+          { speaker: '', color: COLORS.system, text: '（小梅在展台两侧比划了一下，定好了花的位置。）' },
+        ],
+      },
+    };
+    const entry = map[npc.id];
+    if (!entry || hasTriggered(entry.evt)) return null;
+    triggerOnce(entry.evt, () => { /* 仅标记 */ });
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    return entry.lines;
+  }
+
+  /** 广场夏雅交互（策划，一次性） */
+  private tryArtShowXiyaInteract(): boolean {
+    if (!this.artShowXiya || !this.artShowXiya.visible) return false;
+    if (hasTriggered('artshow_xiya_plan')) return false;
+    const dx = this.player.x - this.artShowXiya.x;
+    const dy = this.player.y - this.artShowXiya.y;
+    if (dx * dx + dy * dy > 34 * 34) return false;
+    triggerOnce('artshow_xiya_plan', () => {
+      this.artShowXiya?.destroy();
+      this.artShowXiya = null;
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      this.storyDialogue.play([
+        { speaker: '夏雅', color: COLORS.xiya, text: '林澈，你觉得……把现在的青禾镇摆出来，大家会看吗？' },
+        { speaker: '林澈', color: COLORS.linche, text: '会。' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '那我就去设计了。展区那边，交给我。' },
+      ], () => this.updateHUD());
+    });
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    return true;
+  }
+
+  /** 素材箱/广场夏雅靠近提示（update 调用） */
+  private checkArtShowProximity(): void {
+    if (this.mapKey !== 'town' || !this.artShowUnlocked || this.artShowHeld) {
+      this.hideArtShowHint();
+      return;
+    }
+    if (this.storyDialogue?.isOpen() || this.townPlanPanel) {
+      this.hideArtShowHint();
+      return;
+    }
+    let near = false;
+    if (this.artShowBox) {
+      const dx = this.player.x - MapScene.ARTSHOW.box.x;
+      const dy = this.player.y - MapScene.ARTSHOW.box.y;
+      near = near || dx * dx + dy * dy < 34 * 34;
+    }
+    if (this.artShowXiya) {
+      const dx = this.player.x - this.artShowXiya.x;
+      const dy = this.player.y - this.artShowXiya.y;
+      near = near || dx * dx + dy * dy < 34 * 34;
+    }
+    if (near) this.showArtShowHint(); else this.hideArtShowHint();
+  }
+
+  private showArtShowHint(): void {
+    if (this.artShowHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffe9b0', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」查看' : '按 [E] 查看';
+    document.body.appendChild(hint);
+    this.artShowHint = hint;
+  }
+
+  private hideArtShowHint(): void {
+    if (this.artShowHint) {
+      this.artShowHint.remove();
+      this.artShowHint = null;
+    }
+  }
+
+  /** 活动触发检测（update 调用）：三类准备完成 + 傍晚进广场 → 办展（一次性） */
+  private checkArtShowAuto(): void {
+    if (this.mapKey !== 'town' || !this.artShowReady()) return;
+    if (this.inArtShowCutscene || this.storyDialogue?.isOpen()) return;
+    const h = getTime().hour;
+    if (h < 17 || h >= 22) return;
+    const dx = this.player.x - MapScene.ARTSHOW.plaza.x;
+    const dy = this.player.y - MapScene.ARTSHOW.plaza.y;
+    if (dx * dx + dy * dy > 200 * 200) return;
+    this.startArtShow();
+  }
+
+  private startArtShow(): void {
+    if (!this.artShowReady() || this.artShowHeld || this.inArtShowCutscene) return;
+    this.inArtShowCutscene = true;
+    this.artShowHeld = true;
+    const ok = triggerOnce('artshow_held', () => this.runArtShow());
+    if (!ok) {
+      this.inArtShowCutscene = false;
+      this.artShowHeld = false;
+      return;
+    }
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+  }
+
+  /** 当天演出（三段对白链 + 居民入场/星空装置/夜晚/C 艺术家/永久变化） */
+  private runArtShow(): void {
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const C = COLORS.system;
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: C, text });
+    this.clearArtShowSprites();
+    // 第一段：下午入场，居民各带一点东西
+    this.storyDialogue.play([
+      narrator('（傍晚。你走进广场，发现平时空着的位置全都变了。）'),
+      narrator('（展台立着，灯光挂着，花艺摆好了——筹备期的活儿，一样都没落下。）'),
+      narrator('（老人抱着旧照片慢慢走过来，孩子举着画跑在前面。）'),
+      { speaker: '夏雅', color: COLORS.xiya, text: '来了？就等你了。' },
+    ], () => {
+      this.spawnArtShowResidents();
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      // 第二段：展示（看画/听故事/星空装置）
+      this.storyDialogue.play([
+        narrator('（展台上摆着老周翻出来的旧照片——井边排队打水，树下一排人乘凉。）'),
+        { speaker: '老周', color: '#c89860', text: '这张是建井那年拍的。那时候镇上人多。' },
+        narrator('（孩子的画挂在一边，歪歪扭扭的，颜色很亮。）'),
+        narrator('（展台中央，一个玻璃瓶里装着小小的星光灯——旅人把它留在了这里。）'),
+        { speaker: '旅人', color: '#c8a8e8', text: '我听说这里晚上有星星。来了以后发现，镇子自己就会发光。' },
+      ], () => {
+        // 第三段：夜晚灯光 + C 开幕 + 永久变化
+        this.artShowNightFinale();
+      });
+    });
+  }
+
+  /** 夜晚收尾：时间推进 + 灯光 + 灯塔回应 + C 艺术家 + 永久变化 */
+  private artShowNightFinale(): void {
+    const t = getTime();
+    if (t.hour < 20) setTimeFull(t.day, 20, 0);
+    this.updateTownDuskOverlay();
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    // 艺术角夜晚灯光（展台挂灯 + 暖光）
+    const c = MapScene.ARTSHOW.corner;
+    const glow = this.add.ellipse(c.x + 8, c.y - 14, 60, 40, 0xffc878, 0.22).setDepth(4);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: glow, alpha: { from: 0.12, to: 0.28 }, duration: 1600, yoyo: true, repeat: -1 });
+    this.artShowSprites.push(glow);
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play([
+      narrator('（夜色落下来。广场的灯一盏盏亮起来，河面上有了倒影。）'),
+      narrator('（远处的灯塔方向，海面上好像亮了一下。）'),
+      { speaker: '旅人', color: '#c8a8e8', text: '这幅画留给你们——以后每年这时候，我再回来看看它。' },
+      { speaker: '夏雅', color: COLORS.xiya, text: '明年来的人，就能看到今天这些了。' },
+    ], () => {
+      // 永久变化落地
+      this.artShowPerm = true;
+      this.buildArtShowPermanent();
+      this.clearArtShowSprites();
+      this.inArtShowCutscene = false;
+      this.updateHUD();
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      setTimeout(() => showMemoryMoment('星光艺术展办完的那天晚上，青禾镇多了一个会被记住的角落。'), 1600);
+    });
+  }
+
+  /** 居民入场精灵（复用现有 npc 贴图；演出结束销毁） */
+  private spawnArtShowResidents(): void {
+    const spots: Array<[string, number, number, string]> = [
+      ['npc_elder', 368, 268, '老人'],
+      ['npc_girl', 408, 276, '孩子'],
+      ['npc_gardener', 432, 312, '小梅'],
+      ['npc_xiya', 456, 300, '夏雅'],
+      ['npc_carpenter', 344, 304, '老周'],
+      ['npc_miner', 392, 328, '老张'],
+    ];
+    for (const [tex, x, y, name] of spots) {
+      const s = this.add.sprite(x, y, tex);
+      s.setScale(0.5).setDepth(5);
+      const label = this.add.text(x, y - 22, name, {
+        fontSize: '11px', color: '#e0d8c8', stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(6);
+      this.artShowSprites.push(s);
+      this.artShowSprites.push(label);
+    }
+  }
+
+  private clearArtShowSprites(): void {
+    for (const s of this.artShowSprites) s.destroy();
+    this.artShowSprites = [];
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 种植升级 v2：收获去向（切片 A，2026-08-15 制作人拍板）
+  // 依据：《种植系统生活化方向-v0.1.md》第六层
+  // 三条去向 = 三个维度（出售=经济 / 赠予居民=关系与生活 / 活动使用=小镇变化），不做数值对比。
+  // 触发 = 玩家种→收→路过→NPC 发现（不是任务："给他一些"是生活里的顺手，不是委托）。
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * 作物赠予注入（showDialogue 调用）：
+   * ① 萝卜×老张：赠予 → 第二天河边腌萝卜罐（世界留下痕迹）→ 之后一句晒萝卜干
+   * ② 玉米×小镇：首次收获玉米后，镇长/老张一句"今年玉米长得不错"（丰收节铺垫，一次性）
+   */
+  private buildCropGiftDialogue(npc: NPC): { lines: DialogueLine[]; onChoice: (i: number) => void } | null {
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    const persist = (): void => {
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    };
+    // ① 萝卜×老张：已赠过 → 补一句晒萝卜干（一次性）
+    if (npc.id === 'miner' && hasTriggered('crop_radish_laozhang') && !hasTriggered('crop_radish_dryline')) {
+      triggerOnce('crop_radish_dryline', () => { /* 仅标记 */ });
+      persist();
+      return {
+        lines: [{ speaker: '老张', color: COLORS.miner, text: '天气好的时候，晒一点萝卜干，味道比买来的好多了。' }],
+        onChoice: () => { /* 无选项 */ },
+      };
+    }
+    // ① 萝卜×老张：背包有萝卜且未赠过 → 赠予入口
+    if (npc.id === 'miner' && !hasTriggered('crop_radish_laozhang') && getItemCount('radish') > 0) {
+      return {
+        lines: [
+          narrator('（老张看见你手里的萝卜。）'),
+          { speaker: '老张', color: COLORS.miner, text: '萝卜啊……好久没吃到自己地里长出来的了。' },
+          { speaker: '', color: COLORS.system, text: '', options: ['给他一些', '算了'] },
+        ],
+        onChoice: (i: number) => {
+          if (i === 0) this.doCropGiftRadish();
+        },
+      };
+    }
+    // ② 玉米×小镇：首次收获后，居民一句（丰收节铺垫，一次性）
+    if (hasTriggered('crop_corn_first_harvest') && !hasTriggered('crop_corn_comment') && (npc.id === 'elder' || npc.id === 'miner')) {
+      triggerOnce('crop_corn_comment', () => { /* 仅标记 */ });
+      persist();
+      const speaker = npc.id === 'elder' ? '镇长' : '老张';
+      const color = npc.id === 'elder' ? COLORS.elder : COLORS.miner;
+      return {
+        lines: [{ speaker, color, text: '今年玉米长得不错。' }],
+        onChoice: () => { /* 无选项 */ },
+      };
+    }
+    return null;
+  }
+
+  /** 执行赠予：扣萝卜 + 一次性标记（EventSystem 契约：fn 先执行 → save 在其后） */
+  private doCropGiftRadish(): void {
+    if (hasTriggered('crop_radish_laozhang')) return;
+    if (getItemCount('radish') <= 0) return;
+    setItemCount('radish', getItemCount('radish') - 1);
+    triggerOnce('crop_radish_laozhang', () => { /* 世界变化由 town create 按事件渲染 */ });
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    this.updateHUD();
+  }
+
+  /** 番茄×夏雅（"她记得"）：背包有番茄且未触发 → 一句记忆 + 埋切片B种子（crop_tomato_xiya_seen）；
+   *  切片B 番茄架由 farm 的 setupTomatoTrellis 按该事件状态渲染（植物改变空间，非本处直画）。 */
+  private tryCropTomatoXiya(cleanup: () => void): boolean {
+    if (!this.dawnXiya || !this.dawnXiya.visible) return false;
+    if (hasTriggered('crop_tomato_xiya_seen')) return false;
+    if (getItemCount('tomato') <= 0) return false;
+    const dx = this.player.x - this.dawnXiya.x;
+    const dy = this.player.y - this.dawnXiya.y;
+    if (dx * dx + dy * dy > 28 * 28) return false;
+    cleanup();
+    setItemCount('tomato', getItemCount('tomato') - 1);
+    triggerOnce('crop_tomato_xiya_seen', () => {
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      this.storyDialogue.play([
+        { speaker: '', color: COLORS.system, text: '（夏雅看见你手里的番茄，愣了一下。）' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '这个味道……有点像以前。' },
+        { speaker: '林澈', color: COLORS.linche, text: '以前？' },
+        { speaker: '', color: COLORS.system, text: '（她没再说下去，只是接过番茄。）' },
+      ], () => this.updateHUD());
+    });
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    return true;
+  }
+
+  /** 土地回应系统 v1.4：农田"活过来"后，夏雅路过一句（一次性）——"世界回应玩家长期种地" */
+  private tryCropFieldAliveXiya(cleanup: () => void): boolean {
+    if (!this.dawnXiya || !this.dawnXiya.visible) return false;
+    if (!hasTriggered('crop_field_alive')) return false;
+    if (hasTriggered('crop_field_alive_xiya')) return false;
+    const dx = this.player.x - this.dawnXiya.x;
+    const dy = this.player.y - this.dawnXiya.y;
+    if (dx * dx + dy * dy > 28 * 28) return false;
+    cleanup();
+    triggerOnce('crop_field_alive_xiya', () => {
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      this.storyDialogue.play([
+        { speaker: '', color: COLORS.system, text: '（夏雅站在田边，看了好一会儿。）' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '感觉这片地又活过来了。' },
+      ], () => this.updateHUD());
+    });
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    return true;
+  }
+
+  /** 萝卜赠予后的世界变化（town create 调用）：河边长椅旁 腌萝卜罐 + 小菜碟——"这个世界留下了你的痕迹" */
+  private setupCropLifeLeftovers(): void {
+    if (this.mapKey !== 'town') return;
+    if (!hasTriggered('crop_radish_laozhang')) return;
+    if (this.cropLifeLeftoverGfx) return; // 幂等：同一场景实例内不重复创建
+    const T = TILE_SIZE;
+    // S6 长椅旁（长椅在 (6,15)）：一小碟腌萝卜 + 一罐萝卜干
+    const bx = 6 * T + T / 2, by = 15 * T + T / 2;
+    const g = this.add.graphics().setDepth(3);
+    // 腌萝卜罐（陶罐 + 盖 + 高光）
+    g.fillStyle(0x8a6a45, 1); g.fillRect(bx - 12, by - 4, 8, 8);
+    g.fillStyle(0x9a7a52, 1); g.fillRect(bx - 12, by - 4, 8, 2);
+    g.fillStyle(0x6e4a24, 1); g.fillRect(bx - 13, by - 5, 10, 2);   // 罐盖
+    g.fillStyle(0xb89858, 0.9); g.fillRect(bx - 11, by - 1, 2, 2);   // 高光
+    // 小菜碟（浅碟 + 两片萝卜）
+    g.fillStyle(0xd8d0c0, 1); g.fillEllipse(bx - 2, by + 3, 10, 4);
+    g.fillStyle(0xe8a0a0, 1); g.fillRect(bx - 5, by + 2, 2, 1); g.fillRect(bx + 1, by + 3, 2, 1);
+    // 投影
+    g.fillStyle(0x2e2e34, 0.25); g.fillEllipse(bx - 5, by + 7, 18, 4);
+    this.cropLifeLeftoverGfx = g;
+  }
+
+  /**
+   * 种植升级 v2 切片B：番茄架（植物改变空间，2026-08-15 制作人拍板开工）。
+   * 触发：crop_tomato_xiya_seen（夏雅"她记得"）→ farm 农田北缘草地出现一排番茄架。
+   * 定位：番茄架是"植物改变环境"的第一种示例（非夏雅专属剧情），后续扩展模板：
+   *       花 → 花圃 / 玉米 → 丰收角 / 草莓 → 小菜园（见 docs/design/种植系统生活化方向-v0.1.md 切片B）。
+   * 位置：农田北缘草地 (12-14,7)，避开森林入口出生点 (15,6)/树位/花田 (3,7)/篱笆 (27,7)/菜畦 (30-31,8)。
+   * 零素材 Graphics：竹竿 + 横杆 + 绑绳 + 藤蔓 + 番茄果 + 投影；纯装饰无碰撞；随场景 shutdown 自动销毁。
+   */
+  private setupTomatoTrellis(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!hasTriggered('crop_tomato_xiya_seen')) return;
+    if (this.tomatoTrellisGfx) return; // 幂等：同一场景实例内不重复创建
+    const T = TILE_SIZE;
+    const baseY = 7 * T + T / 2;                                   // 农田北缘草地带（土壤上方一排）
+    const poleX = [12 * T + T / 2, 13 * T + T / 2, 14 * T + T / 2]; // 三根竹竿（跨 2 格）
+    const g = this.add.graphics().setDepth(3);
+    // 脚底投影（让架子"落在地上"，同腌萝卜罐范式）
+    g.fillStyle(0x2e2e34, 0.22);
+    g.fillEllipse(13 * T + T / 2, baseY + 7, 46, 6);
+    // 三根竹竿（浅竹色 + 竹节深线）
+    for (const px of poleX) {
+      g.fillStyle(0xc8a868, 1); g.fillRect(px - 2, baseY - 30, 4, 38);
+      g.fillStyle(0xa8844c, 1); g.fillRect(px - 2, baseY - 30, 4, 3);
+      g.fillRect(px - 2, baseY - 16, 4, 2);
+      g.fillRect(px - 2, baseY - 2, 4, 2);
+    }
+    // 两道横杆（横跨三根竹竿）
+    g.fillStyle(0xb8965c, 1);
+    g.fillRect(poleX[0] - 8, baseY - 24, poleX[2] - poleX[0] + 16, 3);
+    g.fillRect(poleX[0] - 8, baseY - 12, poleX[2] - poleX[0] + 16, 3);
+    // 绑绳结（横杆与竹竿交点的小棕点）
+    g.fillStyle(0x8a6a42, 1);
+    for (const px of poleX) {
+      g.fillRect(px - 2, baseY - 25, 4, 2);
+      g.fillRect(px - 2, baseY - 13, 4, 2);
+    }
+    // 藤蔓（两根绿色竖线，轻微 S 形）
+    g.lineStyle(1.2, 0x5a9a3a, 0.95);
+    g.beginPath();
+    g.moveTo(poleX[0] + 4, baseY - 2); g.lineTo(poleX[0] + 4, baseY - 22);
+    g.lineTo(poleX[1] - 3, baseY - 22); g.lineTo(poleX[1] - 3, baseY - 26);
+    g.moveTo(poleX[1] + 4, baseY - 2); g.lineTo(poleX[1] + 4, baseY - 20);
+    g.lineTo(poleX[2] - 3, baseY - 20);
+    g.strokePath();
+    // 番茄果（红果 ×3 + 未熟绿果 ×1，错落挂在藤上）
+    const tomato = (tx: number, ty: number, color: number, hl: number): void => {
+      g.fillStyle(color, 1); g.fillCircle(tx, ty, 3);
+      g.fillStyle(hl, 0.8); g.fillCircle(tx - 1, ty - 1, 1);
+      g.fillStyle(0x3c8a33, 1); g.fillRect(tx, ty - 3, 1, 2); // 果蒂
+    };
+    tomato(poleX[0] + 4, baseY - 16, 0xe04a3a, 0xff8a72);
+    tomato(poleX[1] - 3, baseY - 20, 0xc63a2a, 0xff8a72);
+    tomato(poleX[1] + 4, baseY - 13, 0xe04a3a, 0xff8a72);
+    tomato(poleX[2] - 3, baseY - 15, 0x9abf5a, 0xc8df88); // 未熟
+    // 叶簇（藤上两三片小叶）
+    g.fillStyle(0x6da544, 1);
+    g.fillRect(poleX[0] + 1, baseY - 20, 3, 1); g.fillRect(poleX[0] + 1, baseY - 20, 1, 2);
+    g.fillRect(poleX[2] - 4, baseY - 18, 3, 1); g.fillRect(poleX[2] - 4, baseY - 18, 1, 2);
+    this.tomatoTrellisGfx = g;
+  }
+
+  /**
+   * 阶段3 光照：town 黄昏暖光（2026-08-14，执行方案 §3 光照表现 + 钓鱼点美术方向 17:00 暖黄夕阳）。
+   * 零素材纯代码：全屏暖橙 ADD overlay（depth 4.5，盖地面/装饰≤4、不盖 NPC/玩家，同 farmWarm 范式）
+   * + 顶部天空渐变（ADD，WebGL 下生效）+ 河面暖光斑（钓鱼点西侧水面，呼吸闪烁）。
+   * 生效窗口 17:00-19:00；其余时段 alpha=0（无玩法/存档/碰撞影响，scene shutdown 自动销毁）。
+   */
+  private setupTownDuskOverlay(): void {
+    if (this.mapKey !== 'town' || !this.groundLayer) return;
+    if (this.townDuskOverlay) return; // 幂等
+    const w = this.groundLayer.displayWidth;
+    const h = this.groundLayer.displayHeight;
+    // 全屏暖橙 ADD 罩色（fillAlpha=1，alpha 由 setAlpha/tween 控制——farm 同款注意点）
+    const overlay = this.add.rectangle(0, 0, w, h, 0xffb878, 1)
+      .setOrigin(0).setDepth(4.5)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0);
+    this.townDuskOverlay = overlay;
+    // 天空暖光渐变：顶部亮→底部弱（模拟低垂夕阳从画面上方斜射）
+    const skyGlow = this.add.graphics();
+    skyGlow.setDepth(4.4);
+    skyGlow.fillGradientStyle(0xffa050, 0xffa050, 0xffa050, 0xffa050, 0.5, 0.5, 0.02, 0.02);
+    skyGlow.fillRect(0, 0, w, h);
+    skyGlow.setBlendMode(Phaser.BlendModes.ADD);
+    skyGlow.setAlpha(0);
+    this.townDuskSkyGlow = skyGlow;
+    // 河面暖光斑（S6 老河堤西侧水面，黄昏时"水面上有光"）
+    const glints = this.add.graphics().setDepth(4.6);
+    glints.fillStyle(0xffe9b0, 0.35);
+    glints.fillEllipse(58, 216, 10, 4);   // 浮漂附近
+    glints.fillEllipse(66, 246, 14, 5);
+    glints.fillEllipse(58, 276, 12, 4);
+    glints.fillEllipse(72, 302, 16, 5);
+    glints.setBlendMode(Phaser.BlendModes.ADD);
+    glints.setAlpha(0);
+    glints.setVisible(false);
+    this.townDuskGlints = glints;
+    // 夜晚月光冷色：normal 混合深蓝罩色（压暗 + 偏冷；alpha 由时段控制）
+    const night = this.add.rectangle(0, 0, w, h, 0x1a2a48, 1)
+      .setOrigin(0).setDepth(4.5)
+      .setAlpha(0);
+    this.townNightCool = night;
+    // 白天太阳方向感：左上→右下暖色渐变（极弱 ADD，"光从一边来"）
+    const daySun = this.add.graphics();
+    daySun.setDepth(4.4);
+    daySun.fillGradientStyle(0xffd8a0, 0xffd8a0, 0xffd8a0, 0xffd8a0, 0.5, 0.15, 0.1, 0.02);
+    daySun.fillRect(0, 0, w, h);
+    daySun.setBlendMode(Phaser.BlendModes.ADD);
+    daySun.setAlpha(0);
+    this.townDaySun = daySun;
+    // 初始按当前时间
+    this.townDuskLastHour = -1;
+    this.updateTownDuskOverlay();
+  }
+
+  /**
+   * town 时段光照的按小时更新（update 调用；小时内幂等，跨小时才处理）。
+   * 三档：白天 6-17（太阳方向感）/ 黄昏 17-19（暖橙夕阳 + 河面光斑）/ 夜晚 ≥19 或 <6（月光冷色）。
+   * 全部纯视觉：不碰碰撞/存档/玩法；淡入淡出由 tween 完成。
+   */
+  private updateTownDuskOverlay(): void {
+    if (this.mapKey !== 'town' || !this.townDuskOverlay) return;
+    const h = getTime().hour;
+    if (h === this.townDuskLastHour) return;
+    this.townDuskLastHour = h;
+    const overlay = this.townDuskOverlay;
+    const skyGlow = this.townDuskSkyGlow;
+    const glints = this.townDuskGlints;
+    const night = this.townNightCool;
+    const daySun = this.townDaySun;
+    const fadeTo = (t: Phaser.GameObjects.GameObject | null, a: number, d: number): void => {
+      if (!t) return;
+      this.tweens.killTweensOf(t);
+      this.tweens.add({ targets: t, alpha: a, duration: d, ease: 'Sine.easeOut' });
+    };
+    const hideGlints = (d: number): void => {
+      if (!glints) return;
+      this.tweens.killTweensOf(glints);
+      this.tweens.add({
+        targets: glints, alpha: 0, duration: d, ease: 'Sine.easeIn',
+        onComplete: () => glints.setVisible(false),
+      });
+    };
+    if (h >= 17 && h < 19) {
+      // 黄昏：暖橙夕阳 + 天空渐变 + 河面光斑
+      fadeTo(overlay, 0.08, 900);
+      fadeTo(skyGlow, 0.2, 900);
+      fadeTo(night, 0, 900);
+      fadeTo(daySun, 0, 900);
+      if (glints) {
+        this.tweens.killTweensOf(glints);
+        glints.setVisible(true);
+        glints.setAlpha(0.4);
+        this.tweens.add({
+          targets: glints,
+          alpha: { from: 0.3, to: 0.65 },
+          duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+      }
+    } else if (h >= 19 || h < 6) {
+      // 夜晚：月光冷色（暖光灯具在其上仍可透出——ADD 光源不被冷罩盖死）
+      fadeTo(overlay, 0, 1200);
+      fadeTo(skyGlow, 0, 1200);
+      fadeTo(night, 0.16, 1200);
+      fadeTo(daySun, 0, 1200);
+      hideGlints(1200);
+    } else {
+      // 白天：极弱太阳方向感（左上暖 → 右下弱）
+      fadeTo(overlay, 0, 1200);
+      fadeTo(skyGlow, 0, 1200);
+      fadeTo(night, 0, 1200);
+      fadeTo(daySun, 0.08, 1200);
+      hideGlints(1200);
+    }
+  }
+
+  /** 钓鱼 Phase 4：老张收黄昏鱼后，夜晚老张家灯亮（暖光，复用 Phase3 夜灯范式） */
+  private setupElderNightLamp(): void {
+    if (!hasTriggered('fish_exchange_miner')) return;
+    const h = getTime().hour;
+    if (h >= 6 && h < 18) return;
+    const T = TILE_SIZE;
+    const x = 5 * T + T / 2, y = 4 * T + T / 2;
+    const glow = this.add.ellipse(x, y, 64, 44, 0xffc878, 0.18).setDepth(4);
+    this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.24 }, duration: 1500, yoyo: true, repeat: -1 });
+  }
+
   /** 单个整理点完成（视觉 + 反馈台词 + 音效闪光，基线 §7.2 语义；存档与全完成判断由 tryHouseTidyInteract 在 triggerOnceIf 返回后执行） */
   private onTidyItemDone(item: { key: 'bed' | 'lamp' | 'desk' | 'radio'; pos: { x: number; y: number }; mark: Phaser.GameObjects.Container | null; done: Phaser.GameObjects.Graphics | null }): void {
     if (item.mark) {
@@ -2448,16 +5791,17 @@ export class MapScene extends Phaser.Scene {
     this.residentBoardPanel?.close();
     triggerTag('help_resident');
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(
-      [{ speaker: req.npcName, color: req.npcColor, text: req.rewardDialogue }],
-      () => {
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        });
-      },
-    );
+    // 多句反馈（\n 分隔）逐句播放，避免整段堆在一起
+    const lines = req.rewardDialogue.split('\n').map((text) => ({
+      speaker: req.npcName, color: req.npcColor, text,
+    }));
+    this.storyDialogue.play(lines, () => {
+      save({
+        x: this.player.x, y: this.player.y,
+        scene: this.mapKey, facing: this.player.facing,
+        dailyQuest: getDailyQuestSaveData(),
+      });
+    });
   }
 
   /**
@@ -2601,8 +5945,9 @@ export class MapScene extends Phaser.Scene {
     const dx = 33 * TILE_SIZE + TILE_SIZE / 2;
     const dy = 4 * TILE_SIZE + TILE_SIZE / 2;
     this.dawnXiya = this.add.sprite(dx, dy, 'npc_xiya');
-    this.dawnXiya.setScale(0.5).setDepth(5);
-    this.dawnXiyaLabel = this.add.text(dx, dy - 14, '夏雅', {
+    // 2026-08-14 夏雅精灵升级（28×64 全身图）：scale 0.42 ≈ 12×27px（全身角色，视觉与其他 NPC 协调）
+    this.dawnXiya.setScale(0.42).setDepth(5);
+    this.dawnXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
       fontSize: '13px', color: '#f0a050',
       stroke: '#000000', strokeThickness: 3,
       backgroundColor: 'rgba(0,0,0,0.45)',
@@ -2627,6 +5972,34 @@ export class MapScene extends Phaser.Scene {
     const dx = this.player.x - this.dawnXiya.x;
     const dy = this.player.y - this.dawnXiya.y;
     if (dx * dx + dy * dy > 28 * 28) return false;
+
+    // 钓鱼 Phase 4：夏雅看到鱼才产生偶遇（发现时刻）——背包有青禾鲫且未换过 → 交换优先
+    if (this.tryXiyaFishExchange(() => {
+      this.dawnXiyaDay = getTime().day;
+      this.dawnXiya?.destroy(); this.dawnXiya = null;
+      this.dawnXiyaLabel?.destroy(); this.dawnXiyaLabel = null;
+    })) return true;
+
+    // 采集流向扩展：小野花交换（背包有小野花且未换过 → 夏雅收下 → 老屋窗台插花）
+    if (this.tryXiyaFlowerExchange(() => {
+      this.dawnXiyaDay = getTime().day;
+      this.dawnXiya?.destroy(); this.dawnXiya = null;
+      this.dawnXiyaLabel?.destroy(); this.dawnXiyaLabel = null;
+    })) return true;
+
+    // 种植升级 v2：番茄×夏雅（"她记得"——埋切片B种子；番茄架由 farm create 按事件状态渲染）
+    if (this.tryCropTomatoXiya(() => {
+      this.dawnXiyaDay = getTime().day;
+      this.dawnXiya?.destroy(); this.dawnXiya = null;
+      this.dawnXiyaLabel?.destroy(); this.dawnXiyaLabel = null;
+    })) return true;
+
+    // 土地回应系统 v1.4：农田"活过来"后夏雅一句"感觉这片地又活过来了"（一次性）
+    if (this.tryCropFieldAliveXiya(() => {
+      this.dawnXiyaDay = getTime().day;
+      this.dawnXiya?.destroy(); this.dawnXiya = null;
+      this.dawnXiyaLabel?.destroy(); this.dawnXiyaLabel = null;
+    })) return true;
 
     this.dawnXiyaDay = getTime().day;
     this.dawnXiya.destroy();
@@ -2679,6 +6052,10 @@ export class MapScene extends Phaser.Scene {
    */
   private tryFirstMorningSequence(): void {
     if (this.mapKey !== 'farm') return;
+    // 第一章 P0 残留清理（2026-08-14）：chapter>=1 后第0章 day2 清晨「岛屿的第一声回应」不再触发。
+    // 该演出是第0章"完整循环"教学回报；第一章拥有自己的清晨演出（木匠回归/阿风欢迎/村长来访），
+    // 且 Dev Hub 第一章跳档会清空事件（first_morning_response 未标记）+ day>=2 → 误触发第0章提示。
+    if (isChapterAtLeast(CHAPTER_1)) return;
     if (this.inStargazeCutscene) return; // v0.10.4 观星夜演出中不触发
     if (!isTutorialDone()) return;
     if (getTime().day < 2) return;
@@ -2698,8 +6075,8 @@ export class MapScene extends Phaser.Scene {
       const mx = 10 * T + T / 2;
       const my = 21 * T + T / 2;
       this.morningXiya = this.add.sprite(mx, my, 'npc_xiya');
-      this.morningXiya.setScale(0.5).setDepth(5);
-      this.morningXiyaLabel = this.add.text(mx, my - 14, '夏雅', {
+      this.morningXiya.setScale(0.42).setDepth(5);
+      this.morningXiyaLabel = this.add.text(mx, my - 24, '夏雅', {
         fontSize: '13px', color: '#f0a050',
         stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5).setDepth(6);
@@ -2758,9 +6135,9 @@ export class MapScene extends Phaser.Scene {
    * 触发条件（EventCondition 不扩展，时间/进度条件在调用层组合）：
    *   chapter >= 1（ChapterSystem）
    *   && isHouseTidyComplete()（老屋整理完成，HouseTidy 派生）
-   *   && 已过一天（当前 day > 整理完成日 ch1ElderVisitDay，"下一晚"语义）
-   *   && 夜晚（hour >= 20）
    *   && 未触发过（triggerOnceIf 幂等）
+   * 触发时机：整理完成后的下一次进入老屋（house）场景即触发。
+   *   （2026-08-14 放宽：原要求「20点后 + 隔天」，玩家白天整理完→睡觉跨天→到不了夜晚老屋状态，经常不触发。）
    * 表现：老屋（house 场景）门口，村长出现 → 敲门声 → 对白（"灯亮着"→ 灯是小镇复苏的隐喻）
    *   → 选项 A/B（愿意帮忙 / 还没想好）→ 记录态度（ch1ElderChoice：'help' | 'unsure'，随 flags 入档）
    *   → 村长离开（清理精灵）→ 存档。
@@ -2773,9 +6150,10 @@ export class MapScene extends Phaser.Scene {
     if (!isHouseTidyComplete()) return;
     if (hasTriggered('ch1_elder_visit')) return;
     if (this.elderVisitDone) return;
-    // "下一晚"：整理完成当天不触发（ch1ElderVisitDay=完成日；隔天夜晚才来）
-    const t = getTime();
-    if (t.hour < 20 || t.day <= this.ch1ElderVisitDay) return;
+    // 2026-08-14 触发放宽（制作人拍板）：整理完成 + 下次进老屋即触发。
+    // 原逻辑要求「20 点后且整理完成隔天」（t.hour<20 / t.day<=ch1ElderVisitDay 拦截），
+    // 玩家白天整理完 → 睡觉跨天 → 永远到不了"夜晚+老屋"状态，镇长上门经常触发不了。
+    // 现改为无条件：整理完成的下一进屋，镇长来敲门（叙事"听说你把老屋收拾好了"）。
     this.elderVisitDone = true;
     triggerOnceIf('ch1_elder_visit', { chapter: CHAPTER_1 }, () => {
       // ① 敲门声（程序合成，低音量；零资产）
@@ -2944,9 +6322,9 @@ export class MapScene extends Phaser.Scene {
     const dx = 14 * TILE_SIZE + TILE_SIZE / 2;
     const dy = 6 * TILE_SIZE + TILE_SIZE / 2;
     this.eveningXiya = this.add.sprite(dx, dy, 'npc_xiya');
-    this.eveningXiya.setScale(0.5).setDepth(5);
+    this.eveningXiya.setScale(0.42).setDepth(5);
     this.eveningXiya.setFlipX(true);
-    this.eveningXiyaLabel = this.add.text(dx, dy - 14, '夏雅', {
+    this.eveningXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
       fontSize: '13px', color: '#f0a050',
       stroke: '#000000', strokeThickness: 3,
       backgroundColor: 'rgba(0,0,0,0.45)',
@@ -2961,6 +6339,20 @@ export class MapScene extends Phaser.Scene {
     const dx = this.player.x - this.eveningXiya.x;
     const dy = this.player.y - this.eveningXiya.y;
     if (dx * dx + dy * dy > 28 * 28) return false;
+
+    // 钓鱼 Phase 4：夏雅看到鱼才产生偶遇（发现时刻）——与清晨路径一致，交换优先
+    if (this.tryXiyaFishExchange(() => {
+      this.eveningXiyaDay = getTime().day;
+      this.eveningXiya?.destroy(); this.eveningXiya = null;
+      this.eveningXiyaLabel?.destroy(); this.eveningXiyaLabel = null;
+    })) return true;
+
+    // 采集流向扩展：小野花交换（与清晨路径一致）
+    if (this.tryXiyaFlowerExchange(() => {
+      this.eveningXiyaDay = getTime().day;
+      this.eveningXiya?.destroy(); this.eveningXiya = null;
+      this.eveningXiyaLabel?.destroy(); this.eveningXiyaLabel = null;
+    })) return true;
 
     this.eveningXiyaDay = getTime().day;
     this.eveningXiya.destroy();
@@ -3452,6 +6844,92 @@ export class MapScene extends Phaser.Scene {
    * 仅 farm 场景调用；纯视觉装饰，不触碰碰撞/存档/出口/玩法逻辑。
    * tween 随场景 shutdown 自动销毁，无需手动清理。
    */
+  /**
+   * 灯塔"世界回应"远景（2026-08-14 制作人拍板：春日集后远处灯塔亮起）
+   * 定位：青禾镇复兴的情绪反馈，不是新地图。触发链：集市恢复 → 春日集完成 → 首次进 farm。
+   * 视觉：屏幕固定（scrollFactor 0）远处灯塔——塔身剪影 + 灯室暖光呼吸 + 旋转光束。
+   * 状态：markRestored('lighthouseLit') 持久化（常驻亮灯）；triggerOnce('lighthouse_lit_seen') 一次性首映台词。
+   * 不拆石墙 / 不开放入口（exits.ts 仍 locked）——灯塔现在是"这个世界正在回来"的灯。
+   */
+  private setupLighthouseDistant(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!isRestored('marketSquare')) return;   // 前置：集市恢复
+    if (!hasTriggered('ch1_spring_fair')) return; // 前置：春日集完成
+    // 灯塔远景：屏幕固定（scrollFactor 0）在画面左上角——"西边远处地平线上的灯塔"。
+    // 玩家在 farm 任何位置都能看到远处灯塔亮起（制作人：春日集后远处灯塔亮，不开放入口）。
+    // 注意：Phaser scrollFactor 0 元素渲染于 (worldX - scroll*0) * zoom = worldX * zoom，
+    // 容器 (110,100) → 屏幕 (220,200)；塔身高 84 → 塔顶屏幕 y = (100-84)*2 = 32，完整可见。
+    const c = this.add.container(110, 100).setScrollFactor(0).setDepth(160);
+    // 塔身剪影（深蓝紫）
+    const tower = this.add.graphics();
+    tower.fillStyle(0x3a4460, 1);
+    tower.fillRect(-9, -72, 18, 72);      // 塔身
+    tower.fillRect(-14, -84, 28, 14);     // 塔顶
+    tower.fillStyle(0x2a3450, 1);
+    tower.fillRect(-12, -14, 24, 14);     // 塔基
+    c.add(tower);
+    // 塔身微光
+    const edge = this.add.graphics();
+    edge.fillStyle(0x5a6888, 0.8);
+    edge.fillRect(-9, -72, 4, 72);
+    c.add(edge);
+    // 灯室（暖黄实色，呼吸）
+    const lamp = this.add.ellipse(0, -62, 20, 20, 0xffd98a, 0.95);
+    c.add(lamp);
+    this.tweens.add({
+      targets: lamp,
+      alpha: { from: 0.6, to: 1.0 },
+      scaleX: { from: 0.85, to: 1.2 }, scaleY: { from: 0.85, to: 1.2 },
+      duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+    // 光晕（暖黄扩散，ADD 混合发光）
+    const glow = this.add.ellipse(0, -62, 90, 90, 0xffd98a, 0.3);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    c.add(glow);
+    this.tweens.add({
+      targets: glow,
+      alpha: { from: 0.18, to: 0.4 }, scaleX: { from: 0.9, to: 1.3 }, scaleY: { from: 0.9, to: 1.3 },
+      duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+    // 旋转光束
+    const beam = this.add.graphics();
+    c.add(beam);
+    const beamAngle = { a: -0.6 };
+    this.tweens.add({
+      targets: beamAngle, a: 0.9,
+      duration: 4000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      onUpdate: () => {
+        beam.clear();
+        beam.fillStyle(0xffd98a, 0.16);
+        const len = 110;
+        beam.fillTriangle(
+          Math.cos(beamAngle.a) * 8, -62 + Math.sin(beamAngle.a) * 8,
+          Math.cos(beamAngle.a + 0.1) * len, -62 + Math.sin(beamAngle.a + 0.1) * len,
+          Math.cos(beamAngle.a - 0.1) * len, -62 + Math.sin(beamAngle.a - 0.1) * len,
+        );
+      },
+    });
+    // 灯光持久化：markRestored('lighthouseLit')（世界常驻，读档保持亮灯）
+    if (!isRestored('lighthouseLit')) {
+      markRestored('lighthouseLit');
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    }
+    // 首映台词（一次性）：镇长"西边的灯塔…又亮起来了"
+    if (!hasTriggered('lighthouse_lit_seen')) {
+      triggerOnce('lighthouse_lit_seen', () => {
+        this.time.delayedCall(800, () => {
+          if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+          this.storyDialogue.play([
+            { speaker: '镇长', color: '#c8b898', text: '西边的灯塔……' },
+            { speaker: '', color: '#aaaaaa', text: '（远处，海平线上那盏灯，好像亮了一下。）' },
+            { speaker: '镇长', color: '#c8b898', text: '我还以为，它再也不会亮了。' },
+          ], () => this.updateHUD());
+        });
+        save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      });
+    }
+  }
+
   private setupFarmAmbience(): void {
     const T = TILE_SIZE; // 16
 
@@ -3668,23 +7146,26 @@ export class MapScene extends Phaser.Scene {
     const T = TILE_SIZE;
     const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
 
-    // ---- S1 镇门：歪斜"青禾镇"木牌（褪色感：低饱和棕 + 深色描边 + 刻痕）----
+    // ---- S1 镇门：歪斜"青禾镇"木牌（褪色感：低饱和棕 + 深色描边 + 褪色字迹刻痕）----
     {
       const [x, y] = px(22, 26);
       const g = this.add.graphics();
-      // 斜插木桩
+      // 斜插木桩（加粗加高，站得住）
       g.fillStyle(0x5b4226, 1);
-      g.fillRect(x - 2, y - 1, 3, 8);
-      // 歪斜木板（平行四边形，左高右低）
+      g.fillRect(x - 2.5, y - 1, 4, 12);
+      // 歪斜木板（平行四边形，左高右低，加大到 26×16）
       g.fillStyle(0x8a6b3f, 0.95);
-      g.fillTriangle(x - 8, y - 10, x + 8, y - 12, x + 8, y - 5);
-      g.fillTriangle(x - 8, y - 10, x - 8, y - 5, x + 8, y - 5);
-      g.lineStyle(1, 0x5b4226, 0.8);
-      g.strokeTriangle(x - 8, y - 10, x + 8, y - 12, x + 8, y - 5);
-      g.strokeTriangle(x - 8, y - 10, x - 8, y - 5, x + 8, y - 5);
-      // 木纹刻痕
-      g.lineStyle(1, 0x5b4226, 0.6);
-      g.lineBetween(x - 5, y - 8.5, x + 5, y - 9.5);
+      g.fillTriangle(x - 13, y - 16, x + 13, y - 18, x + 13, y - 6);
+      g.fillTriangle(x - 13, y - 16, x - 13, y - 6, x + 13, y - 6);
+      g.lineStyle(1.5, 0x5b4226, 0.8);
+      g.strokeTriangle(x - 13, y - 16, x + 13, y - 18, x + 13, y - 6);
+      g.strokeTriangle(x - 13, y - 16, x - 13, y - 6, x + 13, y - 6);
+      // 褪色"青禾镇"字迹（两行短刻痕，模拟旧匾额残留字）
+      g.lineStyle(1.5, 0x6e4a26, 0.5);
+      g.lineBetween(x - 9, y - 13, x - 3, y - 13.6);
+      g.lineBetween(x + 1, y - 13.8, x + 8, y - 14.4);
+      g.lineBetween(x - 9, y - 9.5, x - 2, y - 10.1);
+      g.lineBetween(x + 1, y - 10.3, x + 8, y - 10.9);
       g.setDepth(3);
       this.townLife.decor++;
     }
@@ -3693,16 +7174,55 @@ export class MapScene extends Phaser.Scene {
     {
       const [x, y] = px(37, 2);
       const g = this.add.graphics();
-      // 木杆
+      // 木杆（加高，招牌立得住）
       g.fillStyle(0x6e5633, 1);
-      g.fillRect(x - 1, y - 8, 2.5, 11);
-      // 空木牌（微斜）
+      g.fillRect(x - 1.5, y - 12, 3.5, 15);
+      // 空木牌（微斜，加大到 22×11）
       g.fillStyle(0x9a7a4a, 0.95);
-      g.fillTriangle(x - 6, y - 8, x + 7, y - 9, x + 7, y - 3);
-      g.fillTriangle(x - 6, y - 8, x - 6, y - 3, x + 7, y - 3);
+      g.fillTriangle(x - 11, y - 12, x + 11, y - 13.5, x + 11, y - 4.5);
+      g.fillTriangle(x - 11, y - 12, x - 11, y - 4.5, x + 11, y - 4.5);
+      g.lineStyle(1.5, 0x5b4226, 0.8);
+      g.strokeTriangle(x - 11, y - 12, x + 11, y - 13.5, x + 11, y - 4.5);
+      g.strokeTriangle(x - 11, y - 12, x - 11, y - 4.5, x + 11, y - 4.5);
+      // 空木牌上的钉孔（两颗锈钉印）
+      g.fillStyle(0x3f2f1c, 0.9);
+      g.fillCircle(x - 7, y - 10.5, 1.2);
+      g.fillCircle(x + 6, y - 11.5, 1.2);
+      g.setDepth(3);
+      this.townLife.decor++;
+    }
+
+    // ---- S2 老街：残破摊架（"以前有店"——门口歪倒的旧货架）----
+    {
+      const [x, y] = px(31, 6);
+      const g = this.add.graphics();
+      // 两条歪斜木腿
+      g.fillStyle(0x6e5633, 1);
+      g.fillRect(x - 6, y - 5, 2.5, 9);
+      g.fillRect(x + 4, y - 7, 2.5, 10);
+      // 斜搭的破木板
+      g.fillStyle(0x8a6b3f, 0.95);
+      g.fillTriangle(x - 8, y - 5, x + 8, y - 8, x + 8, y - 2);
+      g.fillTriangle(x - 8, y - 5, x - 8, y - 2, x + 8, y - 2);
       g.lineStyle(1, 0x5b4226, 0.8);
-      g.strokeTriangle(x - 6, y - 8, x + 7, y - 9, x + 7, y - 3);
-      g.strokeTriangle(x - 6, y - 8, x - 6, y - 3, x + 7, y - 3);
+      g.strokeTriangle(x - 8, y - 5, x + 8, y - 8, x + 8, y - 2);
+      g.strokeTriangle(x - 8, y - 5, x - 8, y - 2, x + 8, y - 2);
+      g.setDepth(3);
+      this.townLife.decor++;
+    }
+
+    // ---- S2 老街：歪倒木桶（路边遗弃物）----
+    {
+      const [x, y] = px(39, 7);
+      const g = this.add.graphics();
+      g.fillStyle(0x7a5a33, 1);
+      g.fillRoundedRect(x - 4, y - 3, 8, 7, 2);
+      g.lineStyle(1, 0x4c3618, 0.9);
+      g.strokeRoundedRect(x - 4, y - 3, 8, 7, 2);
+      // 桶箍两道
+      g.lineStyle(1.5, 0x5b4226, 0.8);
+      g.lineBetween(x - 4, y - 1, x + 4, y - 1);
+      g.lineBetween(x - 4, y + 2, x + 4, y + 2);
       g.setDepth(3);
       this.townLife.decor++;
     }
@@ -3717,6 +7237,23 @@ export class MapScene extends Phaser.Scene {
       g.fillRect(x - 2, y + 1, 3, 2);
       g.fillStyle(0xb8b8c0, 0.7);
       g.fillRect(x - 5, y + 1, 2, 2);
+      g.setDepth(3);
+      this.townLife.decor++;
+    }
+
+    // ---- S4 旧宅：院门口瓦砾 + 乱草（墙外可见，俯视不被屋顶遮挡）----
+    {
+      const [x, y] = px(24, 33);
+      const g = this.add.graphics();
+      g.fillStyle(0x9a9aa2, 1);
+      g.fillRect(x - 4, y - 1, 4, 3);
+      g.fillRect(x + 1, y, 3, 2);
+      g.fillStyle(0xb8b8c0, 0.7);
+      g.fillRect(x - 3, y - 2, 2, 2);
+      // 乱草几丛
+      g.fillStyle(0x6a8a3a, 0.9);
+      g.fillTriangle(x - 8, y + 2, x - 5, y - 2, x - 2, y + 2);
+      g.fillTriangle(x + 4, y + 2, x + 7, y - 1, x + 10, y + 2);
       g.setDepth(3);
       this.townLife.decor++;
     }
@@ -3772,21 +7309,27 @@ export class MapScene extends Phaser.Scene {
       const sign = track(this.add.image(sx, sy, 'spr_sign'));
       sign.setOrigin(0.5, 1).setPosition(sx, sy).setDepth(3);
       // 窗灯亮：空窗格 (34,4) gid12（"有人回来"）
+      // 2026-08-14 缩放修复：原图 47×48 未缩放 ≈ 3 瓦片宽，视觉过大（用户反馈"缩放异常"）；
+      // 窗灯应为 1.5-2 瓦片宽 → scale 0.62 ≈ 29px。
       const [wx, wy] = px(34, 4);
       const win = track(this.add.image(wx, wy, 'spr_window'));
-      win.setOrigin(0.5, 0.5).setPosition(wx, wy).setDepth(4);
+      win.setOrigin(0.5, 0.5).setPosition(wx, wy).setScale(0.62).setDepth(4);
       // 路侧花坛：(33,6)（"有人生活"）
+      // 2026-08-14 缩放修复：原图 61×32 未缩放 ≈ 4 瓦片宽，视觉过大（用户反馈"花坛没缩放"）；
+      // 花坛应为 2-2.5 瓦片宽 → scale 0.65 ≈ 40px。
       const [fx, fy] = px(33, 6);
       const flower = track(this.add.image(fx, fy, 'spr_flowerbed'));
-      flower.setOrigin(0.5, 0.5).setPosition(fx, fy).setDepth(3);
+      flower.setOrigin(0.5, 0.5).setPosition(fx, fy).setScale(0.65).setDepth(3);
     }
 
     // ---- S6 老河堤：长椅常驻（P0-3）+ 夜晚灯光 ----
     {
-      // 长椅：岸线 (5,15) 面水（"愿意坐下来的地方"）
-      const [bx, by] = px(5, 15);
+      // 长椅：岸线 (6,15) 面水（"愿意坐下来的地方"）
+      // 2026-08-14 位置调整：原 (5,15) 在最左列，紧贴地图边缘被裁切（用户反馈"凳子太靠左"）；
+      // 右移一列到 (6,15)，仍面水、贴近河岸，但避开边缘裁切。
+      const [bx, by] = px(6, 15);
       const bench = track(this.add.image(bx, by, 'spr_bench'));
-      bench.setOrigin(0.5, 1).setPosition(bx, by).setDepth(3);
+      bench.setOrigin(0.5, 1).setPosition(bx, by).setScale(0.85).setDepth(3);
       if (isNight) {
         // 夜晚灯光（暖黄）
         const [sx, sy] = px(5, 11);
@@ -3812,6 +7355,16 @@ export class MapScene extends Phaser.Scene {
     const T = TILE_SIZE;
     const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
     const t = getTime();
+    // 2026-08-14 镇子杂物 sprite 替换：AI 出图 → 抠图入库的 decor_* sprite 替代原 Graphics 绘制。
+    // 存在 sprite 时用 sprite（精致像素），缺失时 fallback 到下方 Graphics 兜底。
+    const decorSprite = (c: number, r: number, key: string, originY = 1, scale = 1, depth = 3): boolean => {
+      if (!this.textures.exists(key)) return false;
+      const [x, y] = px(c, r);
+      const img = this.add.image(x, y, key);
+      img.setOrigin(0.5, originY).setScale(scale).setDepth(depth);
+      this.townLife.decor++;
+      return true;
+    };
 
     // ---- 1) 生活杂物层（深度 3，位于角色之下）----
     // 2026-08-07 GPT 诊断落地 P0-1：木柴/晾衣架/水桶为核心大锚点，放大 1.5~2x 提升视觉权重
@@ -3943,17 +7496,26 @@ export class MapScene extends Phaser.Scene {
     };
 
     // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，装饰坐标随内容平移 dx=10列 dy=8行
-    woodpile(12, 12); woodpile(36, 12);          // 木柴堆：左上屋左侧 / 右上屋右侧
-    pot(20, 15, 0xf0d080); pot(36, 15, 0xe8a0a0); pot(13, 21, 0xc0a0e8); // 花盆 ×3
-    bucket(12, 13); bucket(37, 13);              // 水桶
-    crate(21, 12); crate(37, 21);              // 木箱
-    cart(38, 12);                              // 小推车
-    clothesline(13, 16);                        // 晾衣架
-    stool(33, 16);                             // 石凳（右上屋南侧广场边）
-    broom(36, 22);                            // 扫帚（右下屋旁）
-    stone(15, 17, 2.5); stone(32, 17, 2); stone(39, 14, 2.5); stone(14, 25, 2); // 路边石 ×4
-    grass(11, 18, 0x4a8a30); grass(21, 17, 0x5a9a3a); grass(27, 17, 0x4a8a30);
-    grass(17, 26, 0x5a9a3a); grass(23, 27, 0x4a8a30); grass(35, 26, 0x5a9a3a); // 草丛 ×6
+    // 2026-08-14 减负整理：同类杂物去重（每种保留 1 处叙事锚点，消除堆砌感）；
+    // 路边石/草丛稀疏化（"一个地方一个记忆点"，见 Phase3 拍板基线 §五 设计哲学）。
+    // 2026-08-14 资产精修：优先用 AI sprite（decor_*），缺失时 fallback 到 Graphics 绘制。
+    decorSprite(12, 12, 'decor_woodpile') || woodpile(12, 12);                              // 木柴堆：左上屋左侧
+    decorSprite(20, 15, 'decor_pot') || pot(20, 15, 0xf0d080);
+    decorSprite(13, 21, 'decor_pot', 1, 0.85) || pot(13, 21, 0xc0a0e8);  // 花盆 ×2（广场边 + 左下屋前）
+    decorSprite(12, 13, 'decor_bucket') || bucket(12, 13);                                // 水桶：左上屋旁
+    decorSprite(21, 12, 'decor_crate') || crate(21, 12);                                 // 木箱：广场北侧
+    decorSprite(38, 12, 'decor_cart') || cart(38, 12);                                  // 小推车：右上屋旁（老街生活感）
+    decorSprite(13, 16, 'decor_clothesline') || clothesline(13, 16);                           // 晾衣架：左上屋南
+    decorSprite(33, 16, 'decor_stool') || stool(33, 16);                                 // 石凳（右上屋南侧广场边）
+    decorSprite(36, 22, 'decor_broom') || broom(36, 22);                                 // 扫帚（右下屋旁）
+    stone(15, 17, 2.5); stone(39, 14, 2.5);        // 路边石 ×2（Graphics 兜底）
+    decorSprite(15, 17, 'decor_rock') || stone(15, 17, 2.5);
+    decorSprite(39, 14, 'decor_rock', 1, 0.9) || stone(39, 14, 2.5);
+    grass(11, 18, 0x4a8a30); grass(27, 17, 0x4a8a30);
+    grass(23, 27, 0x5a9a3a);                        // 草丛 ×3（稀疏点缀）
+    decorSprite(11, 18, 'decor_grass') || grass(11, 18, 0x4a8a30);
+    decorSprite(27, 17, 'decor_grass', 1, 0.85) || grass(27, 17, 0x4a8a30);
+    decorSprite(23, 27, 'decor_grass', 1, 0.9) || grass(23, 27, 0x5a9a3a);
 
     // ---- 2) 小动物（2026-08-07 GPT 诊断落地 P1-3：一次性事件 > 持续低频动画）----
     // 鸟：从树冠飞起 → 落到屋顶（一次性飞落，进图即发生，比无限 hover 更易被注意到）
@@ -4041,10 +7603,14 @@ export class MapScene extends Phaser.Scene {
       this.townLife.decor++;
     };
     // 放置：道路两侧 + 出口附近的遮挡（避开 NPC 站位与交互点）（2026-08-12 平移 dx=10列 dy=8行）
-    fgGrass(13, 20, 0x3a7a28); fgGrass(30, 20, 0x4a8a30);
-    fgGrass(20, 21, 0x3a7a28); fgGrass(34, 14, 0x4a8a30);
-    fgGrass(11, 19, 0x3a7a28); fgGrass(37, 23, 0x4a8a30); // 出口附近
-    fgRock(14, 19, 2.5); fgRock(35, 20, 2);
+    // 2026-08-14 减负整理：前景遮挡从 8→4，只保留出口/路口关键遮挡，避免视觉压迫。
+    fgGrass(13, 20, 0x3a7a28); fgGrass(37, 23, 0x4a8a30);
+    fgGrass(11, 19, 0x3a7a28);                       // 出口附近
+    fgRock(14, 19, 2.5);
+    // 2026-08-14 前景植被 sprite 替换（depth 6 遮挡角色）
+    decorSprite(13, 20, 'decor_fg_grass', 1, 1.1, 6) || fgGrass(13, 20, 0x3a7a28);
+    decorSprite(37, 23, 'decor_fg_grass', 1, 1.0, 6) || fgGrass(37, 23, 0x4a8a30);
+    decorSprite(11, 19, 'decor_fg_grass', 1, 0.95, 6) || fgGrass(11, 19, 0x3a7a28);
 
     // ---- 3) 晨雾（06-09 时）：低透明度雾带缓慢横移，白天零创建 ----
     if (t.hour >= 6 && t.hour < 9) {
@@ -4325,6 +7891,95 @@ export class MapScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * 树视觉升级：程序绘制多种装饰树（打破千篇一律的 3 种 sprite，零素材）。
+   * kind：fruit 果树（红果）/ blossom 开花树（粉花）/ willow 垂柳 / pine 松 / oak 老橡树。
+   * (x,y) = 树底部中心（地面）；树冠向上展开；depth 4 与可砍树一致。
+   * 注意：不用 setScale（Graphics 缩放围绕原点 (0,0) 会使世界坐标绘制内容偏移）；
+   * 大小差异由各树型自身的尺寸承担（oak 高、blossom 小）。
+   */
+  private drawGroveTree(
+    kind: 'fruit' | 'blossom' | 'willow' | 'pine' | 'oak',
+    x: number, y: number,
+  ): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics().setDepth(4);
+    const trunk = 0x6d4c2a;
+    if (kind === 'oak') {
+      // 老橡树：粗干 + 宽冠（成片树丛的"主树"）
+      g.fillStyle(0x5a3f22, 1); g.fillRect(x - 4, y - 12, 8, 12);       // 粗干
+      g.fillStyle(trunk, 1); g.fillRect(x - 3, y - 10, 6, 10);           // 干面
+      g.fillStyle(0x3f6d2a, 1); g.fillCircle(x, y - 20, 9);              // 冠底
+      g.fillStyle(0x528a38, 1); g.fillCircle(x - 4, y - 22, 5);          // 冠侧
+      g.fillCircle(x + 4, y - 22, 5);
+      g.fillStyle(0x3f6d2a, 1); g.fillCircle(x, y - 27, 5);              // 冠顶
+      g.fillStyle(0x6da544, 0.8); g.fillCircle(x - 2, y - 24, 3);        // 高光
+    } else if (kind === 'fruit') {
+      // 果树：细干 + 圆冠 + 红果
+      g.fillStyle(0x8a6a45, 1); g.fillRect(x - 2, y - 10, 4, 10);        // 干
+      g.fillStyle(0x4a9e3f, 1); g.fillCircle(x, y - 16, 7);              // 冠
+      g.fillStyle(0x5db84a, 1); g.fillCircle(x - 2, y - 18, 4);
+      g.fillStyle(0xe85050, 1); g.fillCircle(x - 4, y - 14, 1.3);        // 果
+      g.fillStyle(0xff6b6b, 1); g.fillCircle(x + 3, y - 17, 1.3);
+      g.fillStyle(0xe85050, 1); g.fillCircle(x + 1, y - 12, 1.3);
+    } else if (kind === 'blossom') {
+      // 开花树：细干 + 粉冠 + 花点（"春天里的树"）
+      g.fillStyle(0x9a7a5a, 1); g.fillRect(x - 2, y - 9, 4, 9);          // 干
+      g.fillStyle(0xe8a0c8, 1); g.fillCircle(x, y - 15, 6);              // 冠
+      g.fillStyle(0xf4b8d8, 1); g.fillCircle(x - 2, y - 17, 3.5);
+      g.fillStyle(0xe8a0c8, 1); g.fillCircle(x + 2, y - 12, 3);
+      g.fillStyle(0xffffff, 0.9); g.fillCircle(x - 4, y - 16, 0.9);      // 花点
+      g.fillStyle(0xfff0f6, 0.9); g.fillCircle(x + 2, y - 17, 0.9);
+      g.fillStyle(0xffffff, 0.9); g.fillCircle(x + 5, y - 13, 0.9);
+    } else if (kind === 'willow') {
+      // 垂柳：细干 + 椭圆冠 + 垂条（"风一吹就动"）
+      g.fillStyle(0x6d5a3a, 1); g.fillRect(x - 2, y - 11, 4, 11);        // 干
+      g.fillStyle(0x7aaa5a, 1); g.fillEllipse(x, y - 17, 15, 11);        // 冠
+      g.fillStyle(0x8abc6a, 1); g.fillRect(x - 6, y - 13, 1, 7);         // 垂条
+      g.fillRect(x - 3, y - 12, 1, 8);
+      g.fillRect(x, y - 12, 1, 8);
+      g.fillRect(x + 3, y - 12, 1, 8);
+      g.fillRect(x + 6, y - 13, 1, 7);
+      g.fillStyle(0x94c878, 1); g.fillRect(x - 4, y - 16, 8, 2);         // 冠顶亮面
+    } else {
+      // pine 松：细干 + 叠三角冠（"像青禾镇周边的小松林"）
+      g.fillStyle(0x7a5a32, 1); g.fillRect(x - 2, y - 8, 4, 8);          // 干
+      g.fillStyle(0x2e5a24, 1); g.fillTriangle(x, y - 28, x - 7, y - 14, x + 7, y - 14);
+      g.fillStyle(0x3a6e2e, 1); g.fillTriangle(x, y - 22, x - 5, y - 10, x + 5, y - 10);
+      g.fillStyle(0x4a7f3a, 1); g.fillTriangle(x, y - 16, x - 3, y - 6, x + 3, y - 6);
+    }
+    return g;
+  }
+
+  /**
+   * 树视觉升级：farm 成片装饰树丛（集中成林，混合多种树，零碰撞零存档）。
+   * 位置（经 farm.json 草地验证，避开森林入口/可砍树/农田/水塘/装饰区）：
+   *   北缘树丛（cols 20-24, rows 1-2）：森林入口西侧的"小松林+果树"
+   *   东缘树丛（cols 34-37, rows 18-20）：往小镇路上的"果树林子"
+   */
+  private setupFarmTreeGroves(): void {
+    if (this.mapKey !== 'farm') return;
+    if (this.groveTrees.length > 0) return; // 幂等
+    const T = TILE_SIZE;
+    // 北缘树丛（5 棵，错落：主树 oak + fruit + pine + blossom + willow）
+    const north: Array<['oak' | 'fruit' | 'blossom' | 'willow' | 'pine', number, number]> = [
+      ['oak', 20, 1], ['fruit', 22, 1], ['pine', 24, 1],
+      ['blossom', 21, 2], ['willow', 23, 2],
+    ];
+    // 东缘树丛（5 棵：fruit ×2 + oak + pine + blossom）
+    const east: Array<['oak' | 'fruit' | 'blossom' | 'willow' | 'pine', number, number]> = [
+      ['fruit', 34, 18], ['oak', 36, 18], ['willow', 34, 20],
+      ['pine', 36, 20], ['blossom', 37, 19],
+    ];
+    const plant = (arr: Array<['oak' | 'fruit' | 'blossom' | 'willow' | 'pine', number, number]>): void => {
+      for (const [kind, c, r] of arr) {
+        const g = this.drawGroveTree(kind, c * T + T / 2, r * T + T / 2);
+        this.groveTrees.push(g);
+      }
+    };
+    plant(north);
+    plant(east);
+  }
+
   /** 树桩短暂保留（3.2s）后淡出消失并标记，防止切场景后残留 */
   private scheduleStumpFade(sprite: Phaser.GameObjects.Image, tree: TreeState): void {
     this.tweens.add({
@@ -4506,8 +8161,8 @@ export class MapScene extends Phaser.Scene {
       const xiyaX = 15 * TILE_SIZE + TILE_SIZE / 2;
       const xiyaY = 11 * TILE_SIZE + TILE_SIZE / 2;
       this.xiyaSprite = this.add.sprite(xiyaX, xiyaY, 'npc_xiya');
-      this.xiyaSprite.setScale(0.5).setDepth(5);
-      this.add.text(xiyaX, xiyaY - 14, '夏雅', {
+      this.xiyaSprite.setScale(0.42).setDepth(5);
+      this.add.text(xiyaX, xiyaY - 24, '夏雅', {
         fontSize: '13px', color: '#f0a050',
         stroke: '#000000', strokeThickness: 3,
         backgroundColor: 'rgba(0,0,0,0.45)',
@@ -4587,6 +8242,15 @@ export class MapScene extends Phaser.Scene {
     const T = TILE_SIZE;
     const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
     const t = getTime();
+    // 2026-08-14 资产精修：与 town 共用的 decor_* sprite 优先，缺失时 fallback 到 Graphics
+    const decorSprite = (c: number, r: number, key: string, originY = 1, scale = 1): boolean => {
+      if (!this.textures.exists(key)) return false;
+      const [x, y] = px(c, r);
+      const img = this.add.image(x, y, key);
+      img.setOrigin(0.5, originY).setScale(scale).setDepth(3);
+      this.gateLife.decor++;
+      return true;
+    };
 
     // ---- 1) 生活杂物层（深度 3，位于角色之下）----
     const woodpile = (c: number, r: number): void => {
@@ -4674,14 +8338,19 @@ export class MapScene extends Phaser.Scene {
       this.gateLife.decor++;
     };
 
-    pot(10, 10, 0xf0d080); pot(18, 10, 0xe8a0a0);   // 花盆 ×2（大门两侧前院）
-    woodpile(20, 12);                                // 木柴堆（右侧空地）
-    stool(3, 12);                                    // 石凳（左侧树荫下）
-    bucket(25, 9);                                   // 水桶（右院墙脚）
-    crate(20, 10);                                   // 木箱（右院）
-    stone(2, 12, 2.5); stone(23, 9, 2); stone(27, 12, 2.5); // 路边石 ×3
-    grass(9, 13, 0x4a8a30); grass(19, 13, 0x5a9a3a);
-    grass(18, 14, 0x4a8a30); grass(5, 10, 0x5a9a3a); // 草丛 ×4
+    decorSprite(10, 10, 'decor_pot') || pot(10, 10, 0xf0d080);
+    decorSprite(18, 10, 'decor_pot', 1, 0.9) || pot(18, 10, 0xe8a0a0);   // 花盆 ×2（大门两侧前院）
+    decorSprite(20, 12, 'decor_woodpile') || woodpile(20, 12);                                // 木柴堆（右侧空地）
+    decorSprite(3, 12, 'decor_stool') || stool(3, 12);                                    // 石凳（左侧树荫下）
+    decorSprite(25, 9, 'decor_bucket') || bucket(25, 9);                                   // 水桶（右院墙脚）
+    decorSprite(20, 10, 'decor_crate') || crate(20, 10);                                   // 木箱（右院）
+    decorSprite(2, 12, 'decor_rock') || stone(2, 12, 2.5);
+    decorSprite(23, 9, 'decor_rock', 1, 0.85) || stone(23, 9, 2);
+    decorSprite(27, 12, 'decor_rock', 1, 0.9) || stone(27, 12, 2.5); // 路边石 ×3
+    decorSprite(9, 13, 'decor_grass') || grass(9, 13, 0x4a8a30);
+    decorSprite(19, 13, 'decor_grass', 1, 0.85) || grass(19, 13, 0x5a9a3a);
+    decorSprite(18, 14, 'decor_grass', 1, 0.9) || grass(18, 14, 0x4a8a30);
+    decorSprite(5, 10, 'decor_grass', 1, 0.9) || grass(5, 10, 0x5a9a3a); // 草丛 ×4
 
     // ---- 2) 小动物：1 只小鸟固定小范围活动（深度 4，与角色同层）----
     const bird = (x: number, y: number, seed: number): void => {
@@ -5479,13 +9148,33 @@ export class MapScene extends Phaser.Scene {
     const shopSide = isShop ? this.buildShopSideDialogue() : null;
     // SHOP-01 商店复兴：老板「复兴度观察者」三阶段台词（档位推进才播，优先级低于 T3.5 事件链）
     const revivalLines = isShop ? this.buildShopRevivalDialogue() : null;
-    const finalLines = stateLines
-      ? stateLines
-      : shopSide
-        ? [...shopSide, ...(revivalLines ?? []), ...lines]
-        : revivalLines
-          ? [...revivalLines, ...lines]
-          : lines;
+    // 星光艺术展余波：旅人离镇前在商店留了张便条，老板第一次提到（一次性，随后正常营业）
+    const travelerNoteLines = isShop && this.artShowPerm ? this.buildTravelerNoteDialogue() : null;
+    // 钓鱼 Phase 4：NPC 交换（最高优先级——未换过 + 背包有对应鱼时完全替代默认对白）
+    const fishEx = this.buildFishExchangeDialogue(npc);
+    // 采集流向扩展：NPC 交换（次高优先级——鱼交换未命中时尝试采集交换；小梅/老张）
+    const gatherEx = this.buildGatherExchangeDialogue(npc);
+    // 种植升级 v2：作物赠予（萝卜×老张赠予+腌萝卜罐 / 玉米×小镇丰收台词；三条去向之一=关系与生活反馈）
+    const cropEx = this.buildCropGiftDialogue(npc);
+    // 小镇计划·星光艺术展：人际准备注入（镇长协调 / 老周旧照片 / 小梅花艺；未参与过时替代默认对白）
+    const artShowLines = this.buildArtShowDialogue(npc);
+    const finalLines = fishEx
+      ? fishEx.lines
+      : gatherEx
+        ? gatherEx.lines
+        : cropEx
+          ? cropEx.lines
+      : artShowLines
+        ? artShowLines
+      : stateLines
+        ? stateLines
+        : shopSide
+          ? [...shopSide, ...(revivalLines ?? []), ...(travelerNoteLines ? [...travelerNoteLines, ...lines] : lines)]
+          : revivalLines
+            ? [...revivalLines, ...(travelerNoteLines ? [...travelerNoteLines, ...lines] : lines)]
+            : travelerNoteLines
+              ? [...travelerNoteLines, ...lines]
+              : lines;
     this.storyDialogue.play(finalLines, () => {
       // BUG-041：神秘少女对白末尾「消失在林间」→ 对话完成隐藏精灵（演出层，不存档）
       if (npc.id === 'mystery') {
@@ -5497,7 +9186,7 @@ export class MapScene extends Phaser.Scene {
         this.inputManager.clearAction();
         this.shopPanel.open();
       }
-    });
+    }, fishEx ? fishEx.onChoice : gatherEx ? gatherEx.onChoice : cropEx ? cropEx.onChoice : undefined);
   }
 
   /**
@@ -5661,6 +9350,30 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
+   * 星光艺术展余波·商店留言：旅人离镇前在商店留了张便条，老板第一次向玩家提起（一次性）。
+   * 触发：`artShowPerm`（艺术展已办完）+ 未读过便条 → 老板谈到旅人的留言，随后照常营业。
+   * 依据：任务卡 §五.1「永久变化存在：商店留言」。台词方向稿，制作人定稿前可替换。
+   */
+  private buildTravelerNoteDialogue(): DialogueLine[] | null {
+    if (hasTriggered('artshow_traveler_note')) return null;
+    if (this.shopState !== 'opened') return null; // 店门关着时不留便条语境
+    triggerOnce('artshow_traveler_note', () => {
+      // 仅标记已读；便条是"留下的一句话"，不兑现物品
+    });
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    return [
+      { speaker: '', color: COLORS.system, text: '（柜台上压着一张字条，字迹有点潦草。老板见你看过去，开口说：）' },
+      { speaker: '商店老板', color: '#8ac8a0', text: '那位画画的朋友走之前，在这儿留了句话。' },
+      { speaker: '商店老板', color: '#8ac8a0', text: '"这镇子把光留下了。我把它画下来，带回去给别人看。"' },
+      { speaker: '商店老板', color: '#8ac8a0', text: '……没懂他说什么。不过，有人把这里记在心里，总归是好事。' },
+    ];
+  }
+
+  /**
    * 渲染农田可耕区域的格子覆盖层
    * 状态非 empty 的格子显示深棕色方块（覆盖在 soil 瓦片之上）
    * 场景切换回来时，从全局 FarmState 恢复已锄地块的显示
@@ -5692,6 +9405,7 @@ export class MapScene extends Phaser.Scene {
    * tilled: 深棕土地，无作物
    * watered: 湿润深棕土地 + 作物（若已种）
    * planted/grown: 土地 + 作物标记（grown 更大更深）
+   * v1.1 四阶段视觉（2026-08-15）：种子(地块帧1，作物隐藏) → 幼苗(crop帧0) → 成长(crop帧1+地块帧3) → 成熟(crop帧2)
    */
   private updateTileVisual(col: number, row: number, visual: TileVisual): void {
     const state = getTileState(col, row);
@@ -5701,23 +9415,36 @@ export class MapScene extends Phaser.Scene {
       return;
     }
     visual.plot.setVisible(true);
-    // 五态地块贴图帧：tilled=0 / planted=1 / watered=2 / growing=3 / grown=4
-    visual.plot.setFrame(state === 'tilled' ? 0 : state === 'planted' ? 1 : state === 'watered' ? 2 : 4);
-    // 作物标记：planted/watered/grown 显示对应阶段帧（发芽/生长/成熟），成熟态不再统一萝卜
-    const hasCrop = state === 'planted' || state === 'watered' || state === 'grown';
-    visual.crop.setVisible(hasCrop);
-    if (hasCrop) {
-      const cropData = getCrop(col, row);
+    if (state === 'tilled') {
+      visual.plot.setFrame(0);
+      visual.crop.setVisible(false);
+      return;
+    }
+    // 四阶段视觉：0=种子 / 1=幼苗 / 2=成长 / 3=成熟
+    const cropData = getCrop(col, row);
+    const stage = this.getCropVisualStage(cropData, state);
+    // 地块帧：种子=1(播种土) / 幼苗=2(湿润土) / 成长=3(更湿) / 成熟=4
+    visual.plot.setFrame(stage >= 3 ? 4 : stage === 2 ? 3 : stage === 1 ? 2 : state === 'watered' ? 2 : 1);
+    // 作物帧：幼苗/成长/成熟 = cropIdx*3 + 0/1/2；种子阶段作物隐藏（地块帧自带种子点）
+    if (stage >= 1) {
       const cropType = cropData?.cropType ?? 'radish';
       const cropIdx = CROP_TYPES.indexOf(cropType);
-      if (state === 'grown') {
-        visual.crop.setFrame(cropIdx * 3 + 2);
-      } else if (state === 'watered') {
-        visual.crop.setFrame(cropIdx * 3 + 1);
-      } else {
-        visual.crop.setFrame(cropIdx * 3 + 0);
-      }
+      visual.crop.setFrame(cropIdx * 3 + (stage - 1));
+      visual.crop.setVisible(true);
+    } else {
+      visual.crop.setVisible(false);
     }
+  }
+
+  /** 作物视觉阶段：0=种子 / 1=幼苗 / 2=成长 / 3=成熟（按已浇水天数推导，成熟态固定 3） */
+  private getCropVisualStage(crop: CropData | undefined, state: TileState): 0 | 1 | 2 | 3 {
+    if (state === 'grown') return 3;
+    if (!crop) return 0;
+    const def = CROP_DEFS[crop.cropType];
+    const days = crop.grownDays ?? Math.max(0, getTime().day - crop.plantDay - 1);
+    if (days <= 0) return 0;
+    // 每种作物的节奏差异由 growthDays 自然拉开：萝卜(2天)快 / 番茄(3天) / 玉米(4天) / 草莓(5天)
+    return days >= def.growthDays - 1 ? 2 : 1;
   }
 
   /**
@@ -5769,6 +9496,73 @@ export class MapScene extends Phaser.Scene {
       this.updateTileVisual(col, row, visual);
     }
     this.updateHUD();
+    // 土地回应系统 v1.4：同时 ≥3 格成熟作物 → 农田"活过来"（世界回应，一次性入档）
+    this.checkFieldAlive();
+  }
+
+  /**
+   * 土地回应系统 v1.4（制作人 2026-08-15 拍板）：玩家长期种地 → 整个环境回应。
+   * 触发：farm 同时有 ≥3 格成熟作物（世界状态，不做成就/生态值）→ crop_field_alive 一次性入档
+   * → 农田边缘永久出现蝴蝶/蜜蜂 + 夏雅一句"感觉这片地又活过来了"（见 tryCropFieldAliveXiya）。
+   */
+  private checkFieldAlive(): void {
+    if (this.mapKey !== 'farm') return;
+    if (hasTriggered('crop_field_alive')) return;
+    if (countGrownTiles() < 3) return;
+    triggerOnce('crop_field_alive', () => { /* 仅标记：世界变化由 setupFieldLife 按事件状态渲染 */ });
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    // EventSystem 契约：fn 先执行→标记，save/后续渲染放 triggerOnce 之后（此刻事件已标记，守卫放行）
+    this.setupFieldLife();
+  }
+
+  /** 农田"活过来"后的蝴蝶/蜜蜂（farm create 或触发时调用；随场景重建） */
+  private setupFieldLife(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!hasTriggered('crop_field_alive')) return;
+    if (this.fieldLifeGfx) return; // 幂等
+    const T = TILE_SIZE;
+    const g = this.add.container(0, 0).setDepth(4);
+    // 农田边缘草地（避开树位/花田/池塘/木屋/菜畦）
+    this.createFieldButterfly(11 * T + T / 2, 10 * T + T / 2, g);
+    this.createFieldButterfly(29 * T + T / 2, 10 * T + T / 2, g);
+    this.createFieldButterfly(20 * T + T / 2, 7 * T + T / 2, g);
+    this.createFieldBee(16 * T + T / 2, 7 * T + T / 2, g);
+    this.createFieldBee(24 * T + T / 2, 17 * T + T / 2, g);
+    this.fieldLifeGfx = g;
+  }
+
+  /** 农田氛围蝴蝶（非可捕捉，纯环境生命感；花色随机） */
+  private createFieldButterfly(x: number, y: number, container: Phaser.GameObjects.Container): void {
+    const t = this.pickButterflyType();
+    const v = MapScene.BUTTERFLY_VARIANTS[t] ?? MapScene.BUTTERFLY_VARIANTS.yellow;
+    const wings = this.add.graphics();
+    wings.fillStyle(v.wing1, 1);
+    wings.fillEllipse(-3, 0, 6, 4);
+    wings.fillEllipse(3, 0, 6, 4);
+    wings.fillStyle(v.body, 1);
+    wings.fillCircle(0, 0, 1);
+    const c = this.add.container(x, y, [wings]);
+    container.add(c);
+    this.tweens.add({ targets: wings, scaleX: { from: 1, to: 0.25 }, duration: 130, yoyo: true, repeat: -1 });
+    this.tweens.add({ targets: c, x: x + 8, y: y - 6, duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+  }
+
+  /** 农田氛围蜜蜂（黄身白翅小点，缓慢绕飞） */
+  private createFieldBee(x: number, y: number, container: Phaser.GameObjects.Container): void {
+    const bee = this.add.container(x, y);
+    const body = this.add.graphics();
+    body.fillStyle(0xe8c020, 1);
+    body.fillEllipse(0, 0, 4, 3);
+    body.fillStyle(0x202020, 1);
+    body.fillRect(-1, -1, 2, 2);
+    const wings = this.add.graphics();
+    wings.fillStyle(0xe8f0f8, 0.75);
+    wings.fillEllipse(-3, -1, 3, 2);
+    wings.fillEllipse(3, -1, 3, 2);
+    bee.add([body, wings]);
+    container.add(bee);
+    this.tweens.add({ targets: wings, scaleY: { from: 1, to: 0.2 }, duration: 100, yoyo: true, repeat: -1 });
+    this.tweens.add({ targets: bee, x: x + 10, y: y - 4, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
   }
 
   /**
@@ -5843,6 +9637,34 @@ export class MapScene extends Phaser.Scene {
     // 第一章 P2 捕虫玩法 V0.1（2026-08-13）：靠近蝴蝶按 E 捕捉（farm/town）
     if (this.mapKey === 'farm' || this.mapKey === 'town') {
       if (this.tryCatchNearestButterfly()) return;
+    }
+
+    // 小镇计划·星光艺术展：广场夏雅（策划，一次性）→ 素材箱（征集箱，打开面板）
+    if (this.tryArtShowXiyaInteract()) return;
+    if (this.mapKey === 'town' && this.artShowBox && !this.artShowHeld) {
+      const bdx = this.player.x - MapScene.ARTSHOW.box.x;
+      const bdy = this.player.y - MapScene.ARTSHOW.box.y;
+      if (bdx * bdx + bdy * bdy < 34 * 34) {
+        this.openTownPlan();
+        return;
+      }
+    }
+    // 星光艺术展余波：旅人回访坐艺术角长椅（展办完后，白天/傍晚可对话）
+    if (this.tryArtShowTravelerInteract()) return;
+
+    // 钓鱼老人老姜（氛围锚点）：人在旁边时先说话；站到水边才钓鱼
+    if (this.tryLaoJiangInteract()) return;
+
+    // 第一章 P2 钓鱼（2026-08-14 扩展：town 河堤 + farm 池塘多钓点）：
+    // 靠近钓点按 E 启动钓鱼循环；钓鱼中按 E = 收竿判定（成功/过早失败）。
+    if (MapScene.FISHING_SPOTS[this.mapKey]) {
+      if (this.tryFishingInteract()) return;
+    }
+
+    // 第一章 P2 生活采集 Phase 1（2026-08-14 设计稿 v0.1）：
+    // farm/town/forest 三场景靠近未采点按 E 采集（一次性，triggerOnce 持久化）
+    if (this.gatherNodes.length > 0) {
+      if (this.tryGatherInteract()) return;
     }
 
     // 灯塔轻量版（2026-08-10）：探索交互（靠近旧物件按 E 读文本，一次性记录足迹）
@@ -5976,6 +9798,11 @@ export class MapScene extends Phaser.Scene {
       if (this.tryOldRobotInteract()) return;
     }
 
+    // 集市摊主对话（2026-08-14）：集市开张后，摊位旁摊主走近按 E 闲聊（服务生活感）
+    if (this.mapKey === 'town' && this.marketStallKeepers.length > 0) {
+      if (this.tryStallKeeperInteract()) return;
+    }
+
     // 2. 优先检测靠近 NPC（所有场景）：取交互范围内最近的一个
     // 注意：不能用数组顺序取第一个，否则多个 NPC 靠近时 elder 永远先被触发
     let nearest: NPC | null = null;
@@ -5996,6 +9823,16 @@ export class MapScene extends Phaser.Scene {
       // 优先触发「小梅递放大镜」观察剧情（一次性；不抢其他 NPC 对话）
       if (nearest.id === 'gardener' && getItemCount('butterfly_specimen') > 0 && !hasTriggered('ch1_natural_record_1')) {
         this.tryXiaomeiObserve();
+        return;
+      }
+      // 第一章 v0.11 图鉴墙：柳叶蝶标本 → 小梅观察（第二条自然记录，一次性）
+      if (nearest.id === 'gardener' && getItemCount('willow_specimen') > 0 && !hasTriggered('ch1_natural_record_2')) {
+        this.tryXiaomeiObserveWillow();
+        return;
+      }
+      // 第一章 v0.11 图鉴墙：夜光蛾标本 → 小梅观察（第三条自然记录，一次性）
+      if (nearest.id === 'gardener' && getItemCount('moth_specimen') > 0 && !hasTriggered('ch1_natural_record_3')) {
+        this.tryXiaomeiObserveMoth();
         return;
       }
       // 通知每日任务：与 NPC 对话 + 刷新面板
@@ -7769,6 +11606,9 @@ export class MapScene extends Phaser.Scene {
     yellow: { wing1: 0xffe082, wing2: 0xfff9c4, body: 0xffb300, name: '黄蝶' },
     blue: { wing1: 0x90caf9, wing2: 0xe3f2fd, body: 0x64b5f6, name: '蓝蝶' },
     qinghe: { wing1: 0xb3e5fc, wing2: 0xe3f6ff, body: 0x4fc3f7, name: '青禾凤蝶' },
+    // 第一章 v0.11 图鉴墙（2026-08-14，制作人拍板）：柳叶蝶（河边柳树下，白天）/ 夜光蛾（老树旁，夜晚）
+    willow: { wing1: 0xa5d6a7, wing2: 0xc8e6c9, body: 0x66bb6a, name: '柳叶蝶' },
+    moth: { wing1: 0x9aa0b8, wing2: 0x6f7590, body: 0xe8d8a0, name: '夜光蛾' },
   };
 
   /** 随机抽品种：均匀落在白/黄/蓝（青禾凤蝶为固定叙事品种，不参与随机；无稀有度） */
@@ -7842,24 +11682,60 @@ export class MapScene extends Phaser.Scene {
     });
     // 捕虫「自然记录」收敛：青禾凤蝶是"有故事的虫"（叙事工具，非稀有掉落）——捕捉得普通标本
     const t = b.getData('type');
-    addItem('butterfly_specimen', 1);
-    play('ui_confirm');
-    if (t === 'qinghe') {
-      // 第一段「捉虫引导」：第一次奖励不是金币，而是一句世界观描述（建立"这里的东西都有故事"）
-      showMemoryMoment('青禾凤蝶，喜欢停留在花丛附近。小时候，这里经常能看到它。');
-      triggerOnce('ch1_qinghe_butterfly_guide', () => { /* 一次性：仅标记，无额外逻辑 */ });
+    if (t === 'willow') {
+      // 第一章 v0.11 图鉴墙：柳叶蝶（河边柳树下，白天）→ 柳叶蝶标本（不可售纪念物）
+      addItem('willow_specimen', 1);
+      play('ui_confirm');
+      showMemoryMoment('柳叶蝶，贴着河面的风飞。翅膀绿得像刚抽芽的柳叶。');
+    } else if (t === 'moth') {
+      // 第一章 v0.11 图鉴墙：夜光蛾（老树旁，夜里）→ 夜光蛾标本（不可售纪念物）
+      addItem('moth_specimen', 1);
+      play('ui_confirm');
+      showMemoryMoment('夜光蛾，白天躲在树影里，天一黑才出来。翅膀上有一点很淡的光。');
     } else {
-      showMemoryMoment('捉到了一只蝴蝶。翅膀薄得能透光。');
+      addItem('butterfly_specimen', 1);
+      play('ui_confirm');
+      if (t === 'qinghe') {
+        // 第一段「捉虫引导」：第一次奖励不是金币，而是一句世界观描述（建立"这里的东西都有故事"）
+        showMemoryMoment('青禾凤蝶，喜欢停留在花丛附近。小时候，这里经常能看到它。');
+        triggerOnce('ch1_qinghe_butterfly_guide', () => { /* 一次性：仅标记，无额外逻辑 */ });
+      } else {
+        showMemoryMoment('捉到了一只蝴蝶。翅膀薄得能透光。');
+      }
     }
   }
 
   // 第一章 P2「自然记录」第三段昆虫观察（2026-08-13）：小梅递放大镜，玩家逐项观察青禾凤蝶 3 特点。
   // 需背包有青禾凤蝶标本（butterfly_specimen）且未解锁 ch1_natural_record_1；一次性。
+  // 第一章 v0.11 图鉴墙（2026-08-14）：扩展为按标本种类观察——凤蝶（1/10）→ 柳叶蝶（2/10）→ 夜光蛾（3/10）。
   private xiaomeiObserveSeen: boolean[] = [false, false, false];
+  private xiaomeiObserveKind: 'qinghe' | 'willow' | 'moth' = 'qinghe';
+
+  /** 青禾凤蝶观察（原有入口，保持与冻结探针一致） */
   private tryXiaomeiObserve(): void {
+    this.tryXiaomeiObserveKind('qinghe');
+  }
+
+  /** 第一章 v0.11：柳叶蝶观察（第二条自然记录） */
+  private tryXiaomeiObserveWillow(): void {
+    this.tryXiaomeiObserveKind('willow');
+  }
+
+  /** 第一章 v0.11：夜光蛾观察（第三条自然记录） */
+  private tryXiaomeiObserveMoth(): void {
+    this.tryXiaomeiObserveKind('moth');
+  }
+
+  private tryXiaomeiObserveKind(kind: 'qinghe' | 'willow' | 'moth'): void {
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.xiaomeiObserveKind = kind;
     this.xiaomeiObserveSeen = [false, false, false];
-    this.storyDialogue.play(XIAOMEI_OBSERVE_INTRO_DIALOGUE, () => {
+    const intro = kind === 'qinghe'
+      ? XIAOMEI_OBSERVE_INTRO_DIALOGUE
+      : kind === 'willow'
+        ? XIAOMEI_OBSERVE_WILLOW_INTRO_DIALOGUE
+        : XIAOMEI_OBSERVE_MOTH_INTRO_DIALOGUE;
+    this.storyDialogue.play(intro, () => {
       this.playXiaomeiObserveChoices();
     });
   }
@@ -7872,15 +11748,16 @@ export class MapScene extends Phaser.Scene {
     }, (index: number) => {
       if (index >= 0 && index < 3) {
         this.xiaomeiObserveSeen[index] = true;
-        this.storyDialogue!.play(XIAOMEI_OBSERVE_DETAIL_DIALOGUE[index], () => {
+        const kind = this.xiaomeiObserveKind;
+        const detail = kind === 'qinghe'
+          ? XIAOMEI_OBSERVE_DETAIL_DIALOGUE
+          : kind === 'willow'
+            ? XIAOMEI_OBSERVE_WILLOW_DETAIL_DIALOGUE
+            : XIAOMEI_OBSERVE_MOTH_DETAIL_DIALOGUE;
+        this.storyDialogue!.play(detail[index], () => {
           if (this.xiaomeiObserveSeen.every(Boolean)) {
-            // 三项观察完成 → 填自然笔记 + 一次性解锁「青禾镇自然记录 1/10」
-            triggerOnce('ch1_natural_record_1', () => {
-              this.storyDialogue!.play(XIAOMEI_OBSERVE_DONE_DIALOGUE, () => {
-                showMemoryMoment('青禾镇自然记录 1/10 · 青禾凤蝶');
-                this.updateHUD();
-              });
-            });
+            // 三项观察完成 → 填自然笔记 + 一次性解锁对应自然记录
+            this.finishXiaomeiObserve();
           } else {
             // 未集齐 → 继续下一轮观察
             this.playXiaomeiObserveChoices();
@@ -7888,6 +11765,36 @@ export class MapScene extends Phaser.Scene {
         });
       }
     });
+  }
+
+  /** 填自然笔记收束：按虫种解锁 1/10 凤蝶 · 2/10 柳叶蝶 · 3/10 夜光蛾（各自一次性） */
+  private finishXiaomeiObserve(): void {
+    const kind = this.xiaomeiObserveKind;
+    if (kind === 'qinghe') {
+      triggerOnce('ch1_natural_record_1', () => {
+        this.storyDialogue!.play(XIAOMEI_OBSERVE_DONE_DIALOGUE, () => {
+          showMemoryMoment('青禾镇自然记录 1/10 · 青禾凤蝶');
+          this.buildInsectWall();
+          this.updateHUD();
+        });
+      });
+    } else if (kind === 'willow') {
+      triggerOnce('ch1_natural_record_2', () => {
+        this.storyDialogue!.play(XIAOMEI_OBSERVE_WILLOW_DONE_DIALOGUE, () => {
+          showMemoryMoment('青禾镇自然记录 2/10 · 柳叶蝶');
+          this.buildInsectWall();
+          this.updateHUD();
+        });
+      });
+    } else {
+      triggerOnce('ch1_natural_record_3', () => {
+        this.storyDialogue!.play(XIAOMEI_OBSERVE_MOTH_DONE_DIALOGUE, () => {
+          showMemoryMoment('青禾镇自然记录 3/10 · 夜光蛾');
+          this.buildInsectWall();
+          this.updateHUD();
+        });
+      });
+    }
   }
 
   /** 捕虫玩法 V0.1：tryInteract 入口分支——玩家靠近未捕捉的蝴蝶时按 E 捕捉（半径 24px） */
@@ -7917,6 +11824,20 @@ export class MapScene extends Phaser.Scene {
     // 左下草丛 (11,15) + 右侧广场南 (28,16)，均避开 NPC 区与出口（捕虫 V0.2：固定花色）
     this.createButterfly(11 * T + T / 2, 15 * T + T / 2, { type: 'white' });
     this.createButterfly(28 * T + T / 2, 16 * T + T / 2, { type: 'yellow' });
+    // 第一章 v0.11 图鉴墙：河边柳树下 (6,16) 柳叶蝶（白天；河畔空地，避开长椅与出口）
+    this.createButterfly(6 * T + T / 2, 16 * T + T / 2, { type: 'willow' });
+  }
+
+  /**
+   * 捕虫玩法 v0.11（2026-08-14）：森林夜光蛾（夜间 18-06 时，老树旁 1 只）。
+   * 位置 (7,7) 避开老树树体（(8,8) 树冠向上延伸）与星之碎片交互区；白天不出现（与蝴蝶错开时段）。
+   */
+  private spawnForestMoths(): void {
+    if (this.mapKey !== 'forest') return;
+    const t = getTime();
+    if (t.hour >= 6 && t.hour < 18) return;
+    const T = TILE_SIZE;
+    this.createButterfly(7 * T + T / 2, 7 * T + T / 2, { type: 'moth' });
   }
 
   /**
@@ -7939,6 +11860,9 @@ export class MapScene extends Phaser.Scene {
     }
     if (this.mapKey === 'town') {
       this.spawnTownButterflies();
+    }
+    if (this.mapKey === 'forest') {
+      this.spawnForestMoths();
     }
   }
 
@@ -8384,6 +12308,123 @@ export class MapScene extends Phaser.Scene {
     g.debris.push(tree, bench, sign, grassPatch);
     // 集市恢复成功 → 归星记录
     triggerTag('restore_market');
+  // 摊主生成（2026-08-14 制作人拍板）：每摊 1 个摊主（老张/小梅/夏雅），走近可对话
+  this.spawnMarketStallKeepers();
+  // 生命化改造·摊位区（2026-08-14）：摊位生活痕迹（投影/磨损 + 货物堆 + 散落货品）
+  this.setupMarketStallLife();
+  }
+
+  /** 生命化改造·摊位区：摊位地面痕迹 + 摊位旁货物堆 + 摊位间散落货品。
+   *  零素材 Graphics（路线 C）；加入 g.debris 随集市重建清理。 */
+  private setupMarketStallLife(): void {
+    const g = this.marketSquareRestore;
+    if (!g) return;
+    const T = TILE_SIZE;
+    const traces: { type: MarketStallType; sx: number; sy: number; gx: number; gy: number }[] = [
+      { type: 'tool',   sx: 19 * T + 8, sy: 4.5 * T + 8, gx: 20.7 * T, gy: 5.9 * T },
+      { type: 'food',   sx: 25 * T + 8, sy: 7 * T + 8,   gx: 24.1 * T, gy: 8.2 * T },
+      { type: 'flower', sx: 31 * T + 8, sy: 4.5 * T + 8, gx: 32.3 * T, gy: 5.9 * T },
+    ];
+    for (const st of traces) {
+      // 摊位底部：投影 + 磨损地面（"有人长期在这里摆摊"）
+      const ground = this.add.graphics().setDepth(2);
+      ground.fillStyle(0x000000, 0.12); ground.fillEllipse(st.sx, st.sy + 8, 30, 8);
+      ground.fillStyle(0x4a5a30, 0.18); ground.fillEllipse(st.sx, st.sy + 10, 24, 6);
+      g.debris.push(ground);
+      // 摊位旁货物堆（摊主对面一侧）
+      const goods = this.add.graphics().setDepth(3);
+      if (st.type === 'tool') {
+        goods.fillStyle(0x7a5a33, 1); goods.fillRect(st.gx - 5, st.gy - 12, 3, 16);  // 锄柄
+        goods.fillStyle(0x9a7a4a, 1); goods.fillRect(st.gx - 8, st.gy - 14, 9, 3);   // 锄头
+        goods.fillStyle(0x8a6a45, 1); goods.fillRect(st.gx + 2, st.gy - 8, 8, 7);    // 木箱
+        goods.fillStyle(0x6e5633, 1); goods.fillRect(st.gx + 3, st.gy - 6, 6, 1);
+      } else if (st.type === 'food') {
+        goods.fillStyle(0x8a5a33, 1); goods.fillRect(st.gx - 4, st.gy - 6, 8, 3);    // 蒸笼底
+        goods.fillStyle(0xa8825a, 1); goods.fillRect(st.gx - 4, st.gy - 9, 8, 3);    // 蒸笼上
+        goods.fillStyle(0xd8d0c0, 0.9); goods.fillRect(st.gx + 5, st.gy - 5, 5, 3);  // 碗
+        goods.fillStyle(0xd8e8e8, 0.5); goods.fillRect(st.gx - 1, st.gy - 12, 3, 2); // 热气
+      } else {
+        goods.fillStyle(0xb07040, 1); goods.fillRect(st.gx - 4, st.gy - 5, 8, 5);    // 陶盆
+        goods.fillStyle(0x4a8a30, 1); goods.fillRect(st.gx - 3, st.gy - 8, 6, 3);    // 花叶
+        goods.fillStyle(0xe060a0, 1); goods.fillRect(st.gx - 1, st.gy - 9, 2, 2);    // 花
+        goods.fillStyle(0x6a8a9a, 1); goods.fillRect(st.gx + 6, st.gy - 6, 5, 3);    // 水壶身
+        goods.fillStyle(0x9ab8c8, 1); goods.fillRect(st.gx + 10, st.gy - 7, 3, 1);   // 壶嘴
+      }
+      g.debris.push(goods);
+    }
+    // 摊位间散落货品（克制：两点）
+    const scatter = this.add.graphics().setDepth(3);
+    scatter.fillStyle(0xd05040, 0.95); scatter.fillCircle(22.5 * T + 8, 6.2 * T, 1.2);
+    scatter.fillStyle(0x5a9a4a, 0.9); scatter.fillCircle(29 * T + 8, 5.5 * T, 1.2);
+    g.debris.push(scatter);
+  }
+
+  /** 集市开张后生成 3 个摊主（2026-08-14 制作人拍板：摊位旁要有老板，增加活人感/真实感）。
+   *  每摊 1 个：工具摊→老张(npc_miner) / 小吃摊→小梅(npc_gardener) / 花摊→夏雅(npc_girl)。
+   *  复用现有 NPC 贴图（零新素材），独立于 7 主 NPC 日程；带名字标签 + 走近按 E 摊主闲聊。
+   *  幂等：marketStallKeepers 非空则跳过（读档重进不重复生成）。不进 phase3Objects（探针约束）。 */
+  private spawnMarketStallKeepers(): void {
+    if (this.mapKey !== 'town') return;
+    if (this.marketStallKeepers.length > 0) return;
+    const g = this.marketSquareRestore;
+    if (!g) return;
+    // 摊主配置：摊位类型 → 贴图 key / 名字 / 名字色 / 摊位旁偏移
+    const keepers: { type: MarketStallType; tex: string; name: string; color: string; offX: number }[] = [
+      { type: 'tool',   tex: 'npc_miner',    name: '老张', color: '#d8a050', offX: -18 },
+      { type: 'food',   tex: 'npc_gardener', name: '小梅', color: '#a0d888', offX: 18 },
+      { type: 'flower', tex: 'npc_xiya',    name: '夏雅', color: '#e8a0a0', offX: -18 },
+    ];
+    for (const k of keepers) {
+      const spot = g.arrangeSpots.find((s) => s.type === k.type);
+      if (!spot || !spot.placed) continue; // 未摆放的摊位不生成摊主
+      if (!this.textures.exists(k.tex)) continue;
+      const kx = spot.x + k.offX;
+      const ky = spot.y + 6;
+      const c = this.add.container(kx, ky).setDepth(5);
+      // 2026-08-14 夏雅精灵升级（28×64 全身图）：scale 0.42 ≈ 12×27px（全身角色，视觉与其他 NPC 协调）
+      const sc = k.tex === 'npc_xiya' ? 0.42 : 0.5;
+      const img = this.add.image(0, 0, k.tex).setScale(sc);
+      c.add(img);
+      const label = this.add.text(0, -24, k.name, {
+        fontFamily: 'Arial', fontSize: '13px', color: k.color,
+        stroke: '#000000', strokeThickness: 3,
+        backgroundColor: 'rgba(0,0,0,0.4)', padding: { x: 3, y: 1 },
+      }).setOrigin(0.5);
+      c.add(label);
+      // 记录对话 key（用于走近按 E 触发摊主闲聊）
+      c.setData('stallKeeper', `${k.type}:${k.name}`);
+      c.setData('keeperPos', { x: kx, y: ky });
+      this.marketStallKeepers.push(c);
+    }
+  }
+
+  /** 走近摊主按 E → 摊主闲聊（2026-08-14）。距离 40px 内，靠近最近摊主触发一句生活台词。 */
+  private tryStallKeeperInteract(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.marketStallKeepers || this.marketStallKeepers.length === 0) return false;
+    let nearest: Phaser.GameObjects.Container | null = null;
+    let best = 40 * 40;
+    for (const c of this.marketStallKeepers) {
+      if (!c.visible) continue;
+      const pos = c.getData('keeperPos') as { x: number; y: number } | undefined;
+      if (!pos) continue;
+      const dx = this.player.x - pos.x;
+      const dy = this.player.y - pos.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < best) {
+        best = d2;
+        nearest = c;
+      }
+    }
+    if (!nearest) return false;
+    const key = nearest.getData('stallKeeper') as string;
+    const name = key.split(':')[1];
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.inputManager.clearAction();
+    this.storyDialogue.play([
+      { speaker: name, color: '#d8d2c8', text: MapScene.STALL_KEEPER_LINES[name] ?? '今天生意不错，大家都来赶集了。' },
+    ], () => this.updateHUD());
+    return true;
   }
 
   /** 清理后视觉（Phase 2）：空地 + 3 个布置点标记（等待按居民需求放摊位） */
@@ -8437,17 +12478,61 @@ export class MapScene extends Phaser.Scene {
 
   /** 绘制单个摊位（按类型配色：工具=木色 / 小吃=红 / 花=粉） */
   private buildMarketStall(sx: number, sy: number, type: MarketStallType): Phaser.GameObjects.Graphics {
-    const color = type === 'tool' ? 0x8d6e4a : type === 'food' ? 0xd04030 : 0xd060a0;
+    // 2026-08-14 摊位 sprite 替换：原为纯 Graphics 程序绘制（用户反馈"不够好看"）。
+    // 改用 Gemini 生成 + sprite_process.py 入库的摊位 sprite（48×48 级，白底/黑底抠图）。
+    // 3 类差异化：tool=红棕 / food=红 / flower=粉（market_stall_{tool,food,flower}.png）
+    const key = type === 'tool' ? 'spr_stall_tool' : type === 'food' ? 'spr_stall_food' : 'spr_stall_flower';
+    if (this.textures.exists(key)) {
+      const img = this.add.image(sx, sy, key);
+      // 2026-08-14 缩放微调：原 48px≈3 瓦片宽偏大（用户反馈"稍微缩放一点"）→ scale 0.8 ≈ 38px≈2.4 瓦片宽
+      img.setOrigin(0.5, 1).setPosition(sx, sy + 4).setScale(0.8).setDepth(3);
+      return img as unknown as Phaser.GameObjects.Graphics;
+    }
+    const accent = type === 'tool' ? 0x8d6e4a : type === 'food' ? 0xd04030 : 0xd060a0;
+    // Graphics fallback（sprite 未加载时兜底）
     const s = this.add.graphics();
-    s.fillStyle(0x8d6e4a, 1);
-    s.fillRect(sx - 10, sy - 8, 2, 18);   // 立杆 L
-    s.fillRect(sx + 8, sy - 8, 2, 18);    // 立杆 R
-    s.fillStyle(0xc0a888, 1);
-    s.fillRect(sx - 12, sy + 8, 24, 4);   // 木台面
-    s.fillStyle(color, 1);
-    s.fillRect(sx - 12, sy - 10, 24, 3);  // 顶棚
-    s.fillStyle(0xf0ead8, 1);
-    s.fillRect(sx - 12, sy - 7, 24, 2);   // 顶棚白条
+    // 地面投影（增强纵深感）
+    s.fillStyle(0x000000, 0.12);
+    s.fillRoundedRect(sx - 13, sy + 8, 26, 5, 2);
+    // 立杆 L / R（加粗）
+    s.fillStyle(0x6e5633, 1);
+    s.fillRect(sx - 11, sy - 8, 3, 19);
+    s.fillRect(sx + 8, sy - 8, 3, 19);
+    // 木台面（加宽 + 木纹）
+    s.fillStyle(0xa8835a, 1);
+    s.fillRect(sx - 13, sy + 7, 26, 5);
+    s.lineStyle(1, 0x6e5633, 0.6);
+    s.lineBetween(sx - 12, sy + 9, sx + 12, sy + 9);
+    // 顶棚：主色 + 条纹布帘（2 条浅色条）
+    s.fillStyle(accent, 1);
+    s.fillRect(sx - 14, sy - 12, 28, 4);
+    s.fillStyle(0xf5eede, 0.85);
+    s.fillRect(sx - 14, sy - 11, 9, 2);
+    s.fillRect(sx - 2, sy - 11, 9, 2);
+    s.fillRect(sx + 10, sy - 11, 9, 2);
+    // 台面货物（按摊类差异化：工具=木箱+斧柄 / 小吃=蒸笼 / 花=花束）
+    if (type === 'tool') {
+      s.fillStyle(0x8a6a45, 1);
+      s.fillRect(sx - 6, sy + 2, 6, 5);
+      s.lineStyle(1, 0x5b4226, 0.7);
+      s.lineBetween(sx - 6, sy + 4, sx, sy + 4);
+      s.lineStyle(1.5, 0x6e5633, 0.9);
+      s.lineBetween(sx + 3, sy + 7, sx + 5, sy - 1);
+    } else if (type === 'food') {
+      s.fillStyle(0xf0e0c0, 1);
+      s.fillRect(sx - 7, sy + 1, 6, 5);
+      s.fillRect(sx + 1, sy + 1, 6, 5);
+      s.fillStyle(0xe8a0a0, 0.9);
+      s.fillRect(sx - 7, sy + 1, 6, 1.5);
+      s.fillRect(sx + 1, sy + 1, 6, 1.5);
+    } else {
+      s.fillStyle(0xe8b64a, 1);
+      s.fillCircle(sx - 4, sy + 3, 2.2);
+      s.fillCircle(sx + 2, sy + 4, 2.2);
+      s.fillStyle(0xe880b0, 1);
+      s.fillCircle(sx - 4, sy + 3, 1.2);
+      s.fillCircle(sx + 2, sy + 4, 1.2);
+    }
     s.setDepth(3);
     return s;
   }
@@ -9192,9 +13277,9 @@ export class MapScene extends Phaser.Scene {
     const dx = 33 * T + T / 2;
     const dy = 6 * T + T / 2;
     this.gardenXiya = this.add.sprite(dx, dy, 'npc_xiya');
-    this.gardenXiya.setScale(0.5).setDepth(5);
+    this.gardenXiya.setScale(0.42).setDepth(5);
     this.gardenXiya.setFlipX(true);
-    this.gardenXiyaLabel = this.add.text(dx, dy - 14, '夏雅', {
+    this.gardenXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
       fontSize: '13px', color: '#f0a050',
       stroke: '#000000', strokeThickness: 3,
       backgroundColor: 'rgba(0,0,0,0.45)',
@@ -9540,9 +13625,9 @@ export class MapScene extends Phaser.Scene {
     const dx = this.LETTER_POS.x - 32;
     const dy = this.LETTER_POS.y;
     this.letterXiya = this.add.sprite(dx, dy, 'npc_xiya');
-    this.letterXiya.setScale(0.5).setDepth(5);
+    this.letterXiya.setScale(0.42).setDepth(5);
     this.letterXiya.setFlipX(true);
-    this.letterXiyaLabel = this.add.text(dx, dy - 14, '夏雅', {
+    this.letterXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
       fontSize: '13px', color: '#f0a050',
       stroke: '#000000', strokeThickness: 3,
       backgroundColor: 'rgba(0,0,0,0.45)',
@@ -9747,13 +13832,24 @@ export class MapScene extends Phaser.Scene {
   private trySideGardenerPlum(): boolean {
     if (this.mapKey !== 'town') return false;
     if (this.sideGardenerPlumDone) return false;
+    // 2026-08-14 让位修复：小梅花支线锚点 (27,17) 与商店老板 NPC (26,18) 仅距 22.6px。
+    // 玩家在商店老板旁按 E 会被小梅花事件（48px 半径，优先级在前）抢先命中，弹小梅对话而非商店对话。
+    // 对齐花田支线（trySideGardenerField）范式：玩家贴近任何可见 NPC（<24px）时，小梅花让位给 NPC 对话。
+    for (const n of this.npcList) {
+      if (!n.sprite || n.vanished) continue;
+      const ndx = this.player.x - n.sprite.x;
+      const ndy = this.player.y - n.sprite.y;
+      if (ndx * ndx + ndy * ndy < 24 * 24) return false;
+    }
     const T = TILE_SIZE;
-    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，小梅支线坐标平移 dx=10T dy=8T（17→27, 9→17）
-    const px = 27 * T + T / 2;
-    const py = 17 * T + T / 2;
+    // 2026-08-14 花圃锚点移位 (27,17)→(28,16)：原 (27,17) 是马路(gid7)且紧贴商店老板(26,18)，
+    // 玩家在商店旁按 E 会误触发小梅对话；(28,16) 为石板空地且距商店老板 48px、神秘女 36px，
+    // 与 NPC 判定半径(24px)拉开，玩家可正常触发且不误伤。
+    const px = 28 * T + T / 2;
+    const py = 16 * T + T / 2;
     const dx = this.player.x - px;
     const dy = this.player.y - py;
-    if (dx * dx + dy * dy > 48 * 48) return false;
+    if (dx * dx + dy * dy > 44 * 44) return false;
 
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     if (!this.sideGardenerPlumAsked) {
@@ -9792,6 +13888,7 @@ export class MapScene extends Phaser.Scene {
    */
   private setupGardenerField(): void {
     if (this.mapKey !== 'farm') return;
+    this.buildInsectWall();
     if (this.sideGardenerFieldDone) {
       this.buildGardenerFieldBlooming();
       return;
@@ -9804,6 +13901,94 @@ export class MapScene extends Phaser.Scene {
       fontFamily: 'Arial', fontSize: '10px', color: this.sideGardenerFieldAsked ? '#e8d8a8' : '#c8d8a8',
     }).setOrigin(0.5).setDepth(4);
     this.gardenerFieldMark = mark;
+  }
+
+  /** 第一章 v0.11 图鉴墙（制作人 2026-08-14 拍板）：花田旁的昆虫标本墙。
+   *  玩家每完成一条自然记录（小梅观察收束），墙上就多一张小梅画的卡片——玩家路过看到自己的收藏。
+   *  位置：farm 花田 (3,7) 西南侧 (4,10)；纯装饰零资源 Graphics，无碰撞；按 ch1_natural_record_1/2/3 幂等挂卡（重进/读档自动恢复）。
+   *  幂等刷新：finishXiaomeiObserve 完成后调用重建，当场挂上新卡。
+   *  美术优化 2026-08-15：① 由"悬浮长木板"改为"双立柱展示架"——木柱扎进草地 + 木框展示板 + 地面投影；
+   *  ② 原位置 (6,6) 与小梅站位 (5,7) 及其头顶名牌重叠，导致前两张标本卡被名牌盖住，整体挪到花田西南侧空地 (4,10)；
+   *  ③ 尺寸收敛（板 58×24 / 卡 11×16 / 蝴蝶 r2）——去掉大片浅木与"麻黄纸"大色块，改用暗木面板 + 空卡位占位线，
+   *     三张标本卡紧凑排布，视觉上更像"小花田边的标本架"而非大展示板。
+   */
+  private buildInsectWall(): void {
+    if (this.mapKey !== 'farm') return;
+    if (this.insectWall) { this.insectWall.destroy(); this.insectWall = null; }
+    const T = TILE_SIZE;
+    const c = 4 * T + T / 2;
+    const r = 10 * T + T / 2;
+    const wall = this.add.container(c, r).setDepth(2);
+    // 整架地面投影（贴合小架子）
+    const ground = this.add.graphics();
+    ground.fillStyle(0x2e2e34, 0.18);
+    ground.fillEllipse(0, 24, 76, 8);
+    ground.setDepth(2);
+    wall.add(ground);
+    // 左右立柱：细木柱扎进草地，柱脚带小投影
+    const post = (px: number): void => {
+      const p = this.add.graphics();
+      p.fillStyle(0x6e4a24, 1);
+      p.fillRect(px - 2, 2, 4, 22);
+      p.fillStyle(0x8a5a30, 1);
+      p.fillRect(px - 2, 2, 1.5, 22);
+      p.fillStyle(0x2e2e34, 0.28);
+      p.fillEllipse(px, 26, 9, 3);
+      p.setDepth(2);
+      wall.add(p);
+    };
+    post(-30);
+    post(30);
+    // 展示板：58×24，深木外框 + 暗木面板（不再是大片浅木/纸色块）+ 板角钉子 + 空卡位占位线
+    const board = this.add.graphics();
+    board.fillStyle(0x5e3e20, 1);
+    board.fillRect(-29, -12, 58, 24);
+    board.fillStyle(0x7c5c34, 1);
+    board.fillRect(-27, -10, 54, 20);
+    board.lineStyle(1, 0x6e5436, 0.7);
+    board.lineBetween(-27, -10, -27, 10);
+    board.lineBetween(27, -10, 27, 10);
+    board.fillStyle(0x3c2a16, 1);
+    board.fillCircle(-25, -9, 1);
+    board.fillCircle(25, -9, 1);
+    board.fillCircle(-25, 9, 1);
+    board.fillCircle(25, 9, 1);
+    // 空卡位占位（低透明度奶油描边：未解锁时也能看出"这里挂卡片"）
+    for (const px of [-15, 0, 15]) {
+      board.lineStyle(1, 0xe8dcbf, 0.35);
+      board.strokeRect(px - 5.5, -6, 11, 16);
+    }
+    board.setDepth(2);
+    wall.add(board);
+    // 挂卡（仅已解锁的自然记录；11×16 小卡 + 小蝴蝶，三张紧凑排布）
+    const cards: Array<{ key: string; color: number }> = [
+      { key: 'ch1_natural_record_1', color: 0x7fc8d8 }, // 青禾凤蝶 · 淡青
+      { key: 'ch1_natural_record_2', color: 0xa5d6a7 }, // 柳叶蝶 · 嫩绿
+      { key: 'ch1_natural_record_3', color: 0xb0a8d0 }, // 夜光蛾 · 灰紫
+    ];
+    cards.forEach((card, i) => {
+      if (!hasTriggered(card.key)) return;
+      const x = -15 + i * 15;
+      const rope = this.add.graphics();
+      rope.lineStyle(1, 0x8a6a42, 0.9);
+      rope.lineBetween(x, -10, x, -6);
+      rope.setDepth(3);
+      wall.add(rope);
+      const cardG = this.add.graphics();
+      cardG.fillStyle(0xf2e8cf, 1);
+      cardG.fillRect(x - 5.5, -6, 11, 16);
+      cardG.lineStyle(1, 0xc9b391, 0.9);
+      cardG.strokeRect(x - 5.5, -6, 11, 16);
+      // 卡片上的小蝴蝶（左右两翅 + 身体，比原版小一圈）
+      cardG.fillStyle(card.color, 1);
+      cardG.fillCircle(x - 2, 0.5, 2);
+      cardG.fillCircle(x + 2, 0.5, 2);
+      cardG.fillStyle(0x6e5436, 1);
+      cardG.fillRect(x - 0.5, -0.5, 1, 4);
+      cardG.setDepth(3);
+      wall.add(cardG);
+    });
+    this.insectWall = wall;
   }
 
   /** 花田·荒废态：干裂土块 + 枯草圈（零资源 Graphics） */
@@ -10026,9 +14211,9 @@ export class MapScene extends Phaser.Scene {
       this.buildPlumBlossom();
     } else {
       const T = TILE_SIZE;
-      // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，平移 dx=10T dy=8T（17→27, 9→17）
-      const px = 27 * T + T / 2;
-      const py = 17 * T + T / 2;
+      // 2026-08-14 花圃锚点移位 (27,17)→(28,16)（与 trySideGardenerPlum 交互锚点一致，见该函数注释）
+      const px = 28 * T + T / 2;
+      const py = 16 * T + T / 2;
       const mark = this.add.text(px, py - 14, this.sideGardenerPlumAsked ? '花种' : '？', {
         fontFamily: 'Arial', fontSize: '10px', color: this.sideGardenerPlumAsked ? '#e8d8a8' : '#c8d8a8',
       }).setOrigin(0.5).setDepth(4);
@@ -10039,9 +14224,9 @@ export class MapScene extends Phaser.Scene {
   /** 小梅花视觉：枝干 + 粉白花瓣（零资源 Graphics） */
   private buildPlumBlossom(): void {
     const T = TILE_SIZE;
-    // 2026-08-12 Chapter1 P0-0：town 30x20 → 50x35，平移 dx=10T dy=8T（17→27, 9→17）
-    const px = 27 * T + T / 2;
-    const py = 17 * T + T / 2;
+    // 2026-08-14 花圃锚点移位 (27,17)→(28,16)（与 trySideGardenerPlum 交互锚点一致）
+    const px = 28 * T + T / 2;
+    const py = 16 * T + T / 2;
     const plum = this.add.container(px, py + 6).setDepth(3);
     const branch = this.add.graphics();
     branch.lineStyle(1.5, 0x7a5a3a, 1);
@@ -10959,6 +15144,7 @@ export class MapScene extends Phaser.Scene {
         play('water');
         this.waterSplash(tileCenterX, tileCenterY); // 制作人反馈：手机端浇水特效不明显 → 水花粒子增强
         this.moistDarken(tileCenterX, tileCenterY); // v1.0 土壤湿润色变反馈
+        this.waterCareFeedback(col, row, tileCenterX, tileCenterY); // v1.1 水光微闪 + 作物轻摆
         this.showFloatText(tileCenterX, tileCenterY, '浇水');
         this.updateDailyQuestPanel();
       }
@@ -10967,7 +15153,9 @@ export class MapScene extends Phaser.Scene {
       const cropType = this.harvestTileAt(col, row);
       if (cropType) {
         play('harvest');
-        this.showFloatText(tileCenterX, tileCenterY, `+1 ${CROP_DEFS[cropType].icon}`, '#7ef0a0');
+        // v1.1 收获仪式感：每次收获都有作物上浮动画 + 作物专属描述（首次收获的"情绪瞬间"保留）
+        this.harvestPop(tileCenterX, tileCenterY, CROP_DEFS[cropType].icon);
+        this.showFloatText(tileCenterX, tileCenterY, `收获 ${CROP_DEFS[cropType].icon} ${MapScene.HARVEST_DESC[cropType]}`, '#7ef0a0');
         this.updateDailyQuestPanel();
       }
     } else {
@@ -11064,6 +15252,11 @@ export class MapScene extends Phaser.Scene {
     addItem(cropType, 1);
     addXp(10, 'harvest');
     onDQHarvest(cropType);
+    // 种植升级 v2：首次收获玉米 → 记录（丰收节铺垫；居民台词注入见 buildCropGiftDialogue）
+    if (cropType === 'corn' && !hasTriggered('crop_corn_first_harvest')) {
+      triggerOnce('crop_corn_first_harvest', () => { /* 仅标记 */ });
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    }
     // v0.5.3 剧情密度 E2：第一次收获反馈（一次性，夏雅口头肯定，不影响收获本身）
     // v0.10.3：首次收获升级为"情绪瞬间"——轻音效 + 角色停顿表现 + 对白延迟（复用 firstHarvestShown，不新增存档/系统/剧情）
     // v1.0：+作物镜头（0.9s）——收获物放大→上浮→渐隐，"作物本身成为记忆镜头"（不破坏移动流畅）
@@ -11104,6 +15297,37 @@ export class MapScene extends Phaser.Scene {
       }
     }
     return cropType;
+  }
+
+  /** v1.1 收获仪式感：作物上浮渐隐（每次收获都有，区别于首次收获的长镜头） */
+  private harvestPop(x: number, y: number, icon: string): void {
+    const pop = this.add.text(x, y - 6, icon, { fontSize: '18px' }).setOrigin(0.5).setDepth(8);
+    this.tweens.add({
+      targets: pop,
+      scale: 1.8, y: y - 18, alpha: 0,
+      duration: 650, ease: 'Sine.out',
+      onComplete: () => pop.destroy(),
+    });
+  }
+
+  /** v1.1 轻量照料反馈：浇水后水光微闪 + 作物轻摆（"水浇下去，植物回应了一下"；不新增数值/系统） */
+  private waterCareFeedback(col: number, row: number, x: number, y: number): void {
+    const glint = this.add.ellipse(x, y - 7, 10, 6, 0xd8f0ff, 0.5).setDepth(5);
+    glint.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: glint, alpha: 0, scale: 1.7,
+      duration: 700, ease: 'Sine.out',
+      onComplete: () => glint.destroy(),
+    });
+    const cropImg = this.tileRects.get(`${col},${row}`)?.crop;
+    if (cropImg?.visible) {
+      const bs = cropImg.scaleX;
+      this.tweens.add({
+        targets: cropImg, scaleX: bs * 1.08, scaleY: bs * 1.08,
+        duration: 180, yoyo: true, ease: 'Sine.out',
+        onComplete: () => cropImg.setScale(bs, bs),
+      });
+    }
   }
 
   /** 首次收获「情绪瞬间」对白（含 T2-1 引导提示条）。抽出供正常路径与清晨演出后补播共用 */
