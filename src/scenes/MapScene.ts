@@ -472,6 +472,9 @@ export class MapScene extends Phaser.Scene {
   private artShowSprites: Phaser.GameObjects.GameObject[] = [];
   private artShowBox: Phaser.GameObjects.Container | null = null; // 素材箱（交付点）
   private artShowXiya: Phaser.GameObjects.Sprite | null = null;   // 筹备期广场夏雅（策划）
+  /** 星光艺术展余波：庆典后白天在艺术角照看展台的夏雅（会话级，随场景重建） */
+  private artShowAfterXiya: Phaser.GameObjects.Sprite | null = null;
+  private artShowAfterXiyaLabel: Phaser.GameObjects.Text | null = null;
   private artShowHint: HTMLDivElement | null = null;              // 素材箱/夏雅靠近提示
   // 星光艺术展余波：旅人回访（艺术展办完后，白天/傍晚坐艺术角长椅看自己的展品）
   private artShowTravelerGfx: Phaser.GameObjects.Graphics | null = null;
@@ -937,6 +940,7 @@ export class MapScene extends Phaser.Scene {
 
   /** 场景停止/切换时清理挂载在 document.body 上的 DOM 残留（提示条/种子选择器等） */
   private cleanupSceneDom(): void {
+    this.hideAllInteractHints();
     this.removeTutorialHint();
     this.removeShortcutHint();
     this.closeSeedSelector();
@@ -983,6 +987,8 @@ export class MapScene extends Phaser.Scene {
     this.cleanupGathering();
     // 星光艺术展余波：旅人回访清理（视觉 + label + DOM hint，场景切换防残留）
     this.cleanupArtShowTraveler();
+    // 星光艺术展余波：庆典后夏雅清理（视觉 + label + DOM hint，场景切换防残留）
+    this.clearArtShowAfterXiya();
     // 镇长家提示物品清理
     this.clearElderHouseHint();
     // 灯塔探索交互点清理（场景切换时销毁，防止残留）
@@ -1442,6 +1448,10 @@ this.setupRiverbankLife();
 this.setupTownDensityClusters();
 // 阶段4 中央广场生活化：石井 / 石凳 / 踩踏痕迹 / 夜晚灯柱（见 setupCentralPlaza）
 this.setupCentralPlaza();
+// town 下方西侧生活角美化：柴堆 / 晾衣绳 / 石凳 / 水桶 / 花丛 / 踩踏小路（见 setupTownBottomLife）
+this.setupTownBottomLife();
+// town 南郊自然美化：树木 / 花丛 / 草簇 / 石头 / 踩踏小路（见 setupTownSouthLife）
+this.setupTownSouthLife();
 // 小镇计划·星光艺术展：筹备/活动/永久状态挂载（见 setupArtShow）
 this.setupArtShow();
 // 种植升级 v2：萝卜赠予后的河边腌萝卜罐（世界留下痕迹）
@@ -2001,6 +2011,9 @@ this.setupFieldLife();
     // 剧情对话打开时：禁止移动，E/空格推进对话
     if (this.storyDialogue) {
       if (this.storyDialogue.isOpen()) {
+        // 对话打开期间 update 提前 return，各 checkXxxHint 不再执行；
+        // 统一隐藏所有靠近提示，防止互动（按 E 查看/对话）后提示条残留。
+        this.hideAllInteractHints();
         this.inputManager.update();
         this.player.setVelocity(0, 0);
         if (this.inputManager.consumeAction()) {
@@ -2077,6 +2090,8 @@ this.setupFieldLife();
     this.checkArtShowAuto();
     // 星光艺术展余波：旅人回访靠近提示（白天/傍晚在艺术角时）
     this.checkArtShowTravelerProximity();
+    // 星光艺术展余波：庆典后夏雅靠近提示（白天/傍晚在艺术角时，与旅人提示互斥）
+    this.checkArtShowAfterXiyaProximity();
     // 阶段3 光照：town 黄昏暖光按小时切换（小时内幂等）
     this.updateTownDuskOverlay();
     // 钓鱼 Phase 1 靠近提示（仅 town 场景，S6 老河堤钓点附近 + 非钓鱼中 + 无对话）
@@ -4778,6 +4793,154 @@ this.setupFieldLife();
     }
   }
 
+  /**
+   * town 下方西侧生活角美化（2026-08 制作人要求）：大片草地补"有人生活的角落"。
+   * 位置：row 19-25, col 5-9（下方西侧草地，避开主干道石板/建筑/河岸/需求板）。
+   * 零素材纯 Graphics，无碰撞、不挡路；生活痕迹 = 柴堆 / 晾衣绳 / 石凳 / 水桶 / 花丛 / 踩踏小路。
+   */
+  private setupTownBottomLife(): void {
+    if (this.mapKey !== 'town') return;
+    const T = TILE_SIZE;
+    const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
+
+    // ① 柴堆（生活痕迹：几根圆木靠墙摞着）
+    {
+      const [x, y] = px(5, 19);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x8a6a42, 1); g.fillRect(x - 7, y + 1, 14, 3);              // 底柴
+      g.fillStyle(0x9a7a4e, 1); g.fillRect(x - 7, y + 1, 14, 1);              // 柴顶亮面
+      g.fillStyle(0x6e4a2a, 1); g.fillRect(x - 5, y - 2, 10, 3);             // 第二层
+      g.fillStyle(0x8a6a42, 1); g.fillRect(x - 3, y - 5, 6, 3);              // 顶层
+      g.fillStyle(0x5b3d1e, 1); g.fillRect(x - 7, y + 1, 2, 3);              // 阴影端
+    }
+    // ② 晾衣绳（生活感：两木杆 + 横绳 + 蓝/粉衣物，随风微晃）
+    {
+      const [x0, y0] = px(7, 19);
+      const [x1, y1] = px(9, 19);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x6e4a2a, 1); g.fillRect(x0 - 2, y0 - 10, 3, 12);          // 左杆
+      g.fillRect(x1 - 2, y1 - 10, 3, 12);                                    // 右杆
+      g.lineStyle(1, 0x8a6a42, 0.9); g.lineBetween(x0, y0 - 8, x1, y1 - 8);  // 横绳
+      // 衣物（挂在绳上：蓝衫 + 粉布 + 白袜）
+      g.fillStyle(0x6a94b8, 1); g.fillRect(x0 + 3, y0 - 7, 4, 5);            // 蓝衫
+      g.fillStyle(0xc878a0, 1); g.fillRect(x0 + 10, y0 - 7, 3, 4);           // 粉布
+      g.fillStyle(0xe8e8f0, 1); g.fillRect(x1 - 8, y1 - 7, 3, 3);            // 白袜
+      // 衣物夹子
+      g.fillStyle(0x4a4a52, 1); g.fillRect(x0 + 3, y0 - 8, 4, 1);
+      g.fillRect(x0 + 10, y0 - 8, 3, 1);
+      g.fillRect(x1 - 8, y1 - 8, 3, 1);
+    }
+    // ③ 石凳（歇脚点：两石墩 + 石板面，傍晚微光）
+    {
+      const [x, y] = px(6, 23);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x9a9aa2, 1); g.fillRect(x - 8, y - 2, 16, 3);             // 石面
+      g.fillStyle(0x8a8a92, 1); g.fillRect(x - 7, y + 1, 5, 4);              // 左墩
+      g.fillRect(x + 2, y + 1, 5, 4);                                        // 右墩
+      g.fillStyle(0xb8b8c0, 0.7); g.fillRect(x - 8, y - 2, 16, 1);           // 面高光
+    }
+    // ④ 木水桶（生活痕迹：井边/门口常见）
+    {
+      const [x, y] = px(8, 24);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x8a6a42, 1); g.fillRect(x - 3, y - 3, 6, 6);              // 桶身
+      g.fillStyle(0x6e4a2a, 1); g.fillRect(x - 3, y - 3, 6, 2);              // 桶口
+      g.fillStyle(0x9a7a4e, 1); g.fillRect(x - 3, y - 2, 6, 1);              // 高光
+      g.fillStyle(0x4a3626, 1); g.fillRect(x - 4, y + 3, 8, 1);              // 底影
+      g.fillStyle(0x6e4a2a, 1); g.fillRect(x - 1, y - 6, 2, 3);              // 提手
+    }
+    // ⑤ 小花丛（点缀生活感）
+    {
+      const [x, y] = px(5, 25);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x5a8a3a, 1); g.fillRect(x - 6, y, 1, 4);                  // 茎
+      g.fillRect(x - 1, y + 1, 1, 3);
+      g.fillRect(x + 4, y, 1, 4);
+      g.fillStyle(0xff9e80, 1); g.fillCircle(x - 6, y - 2, 1.6);             // 花
+      g.fillStyle(0xf4b8d8, 1); g.fillCircle(x - 1, y - 1, 1.4);
+      g.fillStyle(0xffd166, 1); g.fillCircle(x + 4, y - 2, 1.5);
+      g.fillStyle(0x8abc5a, 1); g.fillRect(x - 4, y - 1, 1, 2);              // 叶
+      g.fillRect(x + 2, y - 1, 1, 2);
+    }
+    // ⑥ 踩踏小路（草地踏痕，从建筑门口到河边，提示"有人常走"）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [c, r] of [[5, 20], [5, 21], [5, 22], [5, 23], [5, 24]] as Array<[number, number]>) {
+        const [x, y] = px(c, r);
+        g.fillStyle(0x3a5a30, 0.16);
+        g.fillEllipse(x, y, 12, 4);
+      }
+    }
+  }
+
+  /**
+   * town 南郊自然美化（2026-08 制作人要求"继续美术风格优化"）：
+   * 位置：row 29-34, col 2-15（row 28 石板路南侧大片草地）。
+   * 零素材纯 Graphics，无碰撞不挡路；南郊 = 自然过渡（树/花/草/石）+ 生活痕迹（踩踏小路）。
+   */
+  private setupTownSouthLife(): void {
+    if (this.mapKey !== 'town') return;
+    const T = TILE_SIZE;
+    const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
+
+    // ① 树木（2 棵，程序绘制：绿冠 + 棕干，自然散点）
+    const tree = (c: number, r: number, s = 1): void => {
+      const [x, y] = px(c, r);
+      const g = this.add.graphics().setDepth(3).setScale(s);
+      g.fillStyle(0x5a3f22, 1); g.fillRect(x - 2, y - 10, 4, 10);          // 干
+      g.fillStyle(0x3f6d2a, 1); g.fillCircle(x, y - 16, 7);                // 冠底
+      g.fillStyle(0x528a38, 1); g.fillCircle(x - 3, y - 18, 4);            // 冠侧亮
+      g.fillStyle(0x3f6d2a, 1); g.fillCircle(x + 2, y - 13, 3);            // 冠侧
+      g.fillStyle(0x6da544, 0.8); g.fillCircle(x - 1, y - 17, 2);          // 高光
+      g.fillStyle(0x2e2e34, 0.18); g.fillEllipse(x, y + 2, 16, 3);         // 投影
+    };
+    tree(4, 30, 1);
+    tree(12, 32, 0.95);
+
+    // ② 花丛（3 处，野花 + 茎叶）
+    const flower = (c: number, r: number): void => {
+      const [x, y] = px(c, r);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x5a8a3a, 1); g.fillRect(x - 5, y, 1, 4);
+      g.fillRect(x, y + 1, 1, 3);
+      g.fillRect(x + 5, y, 1, 4);
+      g.fillStyle(0x8abc5a, 1); g.fillRect(x - 3, y, 1, 2);
+      g.fillRect(x + 3, y, 1, 2);
+      g.fillStyle(0xff9e80, 1); g.fillCircle(x - 5, y - 2, 1.6);
+      g.fillStyle(0xf4b8d8, 1); g.fillCircle(x, y - 1, 1.4);
+      g.fillStyle(0xffd166, 1); g.fillCircle(x + 5, y - 2, 1.5);
+    };
+    flower(3, 32); flower(8, 30); flower(14, 31);
+
+    // ③ 草簇（3 处，竖线草）
+    const grass = (c: number, r: number): void => {
+      const [x, y] = px(c, r);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x5a8a4a, 1);
+      for (let i = 0; i < 3; i++) g.fillRect(x - 6 + i * 4, y - 1, 1, 5 + (i % 2) * 2);
+    };
+    grass(6, 33); grass(10, 31); grass(13, 34);
+
+    // ④ 石头（2 处，圆石 + 高光）
+    const rock = (c: number, r: number): void => {
+      const [x, y] = px(c, r);
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x9a9aa2, 1); g.fillCircle(x, y, 2.5);
+      g.fillStyle(0xb8b8c0, 0.8); g.fillCircle(x - 1, y - 1, 1.2);
+    };
+    rock(7, 33); rock(11, 33);
+
+    // ⑤ 踩踏小路（从 row 28 石板路向南延伸的草地踏痕）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [c, r] of [[3, 29], [3, 30], [3, 31], [3, 32], [3, 33], [3, 34]] as Array<[number, number]>) {
+        const [x, y] = px(c, r);
+        g.fillStyle(0x3a5a30, 0.16);
+        g.fillEllipse(x, y, 11, 4);
+      }
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // 小镇计划·星光艺术展（Feature-XXX，2026-08-15 制作人拍板）
   // 依据：《星光艺术展-垂直切片设计稿-v0.2-拍板基线.md》+《任务卡 v0.1》
@@ -4829,6 +4992,7 @@ this.setupFieldLife();
     if (this.artShowPerm) {
       this.buildArtShowPermanent();
       this.setupArtShowTraveler();
+      this.setupArtShowAfterXiya();
     }
   }
 
@@ -4894,7 +5058,7 @@ this.setupFieldLife();
     if (t.hour < 8 || t.hour >= 18) return;
     const p = MapScene.ARTSHOW.xiya;
     this.artShowXiya = this.add.sprite(p.x, p.y, 'npc_xiya');
-    this.artShowXiya.setScale(0.42).setDepth(5);
+    this.artShowXiya.setScale(0.5).setDepth(5);
     this.add.text(p.x, p.y - 24, '夏雅', {
       fontSize: '12px', color: '#f0a050', stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(6);
@@ -5019,6 +5183,7 @@ this.setupFieldLife();
     const dx = this.player.x - this.artShowTravelerPos.x;
     const dy = this.player.y - this.artShowTravelerPos.y;
     if (dx * dx + dy * dy < 42 * 42 && !this.storyDialogue?.isOpen()) {
+      this.hideArtShowHint(); // 互斥：旅人与庆典后夏雅提示同底栏，只留一条
       this.showArtShowTravelerHint();
     } else {
       this.hideArtShowTravelerHint();
@@ -5045,6 +5210,104 @@ this.setupFieldLife();
       this.artShowTravelerHint.remove();
       this.artShowTravelerHint = null;
     }
+  }
+
+  /** 庆典后夏雅（艺术角展台旁，白天照看；对齐旅人回访范式） */
+  private setupArtShowAfterXiya(): void {
+    if (this.mapKey !== 'town' || !this.artShowPerm) return;
+    if (this.artShowAfterXiya) return; // 幂等：同一场景实例内不重复创建
+    const h = getTime().hour;
+    if (h < 8 || h >= 20) return;       // 夜晚不在（与旅人一致：广场只剩灯和作品）
+    const p = MapScene.ARTSHOW.xiya;    // 展台旁（原筹备期站位；旅人在长椅 (516,322)，距离 >52px 不重叠）
+    this.artShowAfterXiya = this.add.sprite(p.x, p.y, 'npc_xiya');
+    this.artShowAfterXiya.setScale(0.5).setDepth(5);
+    this.artShowAfterXiyaLabel = this.add.text(p.x, p.y - 24, '夏雅', {
+      fontSize: '12px', color: '#f0a050', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(6);
+  }
+
+  /** 庆典后夏雅交互入口（town，展台旁按 E）：余波一次 + 日常轮换 */
+  private tryArtShowAfterXiyaInteract(): boolean {
+    if (this.mapKey !== 'town' || !this.artShowPerm) return false;
+    if (!this.artShowAfterXiya?.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const h = getTime().hour;
+    if (h < 8 || h >= 20) return false; // 夜晚不在
+    const dx = this.player.x - this.artShowAfterXiya.x;
+    const dy = this.player.y - this.artShowAfterXiya.y;
+    if (dx * dx + dy * dy >= 34 * 34) return false;
+    this.hideArtShowHint();
+    this.inputManager.clearAction();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    // 余波台词（方向稿）：第一次一句，随后按天奇偶轮换日常句，都克制、具体。
+    const once = triggerOnce('artshow_xiya_after', () => { /* 仅标记：庆典后夏雅余波已读 */ });
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    const day = getTime().day;
+    const lines: DialogueLine[] = once ? [
+      narrator('（展办完的第二天，夏雅又站在展台边，把那盏星光灯擦亮了。）'),
+      { speaker: '夏雅', color: COLORS.xiya, text: '灯还亮着。路过的人，都会停下来看一眼。' },
+      { speaker: '林澈', color: COLORS.linche, text: '会一直有人来看的。' },
+      { speaker: '夏雅', color: COLORS.xiya, text: '嗯。……我就在这儿等着。' },
+    ] : (day % 2 === 0 ? [
+      narrator('（夏雅在展台边，给花换了个方向。）'),
+      { speaker: '夏雅', color: COLORS.xiya, text: '今天也有人来看画。……挺好的。' },
+    ] : [
+      narrator('（夏雅坐在艺术角的长椅边上，看着远处。）'),
+      { speaker: '夏雅', color: COLORS.xiya, text: '那盏灯晚上亮起来，河边也能看见。' },
+    ]);
+    this.storyDialogue.play(lines, () => this.updateHUD());
+    return true;
+  }
+
+  /** 庆典后夏雅靠近提示（update 调用；复用 artShowHint 底栏，与旅人提示互斥） */
+  private checkArtShowAfterXiyaProximity(): void {
+    if (this.mapKey !== 'town' || !this.artShowPerm || !this.artShowAfterXiya) {
+      this.hideArtShowHint();
+      return;
+    }
+    const h = getTime().hour;
+    const present = h >= 8 && h < 20;
+    if (this.artShowAfterXiya) this.artShowAfterXiya.setVisible(present);
+    if (this.artShowAfterXiyaLabel) this.artShowAfterXiyaLabel.setVisible(present);
+    if (!present) { this.hideArtShowHint(); return; }
+    if (this.storyDialogue?.isOpen() || this.townPlanPanel) {
+      this.hideArtShowHint();
+      return;
+    }
+    const dx = this.player.x - this.artShowAfterXiya.x;
+    const dy = this.player.y - this.artShowAfterXiya.y;
+    if (dx * dx + dy * dy < 34 * 34) {
+      this.hideArtShowTravelerHint(); // 互斥：同一底栏位置只保留一条提示
+      this.showArtShowHint();
+    } else {
+      this.hideArtShowHint();
+    }
+  }
+
+  /** 清理庆典后夏雅（场景切换时调用，防残留） */
+  private clearArtShowAfterXiya(): void {
+    this.artShowAfterXiya?.destroy();
+    this.artShowAfterXiya = null;
+    this.artShowAfterXiyaLabel?.destroy();
+    this.artShowAfterXiyaLabel = null;
+    this.hideArtShowHint();
+  }
+
+  /** 统一隐藏所有靠近交互提示（对话打开 / 场景切换时调用，防 DOM 提示残留） */
+  private hideAllInteractHints(): void {
+    this.hideOldTreeHint();
+    this.hideHouseTidyHint();
+    this.hideFishingHint();
+    this.hideFishingReelHint();
+    this.hideGatherHint();
+    this.hideLaoJiangHint();
+    this.hideArtShowHint();
+    this.hideArtShowTravelerHint();
   }
 
   /** 清理旅人回访（场景切换时调用，防残留） */
@@ -5260,6 +5523,8 @@ this.setupFieldLife();
     const dx = this.player.x - this.artShowXiya.x;
     const dy = this.player.y - this.artShowXiya.y;
     if (dx * dx + dy * dy > 34 * 34) return false;
+    // 互动即隐藏靠近提示（对齐 tryArtShowTravelerInteract 范式：开对话前先隐藏）
+    this.hideArtShowHint();
     triggerOnce('artshow_xiya_plan', () => {
       this.artShowXiya?.destroy();
       this.artShowXiya = null;
@@ -5276,10 +5541,12 @@ this.setupFieldLife();
 
   /** 素材箱/广场夏雅靠近提示（update 调用） */
   private checkArtShowProximity(): void {
-    if (this.mapKey !== 'town' || !this.artShowUnlocked || this.artShowHeld) {
+    if (this.mapKey !== 'town' || !this.artShowUnlocked) {
       this.hideArtShowHint();
       return;
     }
+    // 庆典已办：筹备期素材箱/夏雅提示失效，artShowHint 由 checkArtShowAfterXiyaProximity 接管
+    if (this.artShowHeld) return;
     if (this.storyDialogue?.isOpen() || this.townPlanPanel) {
       this.hideArtShowHint();
       return;
@@ -5974,7 +6241,7 @@ this.setupFieldLife();
     const dy = 4 * TILE_SIZE + TILE_SIZE / 2;
     this.dawnXiya = this.add.sprite(dx, dy, 'npc_xiya');
     // 2026-08-14 夏雅精灵升级（28×64 全身图）：scale 0.42 ≈ 12×27px（全身角色，视觉与其他 NPC 协调）
-    this.dawnXiya.setScale(0.42).setDepth(5);
+    this.dawnXiya.setScale(0.5).setDepth(5);
     this.dawnXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
       fontSize: '13px', color: '#f0a050',
       stroke: '#000000', strokeThickness: 3,
@@ -6103,7 +6370,7 @@ this.setupFieldLife();
       const mx = 10 * T + T / 2;
       const my = 21 * T + T / 2;
       this.morningXiya = this.add.sprite(mx, my, 'npc_xiya');
-      this.morningXiya.setScale(0.42).setDepth(5);
+      this.morningXiya.setScale(0.5).setDepth(5);
       this.morningXiyaLabel = this.add.text(mx, my - 24, '夏雅', {
         fontSize: '13px', color: '#f0a050',
         stroke: '#000000', strokeThickness: 2,
@@ -6350,7 +6617,7 @@ this.setupFieldLife();
     const dx = 14 * TILE_SIZE + TILE_SIZE / 2;
     const dy = 6 * TILE_SIZE + TILE_SIZE / 2;
     this.eveningXiya = this.add.sprite(dx, dy, 'npc_xiya');
-    this.eveningXiya.setScale(0.42).setDepth(5);
+    this.eveningXiya.setScale(0.5).setDepth(5);
     this.eveningXiya.setFlipX(true);
     this.eveningXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
       fontSize: '13px', color: '#f0a050',
@@ -8189,7 +8456,7 @@ this.setupFieldLife();
       const xiyaX = 15 * TILE_SIZE + TILE_SIZE / 2;
       const xiyaY = 11 * TILE_SIZE + TILE_SIZE / 2;
       this.xiyaSprite = this.add.sprite(xiyaX, xiyaY, 'npc_xiya');
-      this.xiyaSprite.setScale(0.42).setDepth(5);
+      this.xiyaSprite.setScale(0.5).setDepth(5);
       this.add.text(xiyaX, xiyaY - 24, '夏雅', {
         fontSize: '13px', color: '#f0a050',
         stroke: '#000000', strokeThickness: 3,
@@ -9681,6 +9948,8 @@ this.setupFieldLife();
     }
     // 星光艺术展余波：旅人回访坐艺术角长椅（展办完后，白天/傍晚可对话）
     if (this.tryArtShowTravelerInteract()) return;
+    // 星光艺术展余波：庆典后夏雅在艺术角照看展台（白天/傍晚可对话）
+    if (this.tryArtShowAfterXiyaInteract()) return;
 
     // 钓鱼老人老姜（氛围锚点）：人在旁边时先说话；站到水边才钓鱼
     if (this.tryLaoJiangInteract()) return;
@@ -12716,7 +12985,7 @@ this.setupFieldLife();
       const ky = spot.y + 6;
       const c = this.add.container(kx, ky).setDepth(5);
       // 2026-08-14 夏雅精灵升级（28×64 全身图）：scale 0.42 ≈ 12×27px（全身角色，视觉与其他 NPC 协调）
-      const sc = k.tex === 'npc_xiya' ? 0.42 : 0.5;
+      const sc = k.tex === 'npc_xiya' ? 0.5 : 0.5;
       const img = this.add.image(0, 0, k.tex).setScale(sc);
       c.add(img);
       const label = this.add.text(0, -24, k.name, {
@@ -13611,7 +13880,7 @@ this.setupFieldLife();
     const dx = 33 * T + T / 2;
     const dy = 6 * T + T / 2;
     this.gardenXiya = this.add.sprite(dx, dy, 'npc_xiya');
-    this.gardenXiya.setScale(0.42).setDepth(5);
+    this.gardenXiya.setScale(0.5).setDepth(5);
     this.gardenXiya.setFlipX(true);
     this.gardenXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
       fontSize: '13px', color: '#f0a050',
@@ -13959,7 +14228,7 @@ this.setupFieldLife();
     const dx = this.LETTER_POS.x - 32;
     const dy = this.LETTER_POS.y;
     this.letterXiya = this.add.sprite(dx, dy, 'npc_xiya');
-    this.letterXiya.setScale(0.42).setDepth(5);
+    this.letterXiya.setScale(0.5).setDepth(5);
     this.letterXiya.setFlipX(true);
     this.letterXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
       fontSize: '13px', color: '#f0a050',
