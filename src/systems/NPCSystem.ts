@@ -22,7 +22,9 @@
 import { NPC, ScheduleEntry } from '../entities/NPC';
 import { getTime } from '../data/TimeSystem';
 import { getRevivalLevel, isRestored } from '../data/FarmRestore';
+import { countGrownTiles } from '../data/FarmState';
 import { hasTriggered } from './EventManager';
+import { getChapter } from './ChapterSystem';
 import { COLORS, type DialogueLine } from './StorySystem';
 import { isMobileLayout } from '../config';
 
@@ -380,6 +382,39 @@ const MARKET_RESTORED_LINES: Record<string, DialogueLine[]> = {
   ],
 };
 
+// ============ 第一章 P1：夜晚灯光回忆点 — NPC 生活感反馈分支 ============
+// 设计（实习 Agent，2026-08-14 制作人确认选项 A）：
+//   夜晚 + 第一章时，NPC 对"镇子的灯亮起来 / 夜晚不再冷清"做生活感反馈，
+//   呼应 Phase3 "灯亮=从冷清到有温度"的核心意象（老屋灯=有人住）。
+//   纯氛围台词，不推进剧情、不改状态、零存档字段；复用 getDailyNpcLine 的 seed 规则。
+//   触发：isNight()（hour >= 18 || hour < 6，与 Phase3 S6 夜灯 / AmbienceSystem 夜晚窗口一致）
+//         && getChapter() >= 1（第一章「复苏」才亮灯）。
+//   优先级：夜晚&章节1 → NIGHT_LINES；否则 集市恢复 → MARKET_RESTORED_LINES；否则 NPC_DAILY_LINES。
+//   新增台词遵守 D-017 文风护栏（具体情境 + 说话缺陷 + 不连续漂亮 + 遮名可辨认），待制作人文风把关。
+const NIGHT_LINES: Record<string, DialogueLine[]> = {
+  elder: [
+    { speaker: '镇长', color: '#c8b898', text: '晚上没事，我在桥头站一会儿。看见老屋那扇窗亮着灯，就知道有人住。' },
+  ],
+  shopkeeper: [
+    { speaker: '商店老板', color: '#8ac8a0', text: '打烊收拾柜台的时候，外面灯影一晃一晃的。镇上总算有点活气了。' },
+  ],
+  miner: [
+    { speaker: '矿工老张', color: '#d8a050', text: '收工晚了，路过镇上。看见亮着灯的窗户，就想起以前下工回家的那段路。' },
+  ],
+  gardener: [
+    { speaker: '花匠小梅', color: '#a0d888', text: '夜里我去给花浇水，月亮照着，花瓣上全是光。这花啊，晚上也有人看它。' },
+  ],
+  adventurer: [
+    { speaker: '阿风', color: '#88b8e8', text: '晚上出来看星星，走到有灯的地方就歇个脚。镇子亮堂了，走夜路心里有底。' },
+  ],
+  carpenter: [
+    { speaker: '木匠老周', color: '#c89860', text: '木头收了工。回头一看，老屋那边还亮着——这活没白修。' },
+  ],
+  mystery: [
+    { speaker: '神秘少女', color: '#b8a0e8', text: '夜里灯多起来……能照着路。' },
+  ],
+};
+
 /** 简单字符串 hash（用于 seed，避免依赖天数之外的状态） */
 function hashCode(s: string): number {
   let h = 0;
@@ -390,6 +425,15 @@ function hashCode(s: string): number {
 }
 
 /**
+ * 夜晚判定（hour >= 18 || hour < 6）
+ * 与 Phase3 S6 夜灯触发窗口、AmbienceSystem 夜晚窗口一致（第一章「夜晚灯光」语境）。
+ */
+function isNight(): boolean {
+  const h = getTime().hour;
+  return h >= 18 || h < 6;
+}
+
+/**
  * 获取某 NPC 当天的一句随机生活台词（无状态，seed = day + npcId hash）
  * @param npcId NPC id（miner/gardener/adventurer）
  * @param day 当天天数
@@ -397,8 +441,16 @@ function hashCode(s: string): number {
  */
 export function getDailyNpcLine(npcId: string, day: number): DialogueLine[] | null {
   // 第一章 P2-2：集市恢复后，NPC 生活台词切到"集市热闹"分支（恢复前/后可感知不同）
-  const pool = isRestored('marketSquare') ? MARKET_RESTORED_LINES[npcId] : NPC_DAILY_LINES[npcId];
+  // 第一章 P1：夜晚 + 章节≥1 时优先切到「夜晚灯光回忆点」生活感分支（氛围层，不覆盖集市语义）
+  const nightPool = isNight() && getChapter() >= 1 ? NIGHT_LINES[npcId] : null;
+  let pool = nightPool ??
+    (isRestored('marketSquare') ? MARKET_RESTORED_LINES[npcId] : NPC_DAILY_LINES[npcId]);
   if (!pool || pool.length === 0) return null;
+  // 土地回应系统 v1.4（B 菜园回应）：农田有成熟作物时，小梅偶尔一句"最近菜园看起来不错"
+  // （世界状态判定，不做成就计数；seed 轮换自然形成"偶尔"）
+  if (npcId === 'gardener' && countGrownTiles() > 0) {
+    pool = [...pool, { speaker: '花匠小梅', color: '#a0d888', text: '最近菜园看起来不错。' }];
+  }
   const idx = (hashCode(npcId) + day) % pool.length;
   return [pool[idx]];
 }

@@ -35,6 +35,7 @@ import {
 import { getProjectShortfall, getQuickBuyCost, isRestored, markRestored, getRevivalLevel } from '../data/FarmRestore';
 import { isHouseTidyComplete } from '../data/HouseTidy';
 import { addItem, getItemCount, getItemDef, itemIconHtml, setItemCount, type ItemType } from '../data/Inventory';
+import { MAIL_LETTERS, getMailLetter, type MailLetter } from '../data/MailLetters';
 import { getGatherPointsForScene, gatherKindToItem, gatherEventKey, GATHER_INTERACT_RANGE, GATHER_VISUAL, type GatherPointDef, type GatherVisualConfig } from '../data/Gathering';
 import { formatTime, getTime, nextDay as timeNextDay, setTime, setTimeFull, tick as timeTick } from '../data/TimeSystem';
 import { getCoins, spendCoins, addCoins, WOOD_BUY_PRICE } from '../data/Economy';
@@ -83,6 +84,7 @@ import { StoryDialogue } from '../ui/StoryDialogue';
 import { EndingPanel } from '../ui/EndingPanel';
 import { PhotoAlbumPanel } from '../ui/PhotoAlbumPanel';
 import { ResidentBoardPanel } from '../ui/ResidentBoardPanel';
+import { openMailbox, showFirstMailLetter, isMailboxOpen as isMailboxPanelOpen } from '../ui/MailboxPanel';
 import { getRequestById, isRequestDone } from '../systems/ResidentRequestSystem';
 import {
   getStoryStep, setStoryStep, advanceStory, isTutorialDone,
@@ -198,6 +200,12 @@ export interface MapSceneFlags {
   artShowMaterialsDone?: boolean; // 素材准备完成（鱼·晚餐食材）
   artShowHeld?: boolean;          // 活动当天已办（演出触发）
   artShowPerm?: boolean;          // 永久变化已落地（广场东侧艺术角）
+  /** 邮箱系统（2026-08-15 制作人拍板）：grandpa_gift_opened 后解锁；信件随存档持久 */
+  mailUnlocked?: boolean;         // 是否解锁（收到爷爷的信后）
+  mailLastDay?: number;           // 上次来信的游戏天数（-1=未来过）
+  mailNextDay?: number;           // 下次来信计划天数（2-3 天随机）
+  mailQueue?: string[];           // 未读信 id 队列（最多 6）
+  mailRead?: string[];            // 已读信 id 列表（归档回看）
 }
 
 /** 存档中保存的 MapScene flag（模块级暂存，apply 时写入，MapScene.create 时消费） */
@@ -589,6 +597,14 @@ export class MapScene extends Phaser.Scene {
     /** 交互基准点（木屋右侧空地像素坐标） */
     pos: { x: number; y: number };
   } | null = null;
+  /** 邮箱系统（2026-08-15 制作人拍板）：老屋门口信箱本体 + 信件队列（随 mapFlags 入档） */
+  private mailboxGfx: Phaser.GameObjects.Container | null = null;
+  private mailboxPos: { x: number; y: number } = { x: 0, y: 0 };
+  private mailUnlocked = false;
+  private mailLastDay = -1;
+  private mailNextDay = -1;
+  private mailQueue: string[] = [];
+  private mailRead: string[] = [];
   // 第一章 P2-1 集市广场恢复（town 中央偏北，制作人 2026-08-12 Sprint 3 + 2026-08-13 Phase 2）：
   // 村长来访（ch1_elder_visit）后解锁；资源交付=清理场地 → 需求匹配布置 3 摊 → 开张。
   // 状态机：荒地 → 清理（ch1_market_cleared）→ 布置（ch1_market_stall_1/2/3）→ 开张（markRestored）。
@@ -846,6 +862,11 @@ export class MapScene extends Phaser.Scene {
       artShowMaterialsDone: inst.artShowMaterialsDone,
       artShowHeld: inst.artShowHeld,
       artShowPerm: inst.artShowPerm,
+      mailUnlocked: inst.mailUnlocked,
+      mailLastDay: inst.mailLastDay,
+      mailNextDay: inst.mailNextDay,
+      mailQueue: inst.mailQueue,
+      mailRead: inst.mailRead,
     };
   }
 
@@ -906,6 +927,11 @@ export class MapScene extends Phaser.Scene {
       this.artShowMaterialsDone = saved.artShowMaterialsDone ?? false;
       this.artShowHeld = saved.artShowHeld ?? false;
       this.artShowPerm = saved.artShowPerm ?? false;
+      this.mailUnlocked = saved.mailUnlocked ?? false;
+      this.mailLastDay = saved.mailLastDay ?? -1;
+      this.mailNextDay = saved.mailNextDay ?? -1;
+      this.mailQueue = saved.mailQueue ?? [];
+      this.mailRead = saved.mailRead ?? [];
     }
   }
 
@@ -1464,6 +1490,8 @@ this.setupFishDoorHinge();
       this.setupOldHouseRestore();
       // T3 夏雅「整理旧照片」：老屋门口互动点（一次性，读档恢复已完成态）
       this.setupXiyaPhoto();
+      // 邮箱系统（收到爷爷的信后解锁）：老屋门口东侧信箱 + 来信队列
+      this.setupMailbox();
     }
 
 // P2 农场复兴视觉化（菜园层次/工具区/树荫/碎石小路，荒废→复兴两态，与 FEATURE-037 联动）
@@ -9498,6 +9526,8 @@ this.setupFieldLife();
     this.updateHUD();
     // 土地回应系统 v1.4：同时 ≥3 格成熟作物 → 农田"活过来"（世界回应，一次性入档）
     this.checkFieldAlive();
+    // 邮箱系统：跨天/收获后推进来信队列（2-3 天随机，事件信插队）
+    this.updateMailQueue();
   }
 
   /**
@@ -9761,6 +9791,11 @@ this.setupFieldLife();
     // FEATURE-037 老屋修复（未恢复时靠近按 E：资源交付一次完成）
     if (this.mapKey === 'farm' && this.oldHouseRestore && !this.oldHouseRestore.restored) {
       if (this.tryOldHouseRestoreInteract()) return;
+    }
+
+    // 邮箱系统（收到爷爷的信后解锁）：老屋门口信箱，靠近按 E 读信（首次走爷爷首封演出）
+    if (this.mapKey === 'farm') {
+      if (this.tryMailboxInteract()) return;
     }
 
     // P1-3 夏雅《旧日留影》交付：翻出旧相框后，老屋门口找夏雅擦净（§八，需先翻柜子；排在 T3 之前避免冲突）
@@ -11935,72 +11970,142 @@ this.setupFieldLife();
     }
   }
 
-  /** 恢复前视觉：屋顶破洞 + 外墙裂缝 + 门前杂草 + 交互提示标记 */
+  /** 恢复前视觉（v4 2D 门脸）：像一张房子正面图整体上移——三角破屋顶 + 墙 + 封板门 + 裂纹窗，玩家在门前走 */
   private buildOldHouseRuined(): void {
     const g = this.oldHouseRestore;
     if (!g) return;
-    const T = TILE_SIZE;
-    // 组1 屋顶破洞：灰色缺瓦块 + 内黑影（木屋北侧 row 18 屋顶线）
-    const hole = this.add.graphics();
-    hole.fillStyle(0x6a5a48, 1);
-    hole.fillRoundedRect(-8, -4, 16, 7, 2);
-    hole.fillStyle(0x3a3228, 1);
-    hole.fillRect(-4, -2, 8, 3);
-    hole.setPosition(4 * T + T / 2, 18 * T + T / 2);
-    hole.setRotation(-0.15);
-    hole.setDepth(3);
-    // 组2 外墙裂缝：深色斜线（木屋右墙）
-    const crack = this.add.graphics();
-    crack.lineStyle(1, 0x2e2820, 1);
-    crack.lineBetween(-5, -7, 4, 5);
-    crack.lineBetween(-2, -7, 5, 0);
-    crack.setPosition(8 * T + T / 2, 21 * T + T / 2);
-    crack.setDepth(3);
-    // 组3 门前杂草：绿色短线（门垫前）
+    const debris: Phaser.GameObjects.Graphics[] = [];
+    const add = (o: Phaser.GameObjects.Graphics): void => { debris.push(o); };
+    // 屋顶（2D 三角坡顶，rows 14-17；深度 4，玩家始终在其前方可见）
+    const roof = this.add.graphics();
+    roof.fillStyle(0x5e3a26, 1);
+    roof.fillTriangle(44, 280, 148, 280, 96, 226);
+    roof.fillStyle(0x422818, 1);
+    roof.fillTriangle(44, 280, 148, 280, 96, 284);  // 屋檐底沿
+    roof.fillStyle(0x52331e, 1);
+    roof.fillRect(90, 220, 12, 8);                   // 残破屋脊
+    roof.lineStyle(1, 0x402818, 0.8);
+    roof.lineBetween(54, 262, 138, 262);
+    roof.lineBetween(64, 248, 128, 248);
+    // 破洞（缺瓦 + 内黑影 + 断椽）
+    roof.fillStyle(0x241812, 1);
+    roof.fillTriangle(72, 268, 100, 268, 86, 246);
+    roof.lineStyle(1, 0x1a100c, 1);
+    roof.lineBetween(76, 266, 84, 254);
+    roof.lineBetween(96, 266, 90, 256);
+    roof.setDepth(4);
+    add(roof);
+    // 地面投影（让破房子也"落在地上"）
+    const groundShadow = this.add.graphics();
+    groundShadow.fillStyle(0x1a1a22, 0.12);
+    groundShadow.fillEllipse(96, 324, 112, 22);
+    groundShadow.setDepth(3);
+    add(groundShadow);
+    // 墙（rows 17-20，暗木 + 板缝）
+    const wall = this.add.graphics();
+    wall.fillStyle(0x6a5236, 1);
+    wall.fillRect(48, 276, 96, 40);
+    wall.lineStyle(1, 0x4a3a24, 0.8);
+    wall.lineBetween(48, 288, 144, 288);
+    wall.lineBetween(48, 300, 144, 300);
+    wall.setDepth(4);
+    add(wall);
+    // 屋檐下暗影带（屋顶压墙的厚度感）
+    const eaveShadow = this.add.graphics();
+    eaveShadow.fillStyle(0x241812, 0.16);
+    eaveShadow.fillRect(48, 280, 96, 6);
+    eaveShadow.setDepth(4);
+    add(eaveShadow);
+    // 窗（墙上左右，暗 + 裂纹）
+    const win = (x: number): void => {
+      const w = this.add.graphics();
+      w.fillStyle(0x3a3026, 1);
+      w.fillRect(x - 9, 280, 18, 14);
+      w.lineStyle(1, 0x564a3a, 1);
+      w.strokeRect(x - 8, 281, 16, 12);
+      w.lineBetween(x, 281, x, 293);
+      w.lineStyle(1, 0x2c241a, 1);
+      w.lineBetween(x - 3, 286, x + 3, 292);
+      w.setDepth(4);
+      add(w);
+    };
+    win(64);
+    win(128);
+    // 门（col 6 门口，钉板封死）
+    const door = this.add.graphics();
+    door.fillStyle(0x4e3824, 1);
+    door.fillRect(86, 294, 20, 24);
+    door.fillStyle(0x6e5236, 1);
+    door.fillRect(88, 296, 16, 20);
+    door.lineStyle(1, 0x4e3824, 1);
+    door.lineBetween(88, 301, 104, 301);
+    door.lineBetween(88, 307, 104, 307);
+    door.lineBetween(88, 313, 104, 313);
+    door.setDepth(4);
+    add(door);
+    // 基础（row 20）
+    const base = this.add.graphics();
+    base.fillStyle(0x4a3a28, 1);
+    base.fillRect(48, 312, 96, 8);
+    base.setDepth(4);
+    add(base);
+    // 门前杂草
     const weeds = this.add.graphics();
-    weeds.fillStyle(0x7a9a4a, 1);
-    for (let i = 0; i < 5; i++) {
-      weeds.fillRect(-10 + i * 5, 0, 1, 3 + (i % 3) * 2);
-    }
-    weeds.setPosition(6 * T + T / 2, 18 * T + T / 2);
-    weeds.setDepth(3);
-    g.debris = [hole, crack, weeds];
+    weeds.fillStyle(0x8aaa58, 1);
+    for (let i = 0; i < 5; i++) weeds.fillRect(106 + i * 4, 310, 1, 3 + (i % 3) * 2);
+    weeds.setDepth(4);
+    add(weeds);
+    g.debris = debris;
     g.mark = this.add.text(g.pos.x, g.pos.y - 10, '老屋', {
       fontFamily: 'Arial', fontSize: '10px', color: '#e8d8a8',
     }).setOrigin(0.5).setDepth(4);
   }
 
-  /** 恢复后视觉：清除破旧 → 红灯笼 ×2 / 炊烟 / 门牌 / 门前花（装饰不换 Tilemap） */
+  /** 恢复后视觉（v4 2D 门脸）：像一张房子正面图整体上移——三角坡顶 + 墙 + 门 + 暖光窗，
+   *  门口在下方，玩家始终在房子前方走（不被盖住），可从门口进出。 */
   private buildOldHouseRestored(): void {
     const g = this.oldHouseRestore;
     if (!g) return;
-    const T = TILE_SIZE;
-    // 清除破旧装饰与提示标记
     for (const d of g.debris) d.destroy();
     g.debris = [];
     if (g.mark) { g.mark.destroy(); g.mark = null; }
-    // 灯笼 ×2：门两侧屋顶下沿（红灯笼 + 暖色灯芯 + 挂绳）
-    const lantern = (x: number, y: number) => {
-      const l = this.add.graphics();
-      l.fillStyle(0xcf3a2a, 1);
-      l.fillRoundedRect(-2, -4, 4, 8, 2);
-      l.fillStyle(0xffd166, 1);
-      l.fillCircle(0, 0, 1.2);
-      l.fillRect(-1, -6, 2, 2);
-      l.setPosition(x, y);
-      l.setDepth(3);
-      return l;
-    };
-    lantern(5 * T + T / 2, 19 * T - 2);
-    lantern(8 * T + T / 2, 19 * T - 2);
-    // 炊烟：烟囱上方飘升的灰白圆点（循环 tween）
+    const decor: Phaser.GameObjects.Graphics[] = [];
+    const add = (o: Phaser.GameObjects.Graphics): void => { decor.push(o); };
+    // 屋顶（2D 三角坡顶，rows 14-17；深度 4，玩家始终在其前方可见）
+    const roof = this.add.graphics();
+    roof.fillStyle(0xa0603e, 1);
+    roof.fillTriangle(44, 280, 148, 280, 96, 226);
+    roof.fillStyle(0x7a4a2e, 1);
+    roof.fillTriangle(44, 280, 148, 280, 96, 284);  // 屋檐底沿
+    roof.fillStyle(0xb88058, 1);
+    roof.fillRect(90, 220, 12, 8);                   // 屋脊盖
+    roof.lineStyle(1, 0x6e3e26, 0.8);
+    roof.lineBetween(54, 264, 138, 264);
+    roof.lineBetween(64, 250, 128, 250);
+    roof.lineBetween(74, 238, 118, 238);
+    roof.setDepth(4);
+    add(roof);
+    // 地面投影（让房子落在地上，不飘）
+    const groundShadow = this.add.graphics();
+    groundShadow.fillStyle(0x1a1a22, 0.11);
+    groundShadow.fillEllipse(96, 324, 112, 22);
+    groundShadow.setDepth(3);
+    add(groundShadow);
+    // 烟囱 + 炊烟（右坡面上，烟往上飘）
+    const chimney = this.add.graphics();
+    chimney.fillStyle(0xb88060, 1);
+    chimney.fillRect(118, 230, 8, 26);
+    chimney.fillStyle(0x96684c, 1);
+    chimney.fillRect(116, 228, 12, 4);
+    chimney.setDepth(4);
+    add(chimney);
     const smoke = this.add.graphics();
     smoke.fillStyle(0xcfcbc4, 0.85);
     smoke.fillCircle(0, -14, 3);
     smoke.fillCircle(4, -8, 2.5);
     smoke.fillCircle(-3, -3, 2);
-    smoke.setPosition(7 * T + T / 2, 18 * T + T / 2);
-    smoke.setDepth(3);
+    smoke.setPosition(122, 224);
+    smoke.setDepth(4);
     this.tweens.add({
       targets: smoke,
       y: smoke.y - 10,
@@ -12009,19 +12114,248 @@ this.setupFieldLife();
       repeat: -1,
       ease: 'Sine.Out',
     });
-    // 门牌（木屋北侧空地 row 17）
-    this.add.text(6 * T + T / 2, 17 * T + T / 2, '归星小屋', {
+    add(smoke);
+    // 墙（rows 17-20，暖木 + 板缝）
+    const wall = this.add.graphics();
+    wall.fillStyle(0x9a7848, 1);
+    wall.fillRect(48, 276, 96, 40);
+    wall.lineStyle(1, 0x6e5234, 0.7);
+    wall.lineBetween(48, 288, 144, 288);
+    wall.lineBetween(48, 300, 144, 300);
+    wall.setDepth(4);
+    add(wall);
+    // 屋檐下暗影带（屋顶压墙的厚度感）
+    const eaveShadow = this.add.graphics();
+    eaveShadow.fillStyle(0x3a2416, 0.15);
+    eaveShadow.fillRect(48, 280, 96, 6);
+    eaveShadow.setDepth(4);
+    add(eaveShadow);
+    // 窗（墙上左右，暖光）
+    const win = (x: number): void => {
+      const w = this.add.graphics();
+      w.fillStyle(0x5e3c22, 1);
+      w.fillRect(x - 10, 279, 20, 16);
+      w.fillStyle(0xffe8a0, 1);
+      w.fillRect(x - 8, 281, 16, 12);
+      w.lineStyle(1, 0x4a2c18, 1);
+      w.strokeRect(x - 8, 281, 16, 12);
+      w.lineBetween(x, 281, x, 293);
+      w.setDepth(4);
+      add(w);
+    };
+    win(64);
+    win(128);
+    // 门（col 6 门口）：门框 + 木门 + 门顶 + 把手
+    const door = this.add.graphics();
+    door.fillStyle(0xa87c4c, 1);
+    door.fillRect(86, 294, 20, 24);
+    door.fillStyle(0xe0bc78, 1);
+    door.fillRect(88, 296, 16, 20);
+    door.fillStyle(0xc89a60, 1);
+    door.fillRect(88, 296, 16, 3);
+    door.lineStyle(1, 0x8a6038, 0.8);
+    door.lineBetween(90, 306, 102, 306);
+    door.fillStyle(0x8a6a40, 1);
+    door.fillCircle(101, 305, 1.2);
+    door.setDepth(4);
+    add(door);
+    // 基础（row 20）
+    const base = this.add.graphics();
+    base.fillStyle(0x6a4e30, 1);
+    base.fillRect(48, 312, 96, 8);
+    base.setDepth(4);
+    add(base);
+    // 灯笼 ×2（门两侧墙上）
+    const lantern = (x: number, y: number): void => {
+      const l = this.add.graphics();
+      l.fillStyle(0xe04a36, 1);
+      l.fillRoundedRect(-2, -4, 4, 8, 2);
+      l.fillStyle(0xffe088, 1);
+      l.fillCircle(0, 0, 1.2);
+      l.fillRect(-1, -6, 2, 2);
+      l.setPosition(x, y);
+      l.setDepth(4);
+      add(l);
+    };
+    lantern(76, 296);
+    lantern(116, 296);
+    // 门牌（门上方墙上）
+    this.add.text(96, 290, '归星小屋', {
       fontFamily: 'Arial', fontSize: '10px', color: '#f4e3c1',
       backgroundColor: '#6a4a2a', padding: { x: 4, y: 1 },
-    }).setOrigin(0.5).setDepth(4);
-    // 门前花：门垫右侧
+    }).setOrigin(0.5).setDepth(5);
+    // 门前花：门旁地上
     const flower = this.add.graphics();
-    flower.fillStyle(0xff9e80, 1);
+    flower.fillStyle(0xffb098, 1);
     flower.fillCircle(0, 0, 2);
-    flower.fillStyle(0xffd166, 1);
+    flower.fillStyle(0xffe088, 1);
     flower.fillCircle(0, 0, 1);
-    flower.setPosition(8 * T + T / 2, 18 * T + T / 2 + 4);
-    flower.setDepth(3);
+    flower.setPosition(106, 318);
+    flower.setDepth(4);
+    add(flower);
+    g.debris = decor;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 邮箱系统（2026-08-15 制作人拍板）
+  // 定位：不是消息中心——信是"玩家做完事以后，NPC 告诉他'我看见了'"。
+  // 解锁：grandpa_gift_opened（收到爷爷的信）→ farm 老屋门口东侧出现信箱。
+  // 节奏：2-3 游戏日一封（随机不固定）；世界事件信插队；未读最多积累 6 封。
+  // ═══════════════════════════════════════════════════════════
+
+  /** 邮箱本体（farm 老屋门口东侧空地 (9,18)，距修复锚点 45px 无交互冲突） */
+  private setupMailbox(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!hasTriggered('grandpa_gift_opened')) return; // 收到爷爷的信后解锁
+    const T = TILE_SIZE;
+    this.mailboxPos = { x: 9 * T + T / 2, y: 18 * T + T / 2 };
+    // 首次解锁：队列放入爷爷首封（必达），设定下次来信日（2-3 天随机）
+    if (!this.mailUnlocked) {
+      this.mailUnlocked = true;
+      this.mailQueue = ['grandpa_first'];
+      this.mailLastDay = getTime().day;
+      this.mailNextDay = getTime().day + 2 + Math.floor(Math.random() * 2);
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    }
+    const box = this.add.container(this.mailboxPos.x, this.mailboxPos.y).setDepth(4);
+    // 木柱 + 箱体（投信口）
+    const post = this.add.graphics();
+    post.fillStyle(0x6a4a2a, 1); post.fillRect(-3, 2, 6, 22);
+    post.fillStyle(0x8a6a42, 1); post.fillRect(-3, 2, 2, 22);
+    const body = this.add.graphics();
+    body.fillStyle(0x7a5a34, 1); body.fillRect(-14, -12, 28, 18);
+    body.fillStyle(0x9a7a4a, 1); body.fillRect(-14, -12, 28, 3);
+    body.fillStyle(0x3a2a18, 1); body.fillRect(-14, 2, 28, 3);
+    body.fillStyle(0x6e5234, 1); body.fillRect(-2, -8, 2, 12);
+    box.add([post, body]);
+    // 未读小旗（有信时立起）
+    const flag = this.add.graphics();
+    flag.fillStyle(0xcf3a2a, 1); flag.fillRect(8, -14, 13, 2);
+    flag.fillStyle(0xe04a36, 1); flag.fillTriangle(8, -14, 21, -11, 8, -7);
+    box.add(flag);
+    // 呼吸光点（吸引注意，参照音乐盒/包裹）
+    const glow = this.add.ellipse(0, -2, 22, 16, 0xffd98a, 0.14);
+    box.add(glow);
+    this.tweens.add({ targets: glow, alpha: { from: 0.1, to: 0.3 }, duration: 1100, yoyo: true, repeat: -1 });
+    this.mailboxGfx = box;
+    // 回家时推进来信队列（补发积累的信）
+    this.updateMailQueue();
+    this.refreshMailboxFlag();
+  }
+
+  /** 来信队列推进：世界事件信插队 → 爷爷首封补位 → 定时生活信（2-3 天随机，未读上限 6） */
+  private updateMailQueue(): void {
+    if (!this.mailUnlocked) return;
+    let changed = false;
+    let guard = 0;
+    while (guard++ < 6) {
+      if (this.mailQueue.length >= 6) break;
+      const worldId = this.pickPendingWorldLetter();
+      if (worldId) {
+        this.mailQueue.push(worldId);
+        changed = true;
+        this.mailLastDay = getTime().day;
+        this.mailNextDay = getTime().day + 2 + Math.floor(Math.random() * 2);
+        continue;
+      }
+      if (!this.mailRead.includes('grandpa_first') && !this.mailQueue.includes('grandpa_first')) {
+        this.mailQueue.unshift('grandpa_first');
+        changed = true;
+        this.mailLastDay = getTime().day;
+        this.mailNextDay = getTime().day + 2 + Math.floor(Math.random() * 2);
+        continue;
+      }
+      if (getTime().day < this.mailNextDay) break;
+      const lifeId = this.pickPendingLifeLetter();
+      if (lifeId) {
+        this.mailQueue.push(lifeId);
+        changed = true;
+        this.mailLastDay = getTime().day;
+        this.mailNextDay = getTime().day + 2 + Math.floor(Math.random() * 2);
+      } else {
+        break;
+      }
+    }
+    if (changed) {
+      this.refreshMailboxFlag();
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    }
+  }
+
+  /** 世界事件信（各 1 封，按优先级：老屋→集市→放生→番茄架→艺术展余波） */
+  private pickPendingWorldLetter(): string | null {
+    const rules: Array<{ id: string; ready: () => boolean }> = [
+      { id: 'laozhou_oldhouse', ready: () => isRestored('oldHouse') },
+      { id: 'elder_market', ready: () => isRestored('marketSquare') },
+      { id: 'laojiang_release', ready: () => this.fishReleaseDay >= 0 },
+      { id: 'xiya_tomato', ready: () => hasTriggered('crop_tomato_xiya_seen') },
+      { id: 'traveler_artshow', ready: () => this.artShowHeld },
+    ];
+    for (const r of rules) {
+      if (r.ready() && !this.mailQueue.includes(r.id) && !this.mailRead.includes(r.id)) return r.id;
+    }
+    return null;
+  }
+
+  /** 普通生活信（未读未排中随机一封） */
+  private pickPendingLifeLetter(): string | null {
+    const pending = MAIL_LETTERS.filter(
+      (l) => l.type === 'life' && !this.mailQueue.includes(l.id) && !this.mailRead.includes(l.id),
+    );
+    if (pending.length === 0) return null;
+    return pending[Math.floor(Math.random() * pending.length)].id;
+  }
+
+  /** 小旗显隐（有未读立起） */
+  private refreshMailboxFlag(): void {
+    if (!this.mailboxGfx) return;
+    const flag = this.mailboxGfx.getAt(2) as Phaser.GameObjects.Graphics | null;
+    if (flag) flag.setVisible(this.mailQueue.length > 0);
+  }
+
+  /** 邮箱交互：首次打开走爷爷首封演出，之后进列表 */
+  private tryMailboxInteract(): boolean {
+    if (!this.mailboxGfx || !this.mailUnlocked) return false;
+    if (!this.mailboxGfx.visible) return false;
+    const dx = this.player.x - this.mailboxPos.x;
+    const dy = this.player.y - this.mailboxPos.y;
+    if (dx * dx + dy * dy > 34 * 34) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    if (isMailboxPanelOpen()) return false;
+    this.inputManager.clearAction();
+    // 首次：信箱里的第一封信（爷爷）——唯一演出
+    if (this.mailQueue.includes('grandpa_first') && !this.mailRead.includes('grandpa_first')) {
+      const letter = getMailLetter('grandpa_first');
+      if (letter) {
+        showFirstMailLetter(letter, () => {
+          this.markMailRead('grandpa_first');
+          this.openMailboxPanel();
+        });
+        return true;
+      }
+    }
+    this.openMailboxPanel();
+    return true;
+  }
+
+  /** 标记已读：移出队列 + 入归档 + 存档 */
+  private markMailRead(id: string): void {
+    if (!this.mailRead.includes(id)) this.mailRead.push(id);
+    this.mailQueue = this.mailQueue.filter((q) => q !== id);
+    this.refreshMailboxFlag();
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+  }
+
+  /** 打开邮箱面板（未读列表 + 已读归档） */
+  private openMailboxPanel(): void {
+    const unread = this.mailQueue.map((id) => getMailLetter(id)).filter((l): l is MailLetter => !!l);
+    const read = this.mailRead.map((id) => getMailLetter(id)).filter((l): l is MailLetter => !!l);
+    openMailbox({
+      unread,
+      read,
+      onRead: (id: string) => this.markMailRead(id),
+      onClose: () => { /* 存档已由 markMailRead 处理 */ },
+    });
   }
 
   /**

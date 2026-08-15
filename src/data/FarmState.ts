@@ -29,12 +29,14 @@ export interface CropDef {
   sellPrice: number;
 }
 
-/** 作物属性表 */
+/** 作物属性表（P0-2 种植节奏专项，2026-08-14 制作人拍板；2026-08-15 制作人定稿调整：
+ *  成熟周期延长（萝卜3/番茄4/玉米5/草莓6 天）+ 单株售价上调作为补偿（45/80/75/150G），
+ *  避免种田变机械刷钱，同时让等待更有回报感。数值与 Economy 收购价保持同步。 */
 export const CROP_DEFS: Record<CropType, CropDef> = {
-  radish: { name: '萝卜', icon: '🥕', seedItem: 'radish_seed', growthDays: 1, seedPrice: 10, sellPrice: 15 },
-  tomato: { name: '番茄', icon: '🍅', seedItem: 'tomato_seed', growthDays: 2, seedPrice: 20, sellPrice: 35 },
-  corn: { name: '玉米', icon: '🌽', seedItem: 'corn_seed', growthDays: 3, seedPrice: 15, sellPrice: 25 },
-  strawberry: { name: '草莓', icon: '🍓', seedItem: 'strawberry_seed', growthDays: 3, seedPrice: 50, sellPrice: 80 },
+  radish: { name: '萝卜', icon: '🥕', seedItem: 'radish_seed', growthDays: 3, seedPrice: 10, sellPrice: 45 },
+  tomato: { name: '番茄', icon: '🍅', seedItem: 'tomato_seed', growthDays: 4, seedPrice: 20, sellPrice: 80 },
+  corn: { name: '玉米', icon: '🌽', seedItem: 'corn_seed', growthDays: 5, seedPrice: 15, sellPrice: 75 },
+  strawberry: { name: '草莓', icon: '🍓', seedItem: 'strawberry_seed', growthDays: 6, seedPrice: 50, sellPrice: 150 },
 };
 
 /** 所有作物类型列表（按索引顺序，与 spritesheet 行对应） */
@@ -68,6 +70,17 @@ export function isInFarmArea(col: number, row: number): boolean {
     row >= FARM_AREA.row0 &&
     row <= FARM_AREA.row1
   );
+}
+
+/** 统计当前成熟作物格数（土地回应系统 v1.4：世界状态判定，不做成就计数） */
+export function countGrownTiles(): number {
+  let n = 0;
+  for (let r = FARM_AREA.row0; r <= FARM_AREA.row1; r++) {
+    for (let c = FARM_AREA.col0; c <= FARM_AREA.col1; c++) {
+      if (getTileState(c, r) === 'grown') n++;
+    }
+  }
+  return n;
 }
 
 /** 瓦片坐标 → 存储 key */
@@ -112,6 +125,8 @@ export interface CropData {
   cropType: CropType;
   plantDay: number;
   watered: boolean;
+  /** 已浇水成长天数（四阶段视觉用：种子→幼苗→成长→成熟；可选，旧档无此字段按天数推导） */
+  grownDays?: number;
 }
 
 /** 作物数据表：key = "col,row"，仅 planted/watered/grown 状态有值 */
@@ -174,7 +189,8 @@ export const FARM_TREE_POSITIONS: { col: number; row: number }[] = [
   //   挪至南侧空地 24,21（避开农田/商店 31,13/海角区/水塘/出生点）
   { col: 39, row: 15 }, { col: 38, row: 19 },
   // ── 南侧（室内入口两侧） ──
-  { col: 3, row: 20 }, { col: 8, row: 21 }, { col: 13, row: 20 },
+  // 2026-08-15 房子通路修复：原 (3,20)/(8,21) 落在老屋地板内，把玩家堵在房外——移除
+  { col: 13, row: 20 },
   { col: 30, row: 21 }, { col: 35, row: 20 }, { col: 39, row: 21 },
   // ── 2026-08-10 东侧挪树落点（原 38,10 卡小镇出口区，移至南侧空地，避开农田/商店/海角/水塘） ──
   { col: 24, row: 21 },
@@ -301,9 +317,11 @@ export function advanceDay(newDay: number): void {
         setTileState(col, row, 'grown');
       }
     } else if (crop.watered) {
-      // 多日作物：已浇水但未成熟，重置为 planted 以便次日再浇水
+      // 多日作物：已浇水但未成熟，重置为 planted 以便次日再浇水；
+      // 记录浇水成长天数（四阶段视觉：种子→幼苗→成长→成熟）
       setTileState(col, row, 'planted');
-      setCrop(col, row, { ...crop, watered: false });
+      const prev = crop.grownDays ?? Math.max(0, newDay - crop.plantDay - 1);
+      setCrop(col, row, { ...crop, watered: false, grownDays: prev + 1 });
     }
   }
 }
