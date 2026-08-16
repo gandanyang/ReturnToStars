@@ -1,0 +1,29 @@
+A single game asset sprite, isolated object.
+
+A small round stone stool / garden seat:
+a flat smooth grey stone sitting on a smaller base stone,
+soft rounded shape, slightly weathered,
+a place someone sits to rest,
+small town rural village life,
+Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no grass,
+no scenery around the stone.
+
+Pure black background,
+centered object,
+front view,
+the stone fills most of the frame,
+only the stone, floating alone on the black background.

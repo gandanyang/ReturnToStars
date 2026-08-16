@@ -15,8 +15,14 @@ import { InputManager } from '../systems/InputManager';
  *   row 3 (frames 12-15): walk up
  */
 export class Player extends Phaser.Physics.Arcade.Sprite {
-  // 移动速度（像素/秒）
+  // 移动基础速度（像素/秒）。P0-1 手感专项：实际速度 = 方向 × baseSpeed × moveMagnitude（0~1）
   private readonly speed = 200;
+  // 加减速平滑参数（P0-1 手感专项，制作人拍板：避免轻轻一划窜出去 / 大幅拖动跟不上）
+  private static readonly ACCEL_RATE = 12;    // 加速系数（越大越快达到目标速度）
+  private static readonly DECEL_RATE = 8;     // 减速系数（松手平滑减速，略小于加速避免急停）
+  // 当前实际速度（内部状态，加减速平滑用）
+  private currentVx = 0;
+  private currentVy = 0;
 
   // 玩家朝向（交互作用方向判定用）
   public facing: 'up' | 'down' | 'left' | 'right' = 'down';
@@ -75,36 +81,47 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   /**
    * 每帧调用：从 InputManager 读取移动向量，设置速度与朝向，播放行走动画
    * 由 MapScene.update() 调用
+   *
+   * P0-1 手感专项（2026-08-14 制作人拍板）：
+   *   目标速度 = 方向 × baseSpeed × moveMagnitude（键盘 magnitude=1 → 满速；摇杆 0~1 连续）
+   *   加减速平滑：加速快（起步跟手）、减速平滑（松手不窜、不急停）
+   *   连续转向：目标方向随时更新，速度平滑过渡，斜向移动自然
    */
   update(): void {
     const mx = this.inputMgr.moveX;
     const my = this.inputMgr.moveY;
+    const mag = this.inputMgr.moveMagnitude;
 
-    let vx = 0;
-    let vy = 0;
-
-    // 水平移动（与原逻辑一致：先水平后垂直，垂直覆盖水平朝向）
+    // 目标方向（水平优先，垂直覆盖朝向；与键盘逻辑一致）
+    let targetVx = 0;
+    let targetVy = 0;
     if (mx < 0) {
-      vx = -this.speed;
+      targetVx = -this.speed * mag;
       this.facing = 'left';
     } else if (mx > 0) {
-      vx = this.speed;
+      targetVx = this.speed * mag;
       this.facing = 'right';
     }
-
-    // 垂直移动
     if (my < 0) {
-      vy = -this.speed;
+      targetVy = -this.speed * mag;
       this.facing = 'up';
     } else if (my > 0) {
-      vy = this.speed;
+      targetVy = this.speed * mag;
       this.facing = 'down';
     }
 
-    this.setVelocity(vx, vy);
+    // 加减速平滑（指数逼近目标速度）：松手（目标为 0）用减速系数，否则加速系数
+    const r = (targetVx === 0 && targetVy === 0) ? Player.DECEL_RATE : Player.ACCEL_RATE;
+    this.currentVx += (targetVx - this.currentVx) * Math.min(1, r / 60);
+    this.currentVy += (targetVy - this.currentVy) * Math.min(1, r / 60);
+    // 减速到接近 0 时归零（避免无穷逼近的浮点残留）
+    if (targetVx === 0 && Math.abs(this.currentVx) < 1) this.currentVx = 0;
+    if (targetVy === 0 && Math.abs(this.currentVy) < 1) this.currentVy = 0;
+
+    this.setVelocity(this.currentVx, this.currentVy);
 
     // 行走动画：移动时按朝向播放，停止时回到站立帧（run 第一帧）
-    const moving = vx !== 0 || vy !== 0;
+    const moving = this.currentVx !== 0 || this.currentVy !== 0;
     if (moving) {
       const animKey = `player-walk-${this.facing}`;
       if (this.anims.currentAnim?.key !== animKey) {

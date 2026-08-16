@@ -23,7 +23,9 @@
 import { WOOD_BUY_PRICE, STONE_BUY_PRICE } from './Economy';
 
 /** 恢复点/建设点 key 集合 */
-export const RESTORE_KEYS = ['garden', 'oldHouse', 'forestRoad', 'marketSquare'] as const;
+// 2026-08-15：青禾河畔码头（qinghePier）——第一章替代灯塔开放的可玩新地图 Stage 1；
+// 木材×20，独立恢复点（不并入复兴度等级，避免影响现有 getRevivalLevel 判定）。
+export const RESTORE_KEYS = ['garden', 'oldHouse', 'forestRoad', 'marketSquare', 'qinghePier'] as const;
 
 /** 恢复点 key 类型 */
 export type RestoreKey = (typeof RESTORE_KEYS)[number];
@@ -43,6 +45,7 @@ export const RESTORE_PROJECTS: Record<RestoreKey, RestoreProject> = {
   oldHouse: { id: 'oldHouse', name: '老屋', requirements: { wood: 30, stone: 20, gold: 100 } },
   forestRoad: { id: 'forestRoad', name: '后山道路', requirements: { stone: 50, gold: 200 } },
   marketSquare: { id: 'marketSquare', name: '集市广场', requirements: { wood: 25, stone: 15, gold: 80 } },
+  qinghePier: { id: 'qinghePier', name: '河畔码头', requirements: { wood: 20 } },
 };
 
 /**

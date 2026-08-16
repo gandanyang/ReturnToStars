@@ -54,6 +54,23 @@ DOM 原生 `el.click()` 最接近真实用户行为（2026-08-11 实测音量提
 探针失败先怀疑探针自身假设（时序 / 选择器 / 阈值），不要为了把测试变绿去改游戏逻辑。
 尤其 Dialogue 契约 / 剧情节奏，改之前先向制作人确认「这是探针问题还是游戏问题」。
 
+### 规则 6：验证单例运行时状态必须走真实游戏实例（2026-08-16 沉淀）
+
+**禁止**用带时间戳的独立模块 import 去验证单例状态。Vite dev 下
+`await import('/src/data/TimeSystem.ts')` 会命中带 `?t=` 时间戳的**另一个模块实例**，
+读写到的与游戏运行时不是同一个单例（实测 `probe-action-time` 因此出现
+"采集成功但时间恒 0 增量"的假失败，真机/构建包不触发）。
+
+正确做法：
+- 读单例状态 → `window.debug.getTimeStr()` / `window.debug` 既有 getter
+- 改单例状态 → `window.debug.setTime()` 等既有 setter
+- 需要暴露新能力 → 在 `src/main.ts` 的 `window.debug` 面加直连游戏实例的入口
+  （如 `debug.consumeMinutes`），探针只调 debug，不再 `import` 业务模块
+- 只读静态常量（不依赖单例运行状态）时，动态 import 仍可用于取源码/常量
+
+凡新增"验证运行中状态"的探针，先检查 `window.debug` 是否已提供对应读取入口；
+没有就补 debug 入口，不要绕道动态 import。
+
 ## 三、探针操作规范
 
 - **涉及开场/车站对白的探针**：必须按 `TEST_RULES.md` 第 5 条走完整路径（音量提示 → 手机通知两页 → 车站对白）。

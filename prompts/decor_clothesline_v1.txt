@@ -1,0 +1,31 @@
+A single game asset sprite, isolated object.
+
+A small rural clothesline drying rack:
+two wooden posts with a clothesline stretched between,
+a few pieces of laundry hanging — a light blue shirt, a soft pink cloth,
+a small white square cloth,
+gently moving, homey and warm,
+small town rural village life,
+Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no house,
+no fence,
+no scenery around the clothesline.
+
+Pure black background,
+centered object,
+front view,
+the clothesline fills most of the frame,
+only the clothesline, floating alone on the black background.

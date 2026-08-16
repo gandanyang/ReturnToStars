@@ -6,8 +6,8 @@
  *
  * 断言点：
  *   E1 前置：老屋整理未完成 → 无村长来访（不触发）
- *   E2 前置：完成但当天（未过一天）→ 无村长来访
- *   E3 触发：完成 + 下一晚 + 进老屋 → 村长精灵出现 + 敲门音 + 对白
+ *   E2 触发（2026-08-14 放宽）：整理完成当天进老屋 → 村长即出现（原"下一晚"门禁已取消）
+ *   E3 触发：整理完成 + 进老屋 → 村长精灵出现 + 敲门音 + 对白
  *   E4 对白文本：含"灯亮着"（制作人定稿方向：灯是小镇复苏的隐喻）
  *   E5 选项：A 愿意帮忙 → ch1ElderChoice='help'；B 还没想好 → 'unsure'
  *   E6 一次性：触发后读档重进 → 不重复触发（elderVisitSprite 无）
@@ -94,17 +94,17 @@ async function elderState() {
   result('E1 整理未完成：村长不出现', !st.sprite && !st.triggered, `sprite=${st.sprite} triggered=${st.triggered}`);
 }
 
-// ============ E2 完成但当天（未过一天）→ 无村长来访 ============
+// ============ E2 完成当天进老屋 → 村长来访（2026-08-14 放宽：不再等"下一晚"） ============
 {
-  // 完成 4 点，ch1ElderVisitDay=1（world.day=1 同天），当前 day=1 → 未过一天
+  // 完成 4 点，ch1ElderVisitDay=1（world.day=1 同天），当前 day=1 → 进老屋即触发
   await enterHouseWithSave({
     world: { day: 1, hour: 21, minute: 0, coins: 100, level: 1, xp: 0, stamina: 100, minedOres: [], questState: 'not_started' },
     mapFlags: { ch1ElderVisitDay: 1 },
     gameState: { triggeredEvents: { ch1_bed_done: true, ch1_lamp_done: true, ch1_desk_done: true, ch1_radio_done: true, ch1_house_tidy_done: true } },
   });
-  await sleep(1500);
+  await sleep(2200); // 敲门延迟 1.2s + 缓冲
   const st = await elderState();
-  result('E2 完成但当天：村长不出现（"下一晚"门禁）', !st.sprite && !st.triggered, `sprite=${st.sprite} triggered=${st.triggered}`);
+  result('E2 完成当天进老屋：村长出现（2026-08-14 放宽）', !!st.sprite && st.triggered, `sprite=${st.sprite} triggered=${st.triggered}`);
 }
 
 // ============ E3/E4 下一晚 → 村长出现 + 敲门 + 对白 ============

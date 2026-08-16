@@ -37,13 +37,16 @@ import { isHouseTidyComplete } from '../data/HouseTidy';
 import { addItem, getItemCount, getItemDef, itemIconHtml, setItemCount, type ItemType } from '../data/Inventory';
 import { MAIL_LETTERS, getMailLetter, type MailLetter } from '../data/MailLetters';
 import { getGatherPointsForScene, gatherKindToItem, gatherEventKey, GATHER_INTERACT_RANGE, GATHER_VISUAL, type GatherPointDef, type GatherVisualConfig } from '../data/Gathering';
-import { formatTime, getTime, nextDay as timeNextDay, setTime, setTimeFull, tick as timeTick } from '../data/TimeSystem';
+import { querySceneResource } from '../systems/ResourceSpawner';
+import { recordDiscovery, hasSpecialDiscovery } from '../systems/DiscoveryManager';
+import { formatTime, getTime, nextDay as timeNextDay, setTime, setTimeFull, tick as timeTick, consumeMinutes } from '../data/TimeSystem';
+import { getActionTimeCost, getActionStaminaCost } from '../data/ActionTimeCost';
 import { getCoins, spendCoins, addCoins, WOOD_BUY_PRICE } from '../data/Economy';
 import { addXp, getLevel, getXp, getXpToNext, setOnLevelUp } from '../data/FarmProgress';
 import { getStamina, consumeStamina, resetStamina, MAX_STAMINA } from '../data/Stamina';
 import { ORE_DEPOSITS, OreDeposit, isOreMined, resetOres, hitOre, getOreHits, getOreHitCost, ORE_MAX_HITS } from '../data/MineState';
 import { NPC } from '../entities/NPC';
-import { getNPCsForScene, refreshSchedule, updateNPCs, getDailyNpcLine, getMysteryAfterObservatory } from '../systems/NPCSystem';
+import { getNPCsForScene, refreshSchedule, updateNPCs, getDailyNpcLine, getMysteryAfterObservatory, getAdventurerDialogue } from '../systems/NPCSystem';
 import { collectShard, getElderDialogue, getQuestObjective, getQuestState, isElderBusyDay } from '../systems/QuestSystem';
 import { triggerRandomEvent, resetDailyEvents } from '../systems/DailyEventSystem';
 import { getWeather, isCurrentlyRaining } from '../systems/WeatherSystem';
@@ -73,6 +76,7 @@ import { MusicBoxPanel } from '../ui/MusicBoxPanel';
 import { showChapterBanner } from '../ui/ChapterBanner';
 import { TouchControls, setActionButtonLabel, setWaitHandler } from '../systems/TouchControls';
 import { showMemoryMoment } from '../ui/MemoryMoment';
+import { showStoryComplete, hideStoryCard } from '../ui/StoryNotification';
 import { playMemoryFlashback } from '../ui/MemoryFlashback';
 import { getShardFlashback, SHARD_PROGRESS_LINES, XIYA_LAMP_FLASHBACK, XIYA_GARDEN_FLASHBACK, ELDER_STAR_FLASHBACK, XIYA_PHOTO_FLASHBACK, PLUM_BLOOM_FLASHBACK, SHOP_CROP_ENTRY_DIALOGUE, SHOP_CROP_NEED_DIALOGUE, SHOP_CROP_DONE_DIALOGUE, SHOP_CROP_FLASHBACK, GARDENER_FIELD_FLASHBACK } from '../data/MemoryFlashbacks';
 import { ShopPanel } from '../ui/ShopPanel';
@@ -83,6 +87,8 @@ import { openWaitPanel, closeWaitPanel, isWaitPanelOpen } from '../ui/WaitPanel'
 import { StoryDialogue } from '../ui/StoryDialogue';
 import { EndingPanel } from '../ui/EndingPanel';
 import { PhotoAlbumPanel } from '../ui/PhotoAlbumPanel';
+import { openDiscoveryPanel, isDiscoveryPanelOpen, discoveryPanelHandleEscape } from '../ui/DiscoveryPanel';
+import { openHudMenu, isHudMenuOpen, setHudMenuItems, hudMenuHandleEscape, menuIsMobile } from '../ui/HudMenuPanel';
 import { ResidentBoardPanel } from '../ui/ResidentBoardPanel';
 import { openMailbox, showFirstMailLetter, isMailboxOpen as isMailboxPanelOpen } from '../ui/MailboxPanel';
 import { getRequestById, isRequestDone } from '../systems/ResidentRequestSystem';
@@ -95,7 +101,7 @@ import {
   XIYA_DIALOGUE, GATE_OPENED_DIALOGUE, SOW_SEEDS_DIALOGUE,
   WATER_CROPS_DIALOGUE, EVENING_DIALOGUE, TOWN_INTRO_DIALOGUE,
   FOREST_SHARD_DIALOGUE, FOREST_LOOKOUT_DIALOGUE, DEMO_ENDING_DIALOGUE, DEMO_ENDING_BRANCHES, DEMO_ENDING_FINALE,
-  WOODCUT_TIP_DIALOGUE, MINE_TIP_DIALOGUE, XIYA_DAWN_DIALOGUE, XIYA_EVENING_DIALOGUE, XIYA_EVENING_OBS_DIALOGUE, getGrandpaNote,
+  WOODCUT_TIP_DIALOGUE, MINE_TIP_DIALOGUE, XIYA_DAWN_DIALOGUE, XIYA_EVENING_DIALOGUE, XIYA_EVENING_OBS_DIALOGUE, XIYA_RIVERSIDE_DIALOGUE, XIYA_RIVERSIDE_RAIN_DIALOGUE, getGrandpaNote,
   FIRST_MORNING_RESPONSE_DIALOGUE,
   CH1_AWAKENING_DIALOGUE,
   GARDEN_RESTORED_XIYA_DIALOGUE, XIYA_SMALL_THINGS_DIALOGUE, XIYA_BUTTERFLY_SHARE_DIALOGUE,
@@ -107,6 +113,7 @@ import {
   CARPENTER_RETURN_DIALOGUE,
   ADVENTURER_WELCOME_BACK_DIALOGUE,
   XIYA_GARDEN_TRELLIS_DIALOGUE, XIYA_GARDEN_TRELLIS_DONE_DIALOGUE,
+  RAIN_MUSHROOM_HINT_DIALOGUE, RAIN_FOREST_ENTRANCE_HINT_DIALOGUE,
   ELDER_TEA_QUEST_DIALOGUE, ELDER_STAR_SITE_DIALOGUE,
   XIYA_PHOTO_ENTRY_DIALOGUE, XIYA_PHOTO_DONE_DIALOGUE,
   XIYA_OLD_SHADOW_ENTRY_DIALOGUE, XIYA_OLD_SHADOW_DELIVER_DIALOGUE,
@@ -163,6 +170,7 @@ export interface MapSceneFlags {
   /** E1/E9 每日偶遇：当天是否已触发（持久化，刷新不重复；存档审查 2026-08-06） */
   dawnXiyaDay?: number;
   eveningXiyaDay?: number;
+  riversideXiyaDay?: number;
   /** P1-2 村长来访：老屋整理完成时的天数（"下一晚"判断用；读档保持） */
   ch1ElderVisitDay?: number;
   /** P1-2 村长来访态度：'help' 愿意帮忙 / 'unsure' 还没想好（集市恢复前置；读档保持） */
@@ -421,6 +429,8 @@ export class MapScene extends Phaser.Scene {
   private static readonly FISHING_SPOTS: Record<string, { pos: { x: number; y: number }; floatPos: { x: number; y: number }; tier: 'common' | 'rare' }> = {
     town: { pos: { x: 5.5 * TILE_SIZE, y: 12 * TILE_SIZE + TILE_SIZE / 2 }, floatPos: { x: 3 * TILE_SIZE + TILE_SIZE / 2, y: 13 * TILE_SIZE + TILE_SIZE / 2 }, tier: 'common' },
     farm: { pos: { x: 31 * TILE_SIZE + TILE_SIZE / 2, y: 18 * TILE_SIZE + TILE_SIZE / 2 }, floatPos: { x: 32 * TILE_SIZE + TILE_SIZE / 2, y: 20 * TILE_SIZE + TILE_SIZE / 2 }, tier: 'rare' },
+    // 青禾河畔：码头旁普通钓点（河流 rows 9-13；码头在 (5,20) 附近，站码头边甩竿）
+    qinghe_river: { pos: { x: 5 * TILE_SIZE + TILE_SIZE / 2, y: 19 * TILE_SIZE + TILE_SIZE / 2 }, floatPos: { x: 6 * TILE_SIZE + TILE_SIZE / 2, y: 12 * TILE_SIZE + TILE_SIZE / 2 }, tier: 'common' },
   };
   /**
    * 表现层实验（2026-08-14 制作人方向：Phaser 视觉上限验证，先于 Godot 判断）。
@@ -483,8 +493,8 @@ export class MapScene extends Phaser.Scene {
   private readonly artShowTravelerPos = { x: 516, y: 322 };       // 长椅 (512,322) 上落座
   private townPlanPanel: HTMLDivElement | null = null;            // 「小镇计划」只读面板
   // 第一章 P2 生活采集 Phase 1（2026-08-14 设计稿 v0.1）：
-  // 5 种采集物（蒲公英/野莓/野蘑菇/小野花/小树枝）× farm/town/forest 三场景手工分布。
-  // 视觉：程序合成小群落（2-4 株），不均匀刷点（§七/§八）；零资产。
+  // 6 种采集物（蒲公英/野莓/野蘑菇/小野花/小树枝/河螺）× farm/town/forest/qinghe_river 四场景手工分布。
+  // 河螺为条件资源（仅雨天出现，2026-08-16 天气扩面）；视觉：程序合成小群落（2-4 株），不均匀刷点（§七/§八）；零资产。
   // 存档：复用 triggerOnce 持久化每个采集点"已采"状态，不新增顶层字段（§十五）。
   /** 当前场景的采集点实例（视觉容器 + 已采状态，会话级；状态由 triggerOnce 持久化） */
   private gatherNodes: {
@@ -496,6 +506,27 @@ export class MapScene extends Phaser.Scene {
   private gatherInteractHint: HTMLDivElement | null = null;
   /** 当前靠近中的采集点索引（tryInteract 时定位用；-1=无） */
   private nearestGatherIdx: number = -1;
+  /** 夜晚疲劳提示（P0 §3.2）：21:00 后首次交互弹一句"天色晚了"，不强制；记录提示时的分钟用于去重 */
+  private nightFatigueHintShownMinute: number = -1;
+  /** P0.5 世界规律引导：第一场雨提示（farm，会话级防重复，事件级 triggerOnce 持久化） */
+  private rainHintDone = false;
+  /** P0.5 世界规律引导：雨天进森林环境暗示（farm 同范式） */
+  private rainForestHintDone = false;
+  /** 青禾河畔：码头修复交互点（木材×20 → 码头出现；triggerOnce 持久化，读档恢复） */
+  private qinghePierRestore: { pos: { x: number; y: number }; mark: Phaser.GameObjects.Container | null; restored: boolean } | null = null;
+  /** 青禾河畔：凉亭停留空间（视觉 + 交互锚点） */
+  private qinghePavilion: { pos: { x: number; y: number }; mark: Phaser.GameObjects.Text | null } | null = null;
+  /** 青禾河畔：码头靠近提示（DOM，会话级） */
+  private qinghePierHint: HTMLDivElement | null = null;
+  /** 青禾河畔：凉亭靠近提示（DOM，会话级） */
+  private qinghePavilionHint: HTMLDivElement | null = null;
+  /** 青禾河畔 Stage 2：长椅/NPC 聚集（集市恢复后出现；会话级视觉 + triggerOnce 台词） */
+  private qingheStage2Gfx: Phaser.GameObjects.GameObject[] = [];
+  private qingheChatterHint: HTMLDivElement | null = null;
+  /** 青禾河畔·果园预埋：断桥旁老周（npc_carpenter，白天出现；一次性台词） */
+  private qingheOldMan: Phaser.GameObjects.Sprite | null = null;
+  private qingheOldManLabel: Phaser.GameObjects.Text | null = null;
+  private qingheOldManHint: HTMLDivElement | null = null;
   /** 需求板引导（首次靠近提示，会话级，不入档） */
   private residentBoardHintShown = false;
   // 教程：大门墙壁（物理矩形，钥匙使用后销毁）
@@ -562,6 +593,10 @@ export class MapScene extends Phaser.Scene {
   private eveningXiyaLabel: Phaser.GameObjects.Text | null = null;
   // E9 当天是否已触发过（跨天重置）
   private eveningXiyaDay = 0;
+  // NPC 剧情覆盖日程扩展（2026-08-16）：河畔夏雅（16-18 时青禾河畔看水，18 点后回农场）
+  private riversideXiya: Phaser.GameObjects.Sprite | null = null;
+  private riversideXiyaLabel: Phaser.GameObjects.Text | null = null;
+  private riversideXiyaDay = 0;
   // 灯意象彩蛋（L2/L3，制作人拍板 2026-08-05）：首次傍晚对话后是否已播过观察台词+童年点灯闪回（内存标记，不入档）
   private lampFlashbackDone = false;
   // v0.5.3 剧情密度 E5：爷爷的笔记（庄园角落可读物件）
@@ -856,6 +891,7 @@ export class MapScene extends Phaser.Scene {
       xiyaLetterStage: inst.xiyaLetterStage,
       dawnXiyaDay: inst.dawnXiyaDay,
       eveningXiyaDay: inst.eveningXiyaDay,
+      riversideXiyaDay: inst.riversideXiyaDay,
       ch1ElderVisitDay: inst.ch1ElderVisitDay,
       ch1ElderChoice: inst.ch1ElderChoice,
       fishXiyaExchangeDay: inst.fishXiyaExchangeDay,
@@ -921,6 +957,7 @@ export class MapScene extends Phaser.Scene {
       this.xiyaLetterStage = saved.xiyaLetterStage ?? 0;
       this.dawnXiyaDay = saved.dawnXiyaDay ?? 0;
       this.eveningXiyaDay = saved.eveningXiyaDay ?? 0;
+      this.riversideXiyaDay = saved.riversideXiyaDay ?? 0;
       this.ch1ElderVisitDay = saved.ch1ElderVisitDay ?? 0;
       this.ch1ElderChoice = saved.ch1ElderChoice;
       this.fishXiyaExchangeDay = saved.fishXiyaExchangeDay ?? 0;
@@ -948,6 +985,8 @@ export class MapScene extends Phaser.Scene {
     // 背包/任务面板跨场景清理（防止残留打开态）
     this.backpackPanel?.close();
     this.questPanel?.close();
+    // 重要事件记忆卡（story notification）跨场景清理（防止中途切场景残留）
+    hideStoryCard();
     // FEATURE-038 需求板跨场景清理（防止残留打开态）
     this.residentBoardPanel?.close();
     // BUG-041：场景切换时若对话未结束（中途离开），reset 不触发 onComplete → vanished 未设置
@@ -963,6 +1002,8 @@ export class MapScene extends Phaser.Scene {
     // E1/E9 夏雅精灵清理（场景切换时销毁，防止残留）
     this.clearDawnXiya();
     this.clearEveningXiya();
+    // NPC 剧情覆盖日程：河畔夏雅清理（场景切换时销毁，防止残留）
+    this.clearRiversideXiya();
     // day2 清晨演出夏雅清理（场景切换时销毁，防止残留；BUG-071）
     this.clearMorningXiya();
     // P1-2 村长来访演出精灵清理（场景切换时销毁，防止残留）
@@ -989,6 +1030,10 @@ export class MapScene extends Phaser.Scene {
     this.cleanupArtShowTraveler();
     // 星光艺术展余波：庆典后夏雅清理（视觉 + label + DOM hint，场景切换防残留）
     this.clearArtShowAfterXiya();
+    // 青禾河畔：码头/凉亭 DOM 提示清理（场景切换防残留）
+    this.cleanupQingheRiver();
+    // 青禾河畔 Stage 2 / 果园预埋：NPC/提示清理（场景切换防残留）
+    this.cleanupQingheStage2();
     // 镇长家提示物品清理
     this.clearElderHouseHint();
     // 灯塔探索交互点清理（场景切换时销毁，防止残留）
@@ -1004,7 +1049,8 @@ export class MapScene extends Phaser.Scene {
       this.textures.remove('tiles');
     }
     // elder_house 与 house 共用 house_tileset.png（地图 JSON 即引用该图；无 elder_house_tileset.png）
-    const tilesetName = this.mapKey === 'elder_house' ? 'house' : this.mapKey;
+    // qinghe_river 复用 town_tileset.png（16 gid 语义一致，不复制资产）
+    const tilesetName = this.mapKey === 'elder_house' ? 'house' : this.mapKey === 'qinghe_river' ? 'town' : this.mapKey;
     this.load.image('tiles', `assets/tiles/${tilesetName}_tileset.png?v=8`);
     // 玩家 spritesheet（4方向×4帧 run 动画，每帧 32x32，显示时缩放 0.5 与 16x16 瓦片协调）
     if (!this.textures.exists('player')) {
@@ -1288,12 +1334,56 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
     albumBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.hudDom.appendChild(albumBtn);
 
+    // 自然记录图鉴入口（P1 信息展示层，2026-08-16）：所有场景可见
+    const discoveryBtn = document.createElement('div');
+    discoveryBtn.id = 'discovery-btn';
+    discoveryBtn.style.cssText =
+      'position:absolute;top:104px;left:8px;pointer-events:auto;cursor:pointer;' +
+      'background:rgba(22,30,26,0.75);border:1px solid rgba(122,170,138,0.5);border-radius:6px;' +
+      'color:#a8d8b8;font-size:12px;padding:3px 8px;text-shadow:1px 1px 0 #000;' +
+      'user-select:none;-webkit-user-select:none';
+    discoveryBtn.textContent = '📗 自然记录';
+    discoveryBtn.addEventListener('click', () => this.openDiscoveryPanel());
+    discoveryBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    this.hudDom.appendChild(discoveryBtn);
+
+    // HUD 功能菜单入口（2026-08-16 移动端优先）：收纳归星录/自然记录/小镇计划/声音等
+    const hudMenuBtn = document.createElement('div');
+    hudMenuBtn.id = 'hud-menu-btn';
+    const menuBtnSize = menuIsMobile() ? 44 : 28;
+    hudMenuBtn.style.cssText =
+      `position:absolute;top:calc(16px + env(safe-area-inset-top, 0px));right:calc(64px + env(safe-area-inset-right, 0px));` +
+      `width:${menuBtnSize}px;height:${menuBtnSize}px;pointer-events:auto;cursor:pointer;` +
+      'background:rgba(20,24,46,0.75);border:1px solid rgba(122,138,208,0.5);border-radius:8px;' +
+      'color:#b8c8ff;display:flex;align-items:center;justify-content:center;' +
+      'user-select:none;-webkit-user-select:none';
+    hudMenuBtn.textContent = '☰';
+    hudMenuBtn.addEventListener('click', () => this.toggleHudMenu());
+    hudMenuBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    this.hudDom.appendChild(hudMenuBtn);
+
+    // 注册菜单条目（打开时重绘；小镇计划等按解锁状态出现）
+    const menuItems: Array<{ id: string; label: string; icon: string; onClick: () => void }> = [
+      { id: 'album', label: '归星录', icon: '📖', onClick: () => this.openPhotoAlbum() },
+      { id: 'discovery', label: '自然记录', icon: '📗', onClick: () => this.openDiscoveryPanel() },
+    ];
+    if (this.artShowUnlocked || (isChapterAtLeast(CHAPTER_1) && hasTriggered('ch1_spring_fair'))) {
+      menuItems.push({ id: 'town_plan', label: '小镇计划', icon: '🗓', onClick: () => this.openTownPlan() });
+    }
+    menuItems.push({
+      id: 'sound',
+      label: isSoundEnabled() ? '声音：开' : '声音：关',
+      icon: isSoundEnabled() ? '🔊' : '🔇',
+      onClick: () => this.toggleSound(),
+    });
+    setHudMenuItems(menuItems);
+
     // 小镇计划入口（Feature-XXX，2026-08-15）：春日大集后出现；只读观察"小镇正在发生什么"
     if (this.artShowUnlocked || (isChapterAtLeast(CHAPTER_1) && hasTriggered('ch1_spring_fair'))) {
       const planBtn = document.createElement('div');
       planBtn.id = 'town-plan-btn';
       planBtn.style.cssText =
-        'position:absolute;top:104px;left:8px;pointer-events:auto;cursor:pointer;' +
+        'position:absolute;top:130px;left:8px;pointer-events:auto;cursor:pointer;' +
         'background:rgba(20,24,46,0.75);border:1px solid rgba(216,184,120,0.5);border-radius:6px;' +
         'color:#e8d8a8;font-size:12px;padding:3px 8px;text-shadow:1px 1px 0 #000;' +
         'user-select:none;-webkit-user-select:none';
@@ -1460,9 +1550,29 @@ this.setupCropLifeLeftovers();
 this.setupReqLantern();
 this.setupReqStove();
 this.setupReqFishBasket();
-// 阶段3 光照：town 黄昏暖光（17:00-19:00，全屏暖橙 + 河面光斑）
-this.setupTownDuskOverlay();
+    // 阶段3 光照：town 黄昏暖光（17:00-19:00，全屏暖橙 + 河面光斑）
+    this.setupTownDuskOverlay();
 }
+
+    // 青禾河畔（2026-08-15 制作人拍板：第一章替代灯塔开放的可玩新地图）
+    if (this.mapKey === 'qinghe_river') {
+      // 河畔氛围（水波光斑/芦苇/萤火虫，零资产纯代码）
+      this.setupQingheRiverAmbience();
+      // 钓鱼点（河岸码头旁）
+      this.setupFishingSpot();
+      // 码头修复交互点（木材×20 → 码头出现；Stage 1 垂直切片）
+      this.setupQinghePierRestore();
+      // 凉亭停留空间（视觉 + 交互一句）
+      this.setupQinghePavilion();
+      // 断桥视觉（未来果园预埋；locked 出口见 exits.ts）
+      this.setupQingheBrokenBridge();
+      // Stage 2：集市恢复后长椅/路灯/有人聊天（生活感）
+      this.setupQingheStage2();
+      // 果园预埋：断桥旁老周（白天，第二章钩子）
+      this.setupQingheOldMan();
+      // NPC 剧情覆盖日程：河畔夏雅（16-18 时看水）
+      this.setupRiversideXiya();
+    }
 
     // gate 庄园大门美术升级（生活杂物/小动物/夜间门灯，零资源纯代码；教程逻辑零触碰）
     if (this.mapKey === 'gate') {
@@ -1578,6 +1688,8 @@ this.setupFieldLife();
       this.setupForestRoadRestore();
       // 试玩-11 森林内容填充：氛围装饰（萤火虫/落叶/野花，零资源）
       this.setupForestAmbience();
+      // P0.5 世界规律引导：雨天第一次进森林 → 环境暗示（"地上好像多了些东西"）
+      this.tryRainForestEntranceHint();
       // v0.10.2 第二层：废弃观景台（环境铺垫，靠近一次性触发 FOREST_LOOKOUT_DIALOGUE）
       this.setupForestLookout();
     }
@@ -1892,6 +2004,20 @@ this.setupFieldLife();
       return;
     }
 
+    // 自然记录图鉴打开：冻结玩家移动/交互（Esc/关闭按钮关闭）
+    if (isDiscoveryPanelOpen()) {
+      this.player.setVelocity(0, 0);
+      this.inputManager.clearAction();
+      return;
+    }
+
+    // HUD 功能菜单打开：冻结玩家移动/交互（Esc/点空白关闭）
+    if (isHudMenuOpen()) {
+      this.player.setVelocity(0, 0);
+      this.inputManager.clearAction();
+      return;
+    }
+
     // FEATURE-038 需求板打开：冻结玩家移动/交互，只响应关闭（E 或 Esc）
     if (this.residentBoardPanel?.isOpen()) {
       this.player.setVelocity(0, 0);
@@ -1998,6 +2124,10 @@ this.setupFieldLife();
       // 天气状态更新（每小时检查一次）
       this.updateWeatherState();
     }
+    // P0.5 世界规律引导：第一场雨 → 农场里小梅顺口提起。
+    // 注意：不能挂在小时切换块里——阿风欢迎演出等自动对白会占住对话导致该帧被跳过，
+    // 再等下一小时可能错过整个雨窗；每帧尝试 + 内部守卫（triggerOnce/会话防重/对白互斥）保证只播一次。
+    this.tryRainMushroomHint();
     // 种子切换冷却递减
     if (this.seedSwitchCooldown > 0) this.seedSwitchCooldown -= dtMs;
 
@@ -2014,6 +2144,13 @@ this.setupFieldLife();
         // 对话打开期间 update 提前 return，各 checkXxxHint 不再执行；
         // 统一隐藏所有靠近提示，防止互动（按 E 查看/对话）后提示条残留。
         this.hideAllInteractHints();
+        // 2026-08-16 体验修复：对话打开时 T 键也应能打开等待面板（消磨时间），
+        // 否则玩家"想跳时间等雨/等傍晚"会被自动对白卡住（T 被吞，时间永远不跳）。
+        if (Phaser.Input.Keyboard.JustDown(this.inputManager.keyT)) {
+          this.inputManager.clearAction();
+          this.tryOpenWait();
+          return;
+        }
         this.inputManager.update();
         this.player.setVelocity(0, 0);
         if (this.inputManager.consumeAction()) {
@@ -2098,6 +2235,15 @@ this.setupFieldLife();
     this.checkFishingHint();
     // 生活采集 Phase 1 靠近提示（farm/town/forest 三场景，存在未采点 + 无对话）
     this.checkGatherHint();
+    // 青禾河畔：码头/凉亭靠近提示 + 断桥一次性提示（未来果园预埋）
+    if (this.mapKey === 'qinghe_river') {
+      this.checkQingheRiverHints();
+      this.checkQingheBridgeTip();
+      // Stage 2：夜晚聊天提示（长椅旁）
+      this.checkQingheChatterHint();
+      // 果园预埋：老周靠近提示（断桥旁）
+      this.checkQingheOldManHint();
+    }
     // 钓鱼 Phase 4：夏雅交换果干后，次日靠近河边长椅 → 小场景 + 相簿
     this.checkFishRiverside();
 
@@ -2739,6 +2885,7 @@ this.setupFieldLife();
       textShadow: '0 0 4px rgba(0,0,0,0.8)',
     });
     hint.textContent = isMobileLayout() ? '点击「交互」整理' : '按 [E] 整理';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
     document.body.appendChild(hint);
     this.houseTidyInteractHint = hint;
   }
@@ -2772,6 +2919,31 @@ this.setupFieldLife();
     for (const def of defs) {
       const eventKey = gatherEventKey(this.mapKey, def.id);
       if (hasTriggered(eventKey)) continue; // 已采：不创建视觉（"采完了"）
+      // 条件资源（2026-08-16 天气扩面）：当前环境不满足出现条件（如晴天河螺）→ 跳过创建，
+      // 变天时由 syncWeatherGatherPoints 补建（玩家看到雨下起来，浅滩冒出小螺）。
+      const spawn = querySceneResource(this.mapKey, def.kind);
+      if (!spawn.present) continue;
+      const container = this.createGatherCluster(def);
+      container.setDepth(4);
+      this.gatherNodes.push({ def, container, collected: false });
+    }
+  }
+
+  /**
+   * 条件采集点补建（2026-08-16 天气扩面）：雨开始时调用一次。
+   * 对"当前环境已满足出现条件"的未创建点补建视觉（雨日河畔冒河螺），
+   * 已采（triggerOnce）或环境不满足的点跳过。幂等：已创建的 id 不再重复建。
+   */
+  private syncWeatherGatherPoints(): void {
+    const defs = getGatherPointsForScene(this.mapKey);
+    if (defs.length === 0) return;
+    const existing = new Set(this.gatherNodes.map((n) => n.def.id));
+    for (const def of defs) {
+      if (existing.has(def.id)) continue;
+      const eventKey = gatherEventKey(this.mapKey, def.id);
+      if (hasTriggered(eventKey)) continue;
+      const spawn = querySceneResource(this.mapKey, def.kind);
+      if (!spawn.present) continue;
       const container = this.createGatherCluster(def);
       container.setDepth(4);
       this.gatherNodes.push({ def, container, collected: false });
@@ -2875,6 +3047,7 @@ this.setupFieldLife();
       textShadow: '0 0 4px rgba(0,0,0,0.8)',
     });
     hint.textContent = isMobileLayout() ? '点击「交互」采集' : '按 [E] 采集';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
     document.body.appendChild(hint);
     this.gatherInteractHint = hint;
   }
@@ -2910,6 +3083,28 @@ this.setupFieldLife();
     const first = triggerOnce(eventKey, () => {
       addItem(itemId, 1);
       play('gather');
+      // 自然观察（P0 Phase C）：玩家记忆——第一次采到可发现资源则记录（含地点/特殊条件）
+      // 只记录"真正产生的发现"（玩家记忆进存档，世界状态/概率不存）
+      // 2026-08-16 P0 语义修复（制作人拍板）：rain_forest 由真实天气决定（正在下雨），
+      // 不再用 day%5 假定"雨后"。条件与 WeatherSystem 雨幕/雨天湿润同源，玩家所见即所记。
+      // 2026-08-16 天气扩面：河螺 rain_river 同理——河螺仅雨天出现，采到即满足雨日条件。
+      const discKind = node.def.kind;
+      const discLocation = this.mapKey;
+      const special = discKind === 'wild_mushroom' && discLocation === 'forest' && isCurrentlyRaining() ? 'rain_forest'
+        : discKind === 'river_snail' && discLocation === 'qinghe_river' && isCurrentlyRaining() ? 'rain_river'
+        : undefined;
+      // P0.5 世界规律引导（发现反馈层）：判定"是否第一次雨中发现蘑菇"必须在 recordDiscovery 之前，
+      // 否则记录已写入后 hasSpecialDiscovery 恒为 true，发现文本永不触发。
+      const firstRainMushroom =
+        discKind === 'wild_mushroom' && discLocation === 'forest' &&
+        isCurrentlyRaining() && !hasSpecialDiscovery('wild_mushroom', 'rain_forest');
+      // 天气扩面（2026-08-16）：河螺首次雨天发现（同理，必须先于 recordDiscovery 判定）
+      const firstRainSnail =
+        discKind === 'river_snail' && discLocation === 'qinghe_river' &&
+        !hasSpecialDiscovery('river_snail', 'rain_river');
+      recordDiscovery({ resourceId: discKind, day: getTime().day, location: discLocation, special });
+      // 动作时间成本（P0 Action Time）：采集消耗 n 游戏分钟（可调，见 data/ActionTimeCost）
+      consumeMinutes(getActionTimeCost('gathering'));
       this.tweens.add({
         targets: node.container,
         alpha: 0,
@@ -2918,7 +3113,13 @@ this.setupFieldLife();
         duration: 400,
         onComplete: () => node.container.destroy(),
       });
-      this.showDialogueText(`采到了 ${getItemDef(itemId).name}。`);
+      this.showDialogueText(
+        firstRainMushroom
+          ? `发现：野蘑菇。\n雨天的森林，总会冒出一些平时不容易发现的蘑菇。`
+          : firstRainSnail
+            ? `发现：河螺。\n雨天的浅滩，总会爬上一些平时见不到的小螺。`
+            : `采到了 ${getItemDef(itemId).name}。`,
+      );
     });
     if (!first) return false; // 已采过（双重保险：update 检测应已跳过此点）
 
@@ -3152,6 +3353,11 @@ this.setupFieldLife();
       this.hideFishingHint();
       return;
     }
+    // 青禾河畔：码头未修复时钓点未开放——不显示钓鱼提示（避免与"修码头"提示叠屏）
+    if (this.mapKey === 'qinghe_river' && this.qinghePierRestore && !this.qinghePierRestore.restored) {
+      this.hideFishingHint();
+      return;
+    }
     const dx = this.player.x - this.fishingSpotPos.x;
     const dy = this.player.y - this.fishingSpotPos.y;
     const range = MapScene.FISHING_CONFIG.interactRange;
@@ -3174,6 +3380,7 @@ this.setupFieldLife();
       textShadow: '0 0 4px rgba(0,0,0,0.8)',
     });
     hint.textContent = isMobileLayout() ? '点击「交互」钓鱼' : '按 [E] 钓鱼';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
     document.body.appendChild(hint);
     this.fishingInteractHint = hint;
   }
@@ -3199,6 +3406,7 @@ this.setupFieldLife();
       fontWeight: 'bold',
     });
     hint.textContent = isMobileLayout() ? '快点击「交互」收竿！' : '快按 [E] 收竿！';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
     document.body.appendChild(hint);
     this.fishingReelHint = hint;
   }
@@ -3254,6 +3462,7 @@ this.setupFieldLife();
       textShadow: '0 0 4px rgba(0,0,0,0.8)',
     });
     hint.textContent = isMobileLayout() ? '点击「交互」和老姜聊聊' : '按 [E] 和老姜聊聊';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
     document.body.appendChild(hint);
     this.laoJiangHint = hint;
   }
@@ -3385,6 +3594,16 @@ this.setupFieldLife();
       return [
         narrator('（老姜盯着水面，看了好一会儿。）'),
         { speaker: '老姜', color: COLORS.laojiang, text: '最近河里的小家伙，好像多起来了。' },
+      ];
+    }
+
+    // ④.6 雨天台词（2026-08-16 天气扩面第二刀，制作人拍板）：
+    // 雨窗内老姜也在河边（13-17 作息与雨窗 10-16 有交集）——钓雨天的河，是"见过这条河变化的人"的雨天句。
+    if (isCurrentlyRaining()) {
+      return [
+        narrator('（雨落在水面上。老姜的帽子压得更低了，浮漂还是一动不动地立着。）'),
+        { speaker: '老姜', color: COLORS.laojiang, text: '鱼在下雨天，嘴巴正馋。' },
+        { speaker: '老姜', color: COLORS.laojiang, text: '……就是人得坐得住，别急着收竿。' },
       ];
     }
 
@@ -5201,6 +5420,7 @@ this.setupFieldLife();
       textShadow: '0 0 4px rgba(0,0,0,0.8)',
     });
     hint.textContent = isMobileLayout() ? '点击「交互」对话' : '按 [E] 对话';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
     document.body.appendChild(hint);
     this.artShowTravelerHint = hint;
   }
@@ -5308,6 +5528,13 @@ this.setupFieldLife();
     this.hideLaoJiangHint();
     this.hideArtShowHint();
     this.hideArtShowTravelerHint();
+    this.hideQinghePierHint();
+    this.hideQinghePavilionHint();
+    this.hideQingheChatterHint();
+    this.hideQingheOldManHint();
+    // 2026-08-16 兜底：无论上面某个提示是否漏清/引用丢失/成孤儿节点，
+    // 只要还挂在 document.body 上的底部交互提示一律强制移除，根治「一直停在屏幕上」。
+    document.querySelectorAll<HTMLElement>('.hint-interact').forEach((el) => el.remove());
   }
 
   /** 清理旅人回访（场景切换时调用，防残留） */
@@ -5545,8 +5772,9 @@ this.setupFieldLife();
       this.hideArtShowHint();
       return;
     }
-    // 庆典已办：筹备期素材箱/夏雅提示失效，artShowHint 由 checkArtShowAfterXiyaProximity 接管
-    if (this.artShowHeld) return;
+    // 庆典已办：筹备期素材箱/夏雅提示失效，artShowHint 由 checkArtShowAfterXiyaProximity 接管。
+    // 2026-08-16 修复：此处原为 `return` 不隐藏，若提示节点已显示则会残留卡屏——改为显式隐藏。
+    if (this.artShowHeld) { this.hideArtShowHint(); return; }
     if (this.storyDialogue?.isOpen() || this.townPlanPanel) {
       this.hideArtShowHint();
       return;
@@ -5576,6 +5804,7 @@ this.setupFieldLife();
       textShadow: '0 0 4px rgba(0,0,0,0.8)',
     });
     hint.textContent = isMobileLayout() ? '点击「交互」查看' : '按 [E] 查看';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
     document.body.appendChild(hint);
     this.artShowHint = hint;
   }
@@ -6117,6 +6346,8 @@ this.setupFieldLife();
     const isRaining = isCurrentlyRaining();
     if (isRaining && !this.rainActive) {
       this.startRain();
+      // 天气扩面（2026-08-16）：雨开始 → 补建满足条件的采集点（雨日河畔冒河螺）
+      this.syncWeatherGatherPoints();
     } else if (!isRaining && this.rainActive) {
       this.stopRain();
     }
@@ -6507,6 +6738,55 @@ this.setupFieldLife();
   }
 
   /**
+   * P0.5 世界规律引导（2026-08-16 制作人拍板：生活发现式引导，不做任务）：
+   * 第一场雨 → 小梅在农场顺口提起"后山蘑菇"。
+   * 触发：farm + 正在下雨 + 第一章 + 未触发过（triggerOnce 持久化）。
+   * 原则：只提示不指派，玩家想去就去、不去无惩罚。
+   */
+  private tryRainMushroomHint(): void {
+    if (this.mapKey !== 'farm') return;
+    if (!isChapterAtLeast(CHAPTER_1)) return;
+    if (this.rainHintDone) return;
+    if (hasTriggered('world_hint_rain_mushroom')) { this.rainHintDone = true; return; }
+    if (!isCurrentlyRaining()) return;
+    // 演出互斥：观星/春日集/清晨演出期间不插话，避免抢占对白
+    if (this.inStargazeCutscene || this.inSpringFairCutscene || this.firstMorningActive) return;
+    if (this.storyDialogue?.isOpen()) return;
+    this.rainHintDone = true;
+    triggerOnce('world_hint_rain_mushroom', () => {
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      this.storyDialogue.play(RAIN_MUSHROOM_HINT_DIALOGUE, () => {
+        this.updateHUD();
+        save({
+          x: this.player.x, y: this.player.y,
+          scene: this.mapKey, facing: this.player.facing,
+        } as any);
+      });
+    });
+  }
+
+  /**
+   * P0.5 世界规律引导（环境暗示层）：
+   * 雨天第一次进森林 → 一句环境观察（"地上好像多了些平时没见过的东西"），不直接告诉答案。
+   */
+  private tryRainForestEntranceHint(): void {
+    if (this.mapKey !== 'forest') return;
+    if (!isChapterAtLeast(CHAPTER_1)) return;
+    if (this.rainForestHintDone) return;
+    if (hasTriggered('world_hint_rain_forest_entrance')) { this.rainForestHintDone = true; return; }
+    if (!isCurrentlyRaining()) return;
+    if (this.storyDialogue?.isOpen()) return;
+    this.rainForestHintDone = true;
+    triggerOnce('world_hint_rain_forest_entrance', () => {
+      this.showDialogueText(RAIN_FOREST_ENTRANCE_HINT_DIALOGUE[0].text);
+      save({
+        x: this.player.x, y: this.player.y,
+        scene: this.mapKey, facing: this.player.facing,
+      } as any);
+    });
+  }
+
+  /**
    * FEATURE-041 复兴循环 v0.11：木匠老周回归演出（制作人拍板 2026-08-07，见 docs/tasks/任务-FEATURE041-复兴循环v0.11-复兴度与木匠回归.md）
    * 老屋（oldHouse）修复完成后，当晚/次日进入 farm 时自动触发：
    * 木匠出现在老屋旁（farm 场景）→ 自动播放 CARPENTER_RETURN_DIALOGUE → 成为常驻 NPC（此后按 NPCSystem 日程出现）。
@@ -6691,6 +6971,60 @@ this.setupFieldLife();
   private clearEveningXiya(): void {
     if (this.eveningXiya) { this.eveningXiya.destroy(); this.eveningXiya = null; }
     if (this.eveningXiyaLabel) { this.eveningXiyaLabel.destroy(); this.eveningXiyaLabel = null; }
+  }
+
+  /** 河畔夏雅（2026-08-16 NPC 剧情覆盖日程扩展）：16-18 时在青禾河畔看水，18 点后回农场 */
+  private setupRiversideXiya(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (!isTutorialDone()) return;
+    const t = getTime();
+    if (t.hour < 16 || t.hour >= 18) return;
+    if (this.riversideXiyaDay === t.day) return;
+    // 河畔凉亭东侧南岸（避开码头修复点/钓点/凉亭交互锚点）：面向河看水
+    const dx = 18 * TILE_SIZE + TILE_SIZE / 2;
+    const dy = 19 * TILE_SIZE + TILE_SIZE / 2;
+    this.riversideXiya = this.add.sprite(dx, dy, 'npc_xiya');
+    this.riversideXiya.setScale(0.5).setDepth(5);
+    this.riversideXiyaLabel = this.add.text(dx, dy - 24, '夏雅', {
+      fontSize: '13px', color: '#f0a050',
+      stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      padding: { x: 3, y: 2 },
+    }).setShadow(0, 1, '#000000', 2).setOrigin(0.5).setDepth(6);
+  }
+
+  /** 与河畔夏雅交互（靠近按 E → 播放看水对话，当天一次） */
+  private tryRiversideXiyaInteract(): boolean {
+    if (!this.riversideXiya || !this.riversideXiya.visible) return false;
+    if (getTime().hour < 16 || getTime().hour >= 18) return false;
+    const dx = this.player.x - this.riversideXiya.x;
+    const dy = this.player.y - this.riversideXiya.y;
+    if (dx * dx + dy * dy > 28 * 28) return false;
+
+    this.riversideXiyaDay = getTime().day;
+    this.riversideXiya.destroy();
+    this.riversideXiya = null;
+    if (this.riversideXiyaLabel) { this.riversideXiyaLabel.destroy(); this.riversideXiyaLabel = null; }
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    this.storyDialogue.play(
+      // 天气扩面第二刀（2026-08-16）：雨日河畔看水播雨天变体。
+      // 判定用「今日为雨日」而非正在下雨——看水窗口 16-18 与雨窗 10-16 无交集，
+      // 夏雅看的是"雨后的河"（呼应今天刚爬过浅滩的河螺），雨日傍晚雨停了仍在场。
+      getWeather(getTime().day) === 'rain' ? XIYA_RIVERSIDE_RAIN_DIALOGUE : XIYA_RIVERSIDE_DIALOGUE,
+      () => this.updateHUD(),
+    );
+    return true;
+  }
+
+  /** 清除河畔夏雅精灵（场景切换/跨天时调用） */
+  private clearRiversideXiya(): void {
+    if (this.riversideXiya) { this.riversideXiya.destroy(); this.riversideXiya = null; }
+    if (this.riversideXiyaLabel) { this.riversideXiyaLabel.destroy(); this.riversideXiyaLabel = null; }
   }
 
   /** 清除 day2 清晨演出夏雅精灵（对白结束/场景切换/跨天时调用；BUG-071 演出精灵生命周期闭合） */
@@ -6921,6 +7255,7 @@ this.setupFieldLife();
       textShadow: '0 0 4px rgba(0,0,0,0.8)',
     });
     hint.textContent = isMobileLayout() ? '点击「交互」查看' : '按 [E] 查看';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
     document.body.appendChild(hint);
     this.oldTreeInteractHint = hint;
   }
@@ -7218,6 +7553,7 @@ this.setupFieldLife();
             { speaker: '镇长', color: '#c8b898', text: '西边的灯塔……' },
             { speaker: '', color: '#aaaaaa', text: '（远处，海平线上那盏灯，好像亮了一下。）' },
             { speaker: '镇长', color: '#c8b898', text: '我还以为，它再也不会亮了。' },
+            { speaker: '', color: '#aaaaaa', text: '（你往西边望了望。去灯塔的路，还堵着。）' },
           ], () => this.updateHUD());
         });
         save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
@@ -9419,13 +9755,22 @@ this.setupFieldLife();
   private showDialogue(npc: NPC): void {
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     // v0.5.3 剧情密度：当日首次对话时追加随机生活句（只对老张/小梅/阿风）
-    let lines = npc.dialogues;
+    // 2026-08-16 逻辑修复：阿风按当前所在场景选固定对白——他在后山(forest)时不说「有空来后山带你转转」
+    const baseLines = npc.id === 'adventurer'
+      ? getAdventurerDialogue(npc.currentLocation)
+      : npc.dialogues;
+    let lines = baseLines;
     const today = getTime().day;
-    if (this.npcDailySaid.get(npc.id) !== today) {
-      const daily = getDailyNpcLine(npc.id, today);
+    // 去重粒度：小梅按「NPC+位置」当天各说一次时段对白（上午农场/下午后山都能各触发一句，
+    // 世界在回应时间才真正可感知）；其余 NPC 沿用「按天各说一次」，避免量级变化导致话痨。
+    const dedupKey = npc.id === 'gardener' ? `${npc.id}:${npc.currentLocation}` : npc.id;
+    if (this.npcDailySaid.get(dedupKey) !== today) {
+      // P1 时段切片：把当前所在场景传给 getDailyNpcLine（小梅据此切换上午/下午口吻）
+      const daily = getDailyNpcLine(npc.id, today, npc.currentLocation);
       if (daily) {
-        lines = [...npc.dialogues, ...daily];
-        this.npcDailySaid.set(npc.id, today);
+        // 用 baseLines 而非 npc.dialogues——阿风在后山(forest)时生活句应拼到后山变体上
+        lines = [...baseLines, ...daily];
+        this.npcDailySaid.set(dedupKey, today);
       }
     }
     // v0.5.3 剧情密度 E6：观星夜后少女追加一句（仅观星完成，追加到固定对话末尾）
@@ -9470,6 +9815,8 @@ this.setupFieldLife();
             : travelerNoteLines
               ? [...travelerNoteLines, ...lines]
               : lines;
+    // 动作时间成本（P0 Action Time）：一次 NPC 对话消耗 n 游戏分钟（可调）
+    consumeMinutes(getActionTimeCost('dialogue'));
     this.storyDialogue.play(finalLines, () => {
       // BUG-041：神秘少女对白末尾「消失在林间」→ 对话完成隐藏精灵（演出层，不存档）
       if (npc.id === 'mystery') {
@@ -9870,6 +10217,22 @@ this.setupFieldLife();
    *   2. 否则 → 农田交互（锄地/播种/浇水/收获）
    */
   private tryInteract(): void {
+    // 夜晚疲劳提示（P0 §3.2，最小版）：21:00 起，当夜第一次按 E 时弹一句提示，不强制、不打断。
+    // 去重：记录提示时的"当日分钟"；时间推进 ≥1 小时后才可能再提示（跨过 21:00 窗口或 debug 回拨均安全）。
+    // 床上睡觉时不提示（避免与睡觉演出抢文本）。
+    const t = getTime();
+    const dayMinute = t.hour * 60 + t.minute;
+    const bedInteract = (this.mapKey === 'house' || this.mapKey === 'farm') &&
+      (() => {
+        const pc = Math.floor(this.player.x / TILE_SIZE);
+        const pr = Math.floor(this.player.y / TILE_SIZE);
+        return this.bedTiles.has(`${pc},${pr}`) || (this.mapKey === 'house' && this.isNearBedTile(pc, pr));
+      })();
+    if (t.hour >= 21 && dayMinute >= this.nightFatigueHintShownMinute + 60 && !bedInteract) {
+      this.nightFatigueHintShownMinute = dayMinute;
+      this.showDialogueText('天色晚了，有些困了……');
+    }
+
     // 0. 第一章 P1-1 老屋整理（house 场景，优先于睡觉判定）：
     //    bed 整理点 (2.5T,2.5T) 与床铺睡觉格重叠，必须先判断整理（未整理 → 整理；已整理 → 放行睡觉）
     if (this.mapKey === 'house') {
@@ -9953,6 +10316,18 @@ this.setupFieldLife();
 
     // 钓鱼老人老姜（氛围锚点）：人在旁边时先说话；站到水边才钓鱼
     if (this.tryLaoJiangInteract()) return;
+
+    // 青禾河畔：码头修复（未修复时优先，修复后钓点才开放）→ 凉亭停留
+    if (this.mapKey === 'qinghe_river') {
+      if (this.tryQinghePierInteract()) return;
+      if (this.tryQinghePavilionInteract()) return;
+      // Stage 2：夜晚聊天（长椅旁）
+      if (this.tryQingheChatterInteract()) return;
+      // 果园预埋：老周（断桥旁，第二章钩子）
+      if (this.tryQingheOldManInteract()) return;
+      // NPC 剧情覆盖日程：河畔夏雅（16-18 时看水，18 点后回农场）
+      if (this.tryRiversideXiyaInteract()) return;
+    }
 
     // 第一章 P2 钓鱼（2026-08-14 扩展：town 河堤 + farm 池塘多钓点）：
     // 靠近钓点按 E 启动钓鱼循环；钓鱼中按 E = 收竿判定（成功/过早失败）。
@@ -10729,7 +11104,7 @@ this.setupFieldLife();
           // 镜头到位后显示记忆片段 + 开始对话
           showMemoryMoment('这片星空，和爷爷记忆里的一样。');
           this.storyDialogue?.play(
-            DEMO_ENDING_DIALOGUE,
+            this.buildStargazeLines(),
             () => this.finishStargaze(),
             (index: number) => {
               const choice: EndingChoice = index === 0 ? 'try_stay' : index === 1 ? 'unknown' : 'tonight';
@@ -10740,6 +11115,20 @@ this.setupFieldLife();
         });
       });
     });
+  }
+
+  /**
+   * B 观星夜呼应：构建观星夜对白（·一 完成 → 夏雅加半句，玩家做的事被世界记住）。
+   * - 观星夜对白 `DEMO_ENDING_DIALOGUE` 逐句定稿（一字不改红线），此处用副本注入，不碰定稿数组。
+   * - 插在夏雅"总有一天，会有人回来继续看。"之后、信揭示之前。
+   * - 方向稿（制作人 2026-08-15 拍板：看见过去但继续向前，不是感谢拯救）；待"人话化"定稿后替换。
+   */
+  private buildStargazeLines(): DialogueLine[] {
+    const lines = [...DEMO_ENDING_DIALOGUE];
+    if (this.xiyaLetterDone) {
+      lines.splice(6, 0, { speaker: '夏雅', color: COLORS.xiya, text: '……今晚的星星，好像比以前亮了一点。' });
+    }
+    return lines;
   }
 
   /** v0.10.4 流星：头亮尾淡的短尾迹，斜向划过 1.2s，一次性销毁（纯 Graphics + tween） */
@@ -11377,6 +11766,639 @@ this.setupFieldLife();
     for (const m of this.lighthouseMarks) m.destroy();
     this.lighthouseMarks = [];
     this.lighthouseSpots = [];
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 青禾河畔（2026-08-15 制作人拍板：第一章替代灯塔开放的可玩新地图）
+  // 依据：《青禾河畔与废弃果园-区域设计方案-v0.1.md》
+  // 范围：氛围 / 钓鱼（复用 setupFishingSpot）/ 码头修复（木材×20）/ 凉亭 / 断桥预埋
+  // 红线：零新系统 / 零新存档字段（triggerOnce 持久化）；复用 Gathering / FarmRestore 范式
+  // ═══════════════════════════════════════════════════════════════
+
+  /** 河畔整体美术（水波 / 岸线层次 / 前景遮挡 / 树列框景 / 生活痕迹，零资产纯代码） */
+  private setupQingheRiverAmbience(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    const T = TILE_SIZE;
+    const night = getTime().hour >= 18 || getTime().hour < 6;
+    const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
+
+    // ① 河流水波光斑（4 个错落扩散，参照 setupFarmAmbience 水塘涟漪）
+    for (const [c, r, delay] of [[2, 11, 0], [20, 12, 700], [36, 10, 1300], [28, 11, 500]] as const) {
+      const ring = this.add.graphics();
+      ring.fillStyle(0x9fd8f5, 0.32);
+      ring.fillCircle(0, 0, 4);
+      ring.setPosition(c * T + T / 2, r * T + T / 2);
+      ring.setDepth(2);
+      this.tweens.add({
+        targets: ring,
+        scale: { from: 0.3, to: 1.2 },
+        alpha: { from: 0.55, to: 0 },
+        duration: 2300,
+        delay,
+        repeat: -1,
+        ease: 'Quad.Out',
+      });
+    }
+    // ② 河面流动光带（细长高光横线，缓慢东移——"水在流"）
+    {
+      const g = this.add.graphics().setDepth(2);
+      g.fillStyle(0xc8e8f8, 0.28);
+      for (const [cx, cy, w] of [[6, 10.4, 8], [14, 11.6, 6], [23, 10.7, 9], [31, 12.3, 7], [37, 10.8, 6]]) {
+        const [x, y] = px(cx, cy);
+        g.fillRect(x - w, y, w * 2, 1);
+      }
+      this.tweens.add({
+        targets: g,
+        x: { from: -20, to: 20 },
+        duration: 6000,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
+    // ③ 石子滩（两岸水缘碎石，岸线层次）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [cx, cy, s] of [[3.2, 14.4, 2], [4.8, 14.6, 1.5], [10.3, 14.3, 2], [14.5, 14.6, 1.5], [22.3, 14.4, 2], [28.5, 14.6, 1.5], [34.3, 14.4, 2], [38.5, 14.6, 1.5]]) {
+        const [x, y] = px(cx, cy);
+        g.fillStyle(0x9a9aa2, 1); g.fillCircle(x, y, s);
+        g.fillStyle(0xb8b8c0, 0.7); g.fillCircle(x - s * 0.4, y - s * 0.4, s * 0.4);
+      }
+    }
+    // ④ 岸线碎花/草簇（生活痕迹，北岸+南岸零星）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [cx, cy, col] of [[3, 7, 0xd860a0], [12, 6, 0xe8b040], [20, 7, 0xd860a0], [26, 6, 0xe8b040], [35, 7, 0xd860a0], [10, 19, 0xe8b040], [14, 21, 0xd860a0], [22, 19, 0xe8b040], [27, 21, 0xd860a0], [34, 19, 0xe8b040]]) {
+        const [x, y] = px(cx, cy);
+        g.fillStyle(0x5a8a4a, 1); g.fillRect(x - 1, y - 1, 2, 3);
+        g.fillStyle(col, 1); g.fillRect(x - 2, y - 3, 1, 1); g.fillRect(x + 1, y - 3, 1, 1); g.fillRect(x, y - 4, 1, 1);
+      }
+    }
+    // ⑤ 前景芦苇（水缘，depth 高于玩家——走过时轻微遮挡，形成空间层次）
+    {
+      const g = this.add.graphics().setDepth(12);
+      for (const [cx, cy, h] of [[3.2, 14.8, 12], [5.2, 14.6, 10], [9.8, 14.7, 13], [16.2, 14.5, 11], [21.8, 14.7, 12], [27.2, 14.5, 10], [33.2, 14.7, 13], [38.2, 14.5, 11]]) {
+        const [x, y] = px(cx, cy);
+        g.fillStyle(0x2e4a18, 1); g.fillRect(x - 1, y - h, 2, h);
+        g.fillStyle(0x6a4a2a, 1); g.fillRect(x - 2, y - h - 2, 4, 3);
+      }
+    }
+    // ⑥ 北岸树列（小树林内侧，形成"河的框"；纯视觉 sprite 不碰撞）
+    {
+      const trees: [number, number, string][] = [
+        [2, 4, 'tree1'], [6, 3, 'tree_big'], [10, 4, 'tree2'], [15, 3, 'tree1'],
+        [19, 4, 'tree_big'], [24, 3, 'tree2'], [29, 4, 'tree1'], [34, 3, 'tree_big'], [38, 4, 'tree2'],
+      ];
+      for (const [cx, cy, key] of trees) {
+        const [x, y] = px(cx, cy);
+        const s = this.add.image(x, y, key).setScale(0.5).setDepth(4);
+        if (key === 'tree_big') s.setOrigin(0.5, 1);
+      }
+    }
+    // ⑦ 南岸树列（内侧点缀，框住河岸动线）
+    {
+      const trees: [number, number, string][] = [
+        [12, 19, 'tree2'], [16, 18, 'tree1'], [25, 19, 'tree2'], [30, 18, 'tree1'], [37, 19, 'tree2'],
+      ];
+      for (const [cx, cy, key] of trees) {
+        const [x, y] = px(cx, cy);
+        const s = this.add.image(x, y, key).setScale(0.5).setDepth(4);
+        if (key === 'tree_big') s.setOrigin(0.5, 1);
+      }
+    }
+    // ⑧ 散步路径感：南岸小径内侧踩踏痕迹（提示"有人常走这里"）
+    {
+      const g = this.add.graphics().setDepth(2);
+      for (const [cx, cy] of [[6.3, 16.5], [8.5, 16.5], [12, 16.5], [15, 16.5], [18, 16.5], [22, 16.5], [25, 16.5], [29, 16.5], [31, 16.5]]) {
+        const [x, y] = px(cx, cy);
+        g.fillStyle(0x3a5a30, 0.14);
+        g.fillEllipse(x, y, 11, 4);
+      }
+    }
+    // ⑨ 夜晚萤火虫（河畔空气里零星光点，呼吸闪烁）
+    if (night) {
+      for (let i = 0; i < 8; i++) {
+        const fx = 2 * T + Math.floor(i * 4.7) * T;
+        const fy = 16 * T + (i % 3) * 4 * T + 8;
+        const dot = this.add.ellipse(fx, fy, 2, 2, 0xd8f0a8, 0.8).setDepth(3);
+        this.tweens.add({
+          targets: dot,
+          alpha: { from: 0.08, to: 0.9 },
+          x: { from: fx, to: fx + 3 },
+          duration: 1600 + i * 250,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+        });
+      }
+    }
+    // ⑩ 入口路牌（北侧入口缓冲：引导玩家"这里通向青禾河畔"）
+    {
+      const [x, y] = px(22.5, 2.5);
+      const g = this.add.graphics().setDepth(4);
+      g.fillStyle(0x6e4a2c, 1); g.fillRect(x - 1, y - 2, 2, 10);   // 木柱
+      g.fillStyle(0x8a6a45, 1); g.fillRect(x - 8, y - 7, 16, 6);   // 牌面
+      g.fillStyle(0xa8835a, 0.9); g.fillRect(x - 6, y - 6, 12, 2); // 牌面高光
+      this.add.text(x, y - 4, '青禾河畔', {
+        fontSize: '8px', color: '#f0d8a0', stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(5);
+    }
+    // ⑪ 白天暖光 / 夜晚冷色：极轻环境 overlay（不遮细节，只给"时间感"）
+    if (!night) {
+      const warm = this.add.rectangle(
+        this.cameras.main.width / 2, this.cameras.main.height / 2,
+        this.cameras.main.width, this.cameras.main.height,
+        0xffe8b0, 0.05,
+      ).setScrollFactor(0).setDepth(90);
+      warm.setBlendMode(Phaser.BlendModes.ADD);
+    } else {
+      const cool = this.add.rectangle(
+        this.cameras.main.width / 2, this.cameras.main.height / 2,
+        this.cameras.main.width, this.cameras.main.height,
+        0x4060a0, 0.08,
+      ).setScrollFactor(0).setDepth(90);
+      cool.setBlendMode(Phaser.BlendModes.MULTIPLY);
+    }
+  }
+
+  /** 码头修复交互点：木材×20 → 码头出现（Stage 1；triggerOnce 持久化，读档恢复） */
+  private setupQinghePierRestore(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    const T = TILE_SIZE;
+    // 码头平台中心（Ground 石板区 2-8, 20-23 的中心偏水边）
+    const pos = { x: 5 * T + T / 2, y: 20 * T + T / 2 };
+    const restored = hasTriggered('qinghe_pier_repaired');
+    this.qinghePierRestore = { pos, mark: null, restored };
+    // 码头生活痕迹（鱼篓/小凳/晾绳——"有人在这里落脚"；修复前破旧、修复后完整）
+    {
+      const [bx, by] = [pos.x + 14, pos.y + 4];
+      const g = this.add.graphics().setDepth(3);
+      if (restored) {
+        // 鱼篓（编织感）
+        g.fillStyle(0xb89858, 1); g.fillRect(bx - 5, by - 6, 10, 8);
+        g.fillStyle(0x9a7a3a, 1); g.fillRect(bx - 5, by - 6, 10, 2);
+        g.lineStyle(1, 0x7a5a33, 0.7); g.lineBetween(bx - 5, by - 3, bx + 5, by - 3);
+        // 小木凳
+        g.fillStyle(0x8a6a45, 1); g.fillRect(bx + 8, by - 4, 6, 3);
+        g.fillStyle(0x6e4a2c, 1); g.fillRect(bx + 9, by - 1, 1, 4); g.fillRect(bx + 13, by - 1, 1, 4);
+      } else {
+        // 破桶 + 断绳（荒废感）
+        g.fillStyle(0x7a5a33, 1); g.fillRoundedRect(bx - 5, by - 5, 9, 8, 2);
+        g.lineStyle(1, 0x4c3618, 0.9); g.strokeRoundedRect(bx - 5, by - 5, 9, 8, 2);
+        g.lineStyle(1.5, 0x8a8a92, 0.6); g.lineBetween(bx - 6, by - 6, bx + 6, by + 6);
+      }
+    }
+    if (!restored) {
+      // 未修复：破木桩 + 呼吸光晕（提示可交互）
+      const mark = this.add.container(pos.x, pos.y).setDepth(4);
+      const g = this.add.graphics();
+      g.fillStyle(0x5b4226, 1); g.fillRect(-8, -6, 16, 12);       // 木桩
+      g.fillStyle(0x3a2a18, 1); g.fillRect(-9, -7, 18, 2);         // 桩顶
+      g.fillStyle(0x6e4a2c, 1); g.fillRect(-8, -6, 4, 2);          // 高光
+      mark.add(g);
+      const glow = this.add.ellipse(0, 2, 30, 18, 0xffd98a, 0.16);
+      mark.add(glow);
+      this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.28 }, duration: 1300, yoyo: true, repeat: -1 });
+      this.qinghePierRestore.mark = mark;
+    } else {
+      // 已修复：完整码头（木台 + 护栏 + 桩）
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x6e4a2c, 1); g.fillRect(pos.x - 14, pos.y - 3, 28, 3);   // 台面
+      g.fillStyle(0x5b4226, 1); g.fillRect(pos.x - 14, pos.y - 4, 28, 1);   // 台沿
+      g.fillStyle(0x4a3018, 1); g.fillRect(pos.x - 13, pos.y, 2, 5); g.fillRect(pos.x + 11, pos.y, 2, 5); // 桩
+      g.fillStyle(0x7a5a34, 1); g.fillRect(pos.x - 14, pos.y - 8, 2, 4); g.fillRect(pos.x + 12, pos.y - 8, 2, 4); // 护栏
+      g.fillStyle(0x8a6a45, 1); g.fillRect(pos.x - 15, pos.y - 9, 30, 1);   // 扶手
+    }
+  }
+
+  /** 码头修复交互（tryInteract 调用）：木材×20 → markRestored + 码头视觉替换 + 存档 */
+  private tryQinghePierInteract(): boolean {
+    const g = this.qinghePierRestore;
+    if (!g || g.restored || this.mapKey !== 'qinghe_river') return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    if (dx * dx + dy * dy > 34 * 34) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    this.hideQinghePierHint();
+    if (getItemCount('wood') < 20) {
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      this.storyDialogue.play([
+        { speaker: '', color: COLORS.system, text: '码头塌了大半。要修好，得先准备一些木材……' },
+        { speaker: '', color: '#aaaaaa', text: `（还缺木头×${Math.max(0, 20 - getItemCount('wood'))}。）` },
+      ], () => this.updateHUD());
+      return true;
+    }
+    this.inputManager.clearAction();
+    setItemCount('wood', getItemCount('wood') - 20);
+    triggerOnce('qinghe_pier_repaired', () => {
+      g.restored = true;
+      g.mark?.destroy();
+      g.mark = null;
+      // 重建码头视觉（同 setupQinghePierRestore 已修复分支）
+      const vis = this.add.graphics().setDepth(3);
+      vis.fillStyle(0x6e4a2c, 1); vis.fillRect(g.pos.x - 14, g.pos.y - 3, 28, 3);
+      vis.fillStyle(0x5b4226, 1); vis.fillRect(g.pos.x - 14, g.pos.y - 4, 28, 1);
+      vis.fillStyle(0x4a3018, 1); vis.fillRect(g.pos.x - 13, g.pos.y, 2, 5); vis.fillRect(g.pos.x + 11, g.pos.y, 2, 5);
+      vis.fillStyle(0x7a5a34, 1); vis.fillRect(g.pos.x - 14, g.pos.y - 8, 2, 4); vis.fillRect(g.pos.x + 12, g.pos.y - 8, 2, 4);
+      vis.fillStyle(0x8a6a45, 1); vis.fillRect(g.pos.x - 15, g.pos.y - 9, 30, 1);
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      this.storyDialogue.play([
+        { speaker: '', color: COLORS.system, text: '（你把松动的木板重新钉好，码头又立了起来。）' },
+        { speaker: '', color: '#aaaaaa', text: '以后钓鱼，就有个正经地方落脚了。' },
+      ], () => this.updateHUD());
+    });
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    this.updateHUD();
+    return true;
+  }
+
+  /** 凉亭停留空间：视觉（柱/顶/座）+ 交互一句（看河/看星） */
+  private setupQinghePavilion(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    const T = TILE_SIZE;
+    const pos = { x: 18.5 * T, y: 22 * T + T / 2 };
+    const g = this.add.graphics().setDepth(3);
+    // 四柱 + 顶（屋顶红棕，柱子深木）+ 檐下横梁 + 座椅
+    g.fillStyle(0x6e4a2c, 1);
+    g.fillRect(pos.x - 16, pos.y - 4, 3, 12); g.fillRect(pos.x + 13, pos.y - 4, 3, 12);
+    g.fillRect(pos.x - 16, pos.y + 8, 3, 5); g.fillRect(pos.x + 13, pos.y + 8, 3, 5);
+    g.fillStyle(0xa84a38, 1);
+    g.fillTriangle(pos.x - 20, pos.y - 8, pos.x + 20, pos.y - 8, pos.x, pos.y - 22);
+    g.fillStyle(0x8a3a2a, 1);
+    g.fillRect(pos.x - 20, pos.y - 8, 40, 3);
+    // 檐下横梁（浅色原木）
+    g.fillStyle(0xa8835a, 1);
+    g.fillRect(pos.x - 15, pos.y - 1, 30, 2);
+    // 底座横板（可坐）+ 坐垫痕（生活感）
+    g.fillStyle(0x8a6a45, 1);
+    g.fillRect(pos.x - 15, pos.y + 4, 30, 3);
+    g.fillStyle(0x9a7a52, 0.8);
+    g.fillRect(pos.x - 10, pos.y + 4, 7, 2); // 坐过的位置颜色略浅
+    // 亭边一盏旧灯（夜晚暖光）
+    const lampX = pos.x + 24, lampY = pos.y - 2;
+    g.fillStyle(0x4a3018, 1); g.fillRect(lampX - 1, lampY, 2, 8);
+    g.fillStyle(0xffd98a, 1); g.fillRect(lampX - 3, lampY - 4, 6, 5);
+    if (getTime().hour >= 18 || getTime().hour < 6) {
+      const glow = this.add.ellipse(lampX, lampY - 1, 26, 20, 0xffc878, 0.22).setDepth(3);
+      glow.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({ targets: glow, alpha: { from: 0.12, to: 0.28 }, duration: 1500, yoyo: true, repeat: -1 });
+    }
+    this.qinghePavilion = { pos, mark: null };
+  }
+
+  /** 凉亭交互（tryInteract 调用）：一句停留台词（白天看河 / 夜晚看星） */
+  private tryQinghePavilionInteract(): boolean {
+    if (!this.qinghePavilion || this.mapKey !== 'qinghe_river') return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const dx = this.player.x - this.qinghePavilion.pos.x;
+    const dy = this.player.y - this.qinghePavilion.pos.y;
+    if (dx * dx + dy * dy > 42 * 42) return false;
+    this.hideQinghePavilionHint();
+    this.inputManager.clearAction();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const night = getTime().hour >= 18 || getTime().hour < 6;
+    this.storyDialogue.play(night ? [
+      { speaker: '', color: COLORS.system, text: '（你在凉亭坐下。河面倒着星光，水声很轻。）' },
+    ] : [
+      { speaker: '', color: COLORS.system, text: '（你在凉亭坐下。河风从水面吹过来，带着一点凉。）' },
+    ], () => this.updateHUD());
+    return true;
+  }
+
+  /** 断桥视觉（东侧河上；未来果园预埋，靠近提示一句） */
+  private setupQingheBrokenBridge(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    const T = TILE_SIZE;
+    // 断桥两段（木板 + 断口空隙），叠在 Ground 石板桥面上
+    const g = this.add.graphics().setDepth(3);
+    g.fillStyle(0x8a6a45, 1);
+    g.fillRect(31 * T + 4, 9 * T + 4, 14, 5);   // 左段
+    g.fillRect(33 * T + 6, 9 * T + 4, 14, 5);   // 右段（错位）
+    g.fillStyle(0x6e4a2c, 1);
+    g.fillRect(31 * T + 6, 9 * T + 6, 4, 2);    // 左段木板缝
+    g.fillRect(34 * T + 8, 9 * T + 6, 4, 2);
+    // 断口处碎木（"桥断了"）
+    g.fillStyle(0x5b4226, 1);
+    g.fillRect(32 * T + 6, 10 * T + 2, 5, 3);
+    g.fillRect(32 * T + 10, 11 * T, 4, 3);
+    // 桥头旧石 + 一截断绳（"有人曾想从这里过河"）
+    const [sx, sy] = [32 * T + T / 2, 15 * T + T / 2];
+    g.fillStyle(0x9a9aa2, 1); g.fillCircle(sx, sy, 3);
+    g.fillStyle(0xb8b8c0, 0.7); g.fillCircle(sx - 1, sy - 1, 1.2);
+    g.lineStyle(1.5, 0x8a8a92, 0.7); g.lineBetween(sx + 2, sy - 2, sx + 10, sy + 2);
+  }
+
+  /** 河畔 Stage 2（集市恢复后）：长椅 + 路灯 + 白天有人坐/夜晚有人聊天 */
+  private setupQingheStage2(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (!isRestored('marketSquare')) return; // 集市恢复后河畔开始有人来
+    const T = TILE_SIZE;
+    const night = getTime().hour >= 18 || getTime().hour < 6;
+    const add = (o: Phaser.GameObjects.GameObject) => { this.qingheStage2Gfx.push(o); return o; };
+    // ① 长椅（凉亭东侧南岸，面向河）：集市后才有闲坐的人
+    {
+      const x = 15 * T + T / 2, y = 20 * T + T / 2;
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x4a4a52, 1); g.fillRect(x - 8, y - 3, 16, 3);
+      g.fillStyle(0x3a3a42, 1); g.fillRect(x - 7, y, 2, 3); g.fillRect(x + 5, y, 2, 3);
+      add(g);
+      // 白天有人坐（剪影：老人拄拐看河）
+      if (!night) {
+        const s = this.add.graphics().setDepth(5);
+        s.fillStyle(0x2e2a3a, 1); s.fillCircle(x - 2, y - 9, 3.2);   // 头
+        s.fillStyle(0x3a3a48, 1); s.fillRect(x - 5, y - 5, 9, 4);     // 上身
+        s.fillStyle(0x2e2a3a, 1); s.fillRect(x - 4, y - 2, 7, 2);     // 腿
+        s.fillStyle(0x5b4226, 1); s.fillRect(x + 4, y - 7, 1, 7);     // 拐杖
+        add(s);
+      }
+    }
+    // ② 路灯（入口路牌旁 + 凉亭旁）：夜晚暖光
+    for (const [lx, ly] of [[23 * T, 4 * T], [16 * T, 21 * T]] as const) {
+      const g = this.add.graphics().setDepth(4);
+      g.fillStyle(0x3a3a44, 1); g.fillRect(lx + T / 2 - 1, ly, 2, 14);
+      g.fillStyle(0xffd98a, 1); g.fillRect(lx + T / 2 - 2, ly - 3, 4, 4);
+      add(g);
+      if (night) {
+        const glow = this.add.ellipse(lx + T / 2, ly - 1, 30, 22, 0xffc878, 0.2).setDepth(3);
+        glow.setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.26 }, duration: 1500, yoyo: true, repeat: -1 });
+        add(glow);
+      }
+    }
+    // ③ 夜晚聊天（长椅旁两人剪影——"晚上有人聊天"）
+    if (night) {
+      const x = 15 * T + T / 2 + 2, y = 20 * T + T / 2;
+      const s = this.add.graphics().setDepth(5);
+      // 两人并坐
+      s.fillStyle(0x2e2a3a, 1); s.fillCircle(x - 6, y - 9, 3.0); s.fillCircle(x + 5, y - 9, 3.0);
+      s.fillStyle(0x3a3a48, 1); s.fillRect(x - 9, y - 5, 8, 4); s.fillRect(x + 1, y - 5, 8, 4);
+      s.fillStyle(0x2e2a3a, 1); s.fillRect(x - 8, y - 2, 7, 2); s.fillRect(x + 1, y - 2, 7, 2);
+      add(s);
+    }
+  }
+
+  /** 河畔 Stage 2：夜晚聊天靠近提示（update 调用） */
+  private checkQingheChatterHint(): void {
+    if (this.mapKey !== 'qinghe_river' || !isRestored('marketSquare')) {
+      this.hideQingheChatterHint();
+      return;
+    }
+    const h = getTime().hour;
+    if (h < 18 && h >= 6) { // 仅夜晚
+      this.hideQingheChatterHint();
+      return;
+    }
+    if (this.storyDialogue?.isOpen()) { this.hideQingheChatterHint(); return; }
+    const T = TILE_SIZE;
+    const x = 15 * T + T / 2, y = 20 * T + T / 2;
+    const dx = this.player.x - x, dy = this.player.y - y;
+    if (dx * dx + dy * dy < 48 * 48) {
+      this.hideQingheOldManHint();
+      this.showQingheChatterHint();
+    } else {
+      this.hideQingheChatterHint();
+    }
+  }
+
+  private showQingheChatterHint(): void {
+    if (this.qingheChatterHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffd98a', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」听听他们在聊什么' : '按 [E] 听听他们在聊什么';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
+    document.body.appendChild(hint);
+    this.qingheChatterHint = hint;
+  }
+
+  private hideQingheChatterHint(): void {
+    if (this.qingheChatterHint) {
+      this.qingheChatterHint.remove();
+      this.qingheChatterHint = null;
+    }
+  }
+
+  /** 河畔 Stage 2：夜晚聊天交互（一次 + 日常轮换） */
+  private tryQingheChatterInteract(): boolean {
+    if (this.mapKey !== 'qinghe_river' || !isRestored('marketSquare')) return false;
+    const h = getTime().hour;
+    if (h < 18 && h >= 6) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const T = TILE_SIZE;
+    const x = 15 * T + T / 2, y = 20 * T + T / 2;
+    const dx = this.player.x - x, dy = this.player.y - y;
+    if (dx * dx + dy * dy >= 48 * 48) return false;
+    this.hideQingheChatterHint();
+    this.inputManager.clearAction();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const once = triggerOnce('qinghe_chatter_seen', () => { /* 仅标记 */ });
+    const lines: DialogueLine[] = once ? [
+      { speaker: '', color: COLORS.system, text: '（长椅上坐着两个人，声音压得很低。）' },
+      { speaker: '', color: '#aaaaaa', text: '……"集市都开了，河边也该热闹热闹。"' },
+    ] : [
+      { speaker: '', color: COLORS.system, text: '（夜风把说话声吹散了一些。）' },
+      { speaker: '', color: '#aaaaaa', text: '……"明天还想来钓鱼。"' },
+    ];
+    this.storyDialogue.play(lines, () => this.updateHUD());
+    return true;
+  }
+
+  /** 果园预埋：断桥旁老周（白天出现，一次性台词——"河对岸以前是果园"） */
+  private setupQingheOldMan(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    const h = getTime().hour;
+    if (h < 8 || h >= 18) return; // 白天
+    const T = TILE_SIZE;
+    const x = 32 * T + T / 2, y = 17 * T + T / 2; // 断桥南岸桥头旁
+    this.qingheOldMan = this.add.sprite(x, y, 'npc_carpenter');
+    this.qingheOldMan.setScale(0.5).setDepth(5);
+    this.qingheOldManLabel = this.add.text(x, y - 22, '老周', {
+      fontSize: '11px', color: '#e0d8c8', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(6);
+  }
+
+  /** 果园预埋：老周靠近提示（update 调用） */
+  private checkQingheOldManHint(): void {
+    if (this.mapKey !== 'qinghe_river' || !this.qingheOldMan?.visible) {
+      this.hideQingheOldManHint();
+      return;
+    }
+    const h = getTime().hour;
+    if (h < 8 || h >= 18 || this.storyDialogue?.isOpen()) {
+      this.hideQingheOldManHint();
+      return;
+    }
+    const dx = this.player.x - this.qingheOldMan.x;
+    const dy = this.player.y - this.qingheOldMan.y;
+    if (dx * dx + dy * dy < 42 * 42) {
+      this.hideQingheChatterHint();
+      this.showQingheOldManHint();
+    } else {
+      this.hideQingheOldManHint();
+    }
+  }
+
+  private showQingheOldManHint(): void {
+    if (this.qingheOldManHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffe9b0', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」和老周聊聊' : '按 [E] 和老周聊聊';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
+    document.body.appendChild(hint);
+    this.qingheOldManHint = hint;
+  }
+
+  private hideQingheOldManHint(): void {
+    if (this.qingheOldManHint) {
+      this.qingheOldManHint.remove();
+      this.qingheOldManHint = null;
+    }
+  }
+
+  /** 果园预埋：老周交互（一次性台词，埋第二章《故人远来》钩子） */
+  private tryQingheOldManInteract(): boolean {
+    if (this.mapKey !== 'qinghe_river' || !this.qingheOldMan?.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const h = getTime().hour;
+    if (h < 8 || h >= 18) return false;
+    const dx = this.player.x - this.qingheOldMan.x;
+    const dy = this.player.y - this.qingheOldMan.y;
+    if (dx * dx + dy * dy >= 42 * 42) return false;
+    this.hideQingheOldManHint();
+    this.inputManager.clearAction();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    // 台词方向稿：克制、具体、埋第二章（老周=木匠，"河对岸以前是果园"）
+    const once = triggerOnce('qinghe_orchard_oldman', () => { /* 仅标记 */ });
+    const lines: DialogueLine[] = once ? [
+      { speaker: '', color: COLORS.system, text: '（老周站在断桥边，望着河对岸，很久没说话。）' },
+      { speaker: '木匠老周', color: '#c89860', text: '河对岸……以前是片果园。' },
+      { speaker: '林澈', color: COLORS.linche, text: '果园？' },
+      { speaker: '木匠老周', color: '#c89860', text: '嗯。我小时候，常去那儿摘果子。' },
+      { speaker: '木匠老周', color: '#c89860', text: '桥断了之后，就没再过去过。' },
+      { speaker: '', color: COLORS.system, text: '（他拍了拍桥头的旧石，转身往回走。）' },
+    ] : [
+      { speaker: '木匠老周', color: '#c89860', text: '这桥……要是能修好，那边的果子，怕是还甜。' },
+    ];
+    this.storyDialogue.play(lines, () => this.updateHUD());
+    return true;
+  }
+
+  /** 河畔 Stage 2 / 果园预埋清理（场景切换时调用，防残留） */
+  private cleanupQingheStage2(): void {
+    for (const o of this.qingheStage2Gfx) o.destroy();
+    this.qingheStage2Gfx = [];
+    this.hideQingheChatterHint();
+    this.qingheOldMan?.destroy();
+    this.qingheOldMan = null;
+    this.qingheOldManLabel?.destroy();
+    this.qingheOldManLabel = null;
+    this.hideQingheOldManHint();
+  }
+
+  /** 断桥靠近提示（update 调用；未开放区域——未来果园） */
+  private checkQingheBridgeTip(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (hasTriggered('qinghe_bridge_seen')) return; // 一次性：只提示一次
+    const T = TILE_SIZE;
+    // 南岸桥头（护栏下方可站格，玩家走到断桥前触发）
+    const bx = 32 * T + T / 2, by = 14 * T + T / 2;
+    const dx = this.player.x - bx;
+    const dy = this.player.y - by;
+    if (dx * dx + dy * dy > 56 * 56) return;
+    if (this.storyDialogue?.isOpen()) return;
+    triggerOnce('qinghe_bridge_seen', () => {
+      this.showDialogueText('桥断了，过不去。河对岸……以后再来看看。');
+    });
+  }
+
+  /** 码头靠近提示（DOM，会话级） */
+  private showQinghePierHint(): void {
+    if (this.qinghePierHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffd98a', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」修码头（木头×20）' : '按 [E] 修码头（木头×20）';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
+    document.body.appendChild(hint);
+    this.qinghePierHint = hint;
+  }
+
+  private hideQinghePierHint(): void {
+    if (this.qinghePierHint) {
+      this.qinghePierHint.remove();
+      this.qinghePierHint = null;
+    }
+  }
+
+  /** 凉亭靠近提示（DOM，会话级） */
+  private showQinghePavilionHint(): void {
+    if (this.qinghePavilionHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#e8d8c0', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」坐一会儿' : '按 [E] 坐一会儿';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
+    document.body.appendChild(hint);
+    this.qinghePavilionHint = hint;
+  }
+
+  private hideQinghePavilionHint(): void {
+    if (this.qinghePavilionHint) {
+      this.qinghePavilionHint.remove();
+      this.qinghePavilionHint = null;
+    }
+  }
+
+  /** 河畔靠近提示检测（update 调用）：码头（未修复）/ 凉亭 就近一条 */
+  private checkQingheRiverHints(): void {
+    if (this.mapKey !== 'qinghe_river' || this.storyDialogue?.isOpen()) {
+      this.hideQinghePierHint();
+      this.hideQinghePavilionHint();
+      return;
+    }
+    let pierNear = false;
+    if (this.qinghePierRestore && !this.qinghePierRestore.restored) {
+      const dx = this.player.x - this.qinghePierRestore.pos.x;
+      const dy = this.player.y - this.qinghePierRestore.pos.y;
+      pierNear = dx * dx + dy * dy < 34 * 34;
+    }
+    let pavNear = false;
+    if (this.qinghePavilion) {
+      const dx = this.player.x - this.qinghePavilion.pos.x;
+      const dy = this.player.y - this.qinghePavilion.pos.y;
+      pavNear = dx * dx + dy * dy < 42 * 42;
+    }
+    // 互斥：同一底栏只留一条（码头优先）
+    if (pierNear) { this.hideQinghePavilionHint(); this.showQinghePierHint(); }
+    else if (pavNear) { this.hideQinghePierHint(); this.showQinghePavilionHint(); }
+    else { this.hideQinghePierHint(); this.hideQinghePavilionHint(); }
+  }
+
+  /** 河畔资源清理（场景切换时调用，防 DOM 残留） */
+  private cleanupQingheRiver(): void {
+    this.hideQinghePierHint();
+    this.hideQinghePavilionHint();
   }
 
   /**
@@ -12726,7 +13748,8 @@ this.setupFieldLife();
     // FEATURE-037 统一对白批次 environment_restore_v010：老屋完成 → 镇长（单次触发）
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     this.storyDialogue.play(OLD_HOUSE_RESTORED_DIALOGUE, () => {
-      setTimeout(() => showMemoryMoment('风吹过修补好的屋瓦——这座岛，开始像家了。'), 1600);
+      // L3 重要事件记忆卡（反馈层级 L3）：复兴事件·老屋修复完成——"你改变了什么"
+      setTimeout(() => showStoryComplete('老屋复原', '这座岛，开始像家了。'), 1600);
     });
   }
 
@@ -13291,7 +14314,20 @@ this.setupFieldLife();
     triggerTag('restore_market');
     // 开张演出对白 → 记忆时刻
     if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(MARKET_OPEN_DIALOGUE, () => {
+    // P1-02（2026-08-16）：消费 ch1ElderChoice——玩家当初对村长「愿意帮忙/还没想好」的态度，
+    // 在集市开张时得到一句回应（不改变剧情树，只让世界记得玩家说过的话）。
+    const elderLead: DialogueLine[] =
+      this.ch1ElderChoice === 'help'
+        ? [
+            { speaker: '镇长', color: COLORS.elder, text: '看来你是真准备留下来搭把手。' },
+            { speaker: '林澈', color: COLORS.linche, text: '先看看吧，总不能刚回来就闲着。' },
+          ]
+        : this.ch1ElderChoice === 'unsure'
+          ? [
+              { speaker: '镇长', color: COLORS.elder, text: '还没想好也没关系，先来看看。' },
+            ]
+          : [];
+    this.storyDialogue.play([...elderLead, ...MARKET_OPEN_DIALOGUE], () => {
       setTimeout(() => showMemoryMoment('集市重新开起来的那天，青禾镇有了声音。'), 1600);
       this.updateHUD();
     });
@@ -14365,6 +15401,8 @@ this.setupFieldLife();
         this.clearLetterXiya();
         // P1 世界反馈（制作人 2026-08-13 拍板）：完成后花田旁出现新花苗——玩家行为 → 世界变化
         this.spawnLetterFlowerbed();
+        // L3 重要事件记忆卡（反馈层级 L3）：心语·一 完成——告诉玩家"你改变了什么"（不写"任务完成"）
+        showStoryComplete('春深有信·一', '沉睡的花种，又在青禾镇的一角发芽');
         this.updateHUD();
         this.saveLetterFlags();
         // 声音补全 v1.0（2026-08-09）：剧情收尾恢复农场地图 BGM（白天 farm_day / 夜晚 stargaze_night）
@@ -15626,6 +16664,8 @@ this.setupFieldLife();
     if (this.backpackPanel.isOpen()) return;
     if (this.endingPanel?.isOpen()) return;
     if (this.photoAlbumPanel?.isOpen()) return;
+    if (isDiscoveryPanelOpen()) return;
+    if (isHudMenuOpen()) return;
     if (this.seedSelectorEl) return;
     if (this.cropPickerEl) return;
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
@@ -15780,6 +16820,7 @@ this.setupFieldLife();
   private tillTileAt(col: number, row: number): boolean {
     if (getTileState(col, row) !== 'empty') return false;
     if (getItemCount('old_hoe') <= 0) return false;
+    if (!consumeStamina(getActionStaminaCost('farm_till'))) return false; // 体力不足→不开始、不扣
     setTileState(col, row, 'tilled');
     this.checkTutorialProgress('till');
     // v1.0 生活仪式感：第一次锄地（一次性，mapFlags 入档；地块柔和高亮 + 极短 inner ≤1s）
@@ -15789,6 +16830,8 @@ this.setupFieldLife();
       this.tileGlowHighlight(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2);
       showMemoryMoment('原来土地是这样的感觉。');
     }
+    // 动作成本（P0 种植）：锄地成功 → 扣时间（体力已在开头闸扣）
+    consumeMinutes(getActionTimeCost('farm_till'));
     return true;
   }
 
@@ -15797,6 +16840,7 @@ this.setupFieldLife();
     if (getTileState(col, row) !== 'tilled') return false;
     const seedItem = CROP_DEFS[cropType].seedItem as any;
     if (getItemCount(seedItem) <= 0) return false;
+    if (!consumeStamina(getActionStaminaCost('farm_plant'))) return false; // 体力不足→不播种、不扣
     addItem(seedItem, -1);
     setTileState(col, row, 'planted');
     setCrop(col, row, { cropType, plantDay: getTime().day, watered: false });
@@ -15823,6 +16867,8 @@ this.setupFieldLife();
     }
     onDQPlant();
     this.checkTutorialProgress('sow');
+    // 动作成本（P0 种植）：播种成功 → 扣时间（体力已在开头闸扣）
+    consumeMinutes(getActionTimeCost('farm_plant'));
     return true;
   }
 
@@ -15830,6 +16876,7 @@ this.setupFieldLife();
   private waterTileAt(col: number, row: number): boolean {
     if (getTileState(col, row) !== 'planted') return false;
     if (getItemCount('old_watering_can') <= 0) return false;
+    if (!consumeStamina(getActionStaminaCost('farm_water'))) return false; // 体力不足→不浇水、不扣
     setTileState(col, row, 'watered');
     const crop = getCrop(col, row);
     if (crop) setCrop(col, row, { ...crop, watered: true });
@@ -15842,12 +16889,15 @@ this.setupFieldLife();
       triggerTag('first_water');
       showMemoryMoment('水浇下去，能不能活，明天才知道。');
     }
+    // 动作成本（P0 种植）：浇水成功 → 扣时间（体力已在开头闸扣）
+    consumeMinutes(getActionTimeCost('farm_water'));
     return true;
   }
 
   /** 单格收获：grown → tilled，作物入包。返回作物类型；非成熟返回 null */
   private harvestTileAt(col: number, row: number): CropType | null {
     if (getTileState(col, row) !== 'grown') return null;
+    if (!consumeStamina(getActionStaminaCost('farm_harvest'))) return null; // 体力不足→不收获、不扣
     const crop = getCrop(col, row);
     const cropType = crop?.cropType ?? 'radish';
     setTileState(col, row, 'tilled');
@@ -15860,6 +16910,8 @@ this.setupFieldLife();
       triggerOnce('crop_corn_first_harvest', () => { /* 仅标记 */ });
       save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
     }
+    // 动作成本（P0 种植）：收获成功 → 扣时间（体力已在开头闸扣）
+    consumeMinutes(getActionTimeCost('farm_harvest'));
     // v0.5.3 剧情密度 E2：第一次收获反馈（一次性，夏雅口头肯定，不影响收获本身）
     // v0.10.3：首次收获升级为"情绪瞬间"——轻音效 + 角色停顿表现 + 对白延迟（复用 firstHarvestShown，不新增存档/系统/剧情）
     // v1.0：+作物镜头（0.9s）——收获物放大→上浮→渐隐，"作物本身成为记忆镜头"（不破坏移动流畅）
@@ -16176,6 +17228,24 @@ this.setupFieldLife();
     this.photoAlbumPanel.open();
   }
 
+  /** 打开自然记录图鉴（只读信息展示层） */
+  private openDiscoveryPanel(): void {
+    if (isDiscoveryPanelOpen()) return;
+    this.inputManager.clearAction();
+    this.hideShortcutHint();
+    openDiscoveryPanel();
+  }
+
+  /** 开关 HUD 功能菜单 */
+  private toggleHudMenu(): void {
+    if (isHudMenuOpen()) {
+      hudMenuHandleEscape();
+      return;
+    }
+    this.inputManager.clearAction();
+    openHudMenu();
+  }
+
   /**
    * 归星录·相簿解锁反馈（v0.10 记忆卡→相簿闭环）：
    * 新照片解锁后待展示；等对话/闪回/相簿都关闭时弹出 toast + 【查看】按钮。
@@ -16256,6 +17326,8 @@ this.setupFieldLife();
     }
     if (this.endingPanel?.isOpen()) { this.endingPanel.close(); return true; }
     if (this.photoAlbumPanel?.isOpen()) { this.photoAlbumPanel.close(); return true; }
+    if (discoveryPanelHandleEscape()) return true;
+    if (hudMenuHandleEscape()) return true;
     if (this.shopPanel?.isOpen()) { this.shopPanel.close(); return true; }
     if (this.questPanel?.isOpen()) { this.questPanel.close(); return true; }
     if (this.backpackPanel?.isOpen()) { this.backpackPanel.close(); return true; }

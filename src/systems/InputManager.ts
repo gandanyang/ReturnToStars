@@ -18,10 +18,18 @@
 import Phaser from 'phaser';
 
 export class InputManager {
-  /** 水平移动向量：-1 左 / 0 停 / 1 右 */
+  /** 水平移动向量：-1 左 / 0 停 / 1 右；摇杆模式下为 -1~1 连续值（拖动幅度映射，P0-1 手感专项） */
   moveX = 0;
-  /** 垂直移动向量：-1 上 / 0 停 / 1 下 */
+  /** 垂直移动向量：-1 上 / 0 停 / 1 下；摇杆模式下为 -1~1 连续值 */
   moveY = 0;
+
+  /**
+   * 移动强度（P0-1 手感专项，2026-08-14 制作人拍板）：
+   * 摇杆拖动幅度 → 速度映射系数。范围 [0,1]。
+   * 键盘固定 1（满速）；摇杆按拖动距离归一化。
+   * 与 moveX/moveY 方向解耦：moveX/moveY 存方向（-1/0/1），magnitude 存速度层次。
+   */
+  moveMagnitude = 1;
 
   /** 排队待消费的动作（按下时排队，consumeAction 消费） */
   private actionQueued = false;

@@ -1,0 +1,30 @@
+A single game asset sprite, isolated object.
+
+A simple wooden broom leaning against nothing:
+a long wooden handle with a spread of straw bristles at the bottom,
+warm brown handle, tan bristles,
+slightly worn, stood upright,
+small town rural village life,
+Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no wall,
+no ground,
+no scenery around the broom.
+
+Pure black background,
+centered object,
+front view,
+the broom fills most of the frame,
+only the broom, floating alone on the black background.

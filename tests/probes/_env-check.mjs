@@ -1,0 +1,45 @@
+import puppeteer from 'puppeteer-core';
+const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const BASE = 'http://localhost:5173/';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const browser = await puppeteer.launch({ executablePath: CHROME_PATH, headless: false, defaultViewport: { width: 1024, height: 768 }, args: ['--no-sandbox'] });
+const page = await browser.newPage();
+page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+
+await page.goto(BASE + '?reset=1', { waitUntil: 'domcontentloaded', timeout: 15000 });
+await sleep(1500);
+await page.goto(BASE + '?devHub=1', { waitUntil: 'domcontentloaded', timeout: 15000 });
+await sleep(2000);
+await page.waitForFunction(() => { const s = window.__game?.scene?.getScene?.('title'); return !!s && s.scene.isActive(); }, { timeout: 10000 });
+await sleep(500);
+await page.keyboard.press('Enter');
+await sleep(2000);
+await page.evaluate(() => { const s = window.__game.scene.getScene('station'); s.player.x = 400; s.player.y = 430; });
+await sleep(300);
+await page.keyboard.press('KeyE');
+await sleep(800);
+await page.evaluate(() => {
+  const items = [...document.querySelectorAll('div')];
+  const t = items.find(el => el.textContent.includes('集市恢复前') && el.style.cursor === 'pointer');
+  if (t) t.click();
+});
+await sleep(3500);
+for (let i = 0; i < 12; i++) {
+  const open = await page.evaluate(() => !!window.__game?.scene?.getScene?.('town')?.storyDialogue?.isOpen?.());
+  if (!open) break;
+  await page.keyboard.press('KeyE'); await sleep(250);
+}
+await sleep(600);
+
+const info = await page.evaluate(() => {
+  const s = window.__game.scene.getScene('town');
+  const keys = ['decor_rock','decor_grass','decor_fg_grass'];
+  const out = {};
+  for (const k of keys) {
+    out[k] = { tex: s.textures.exists(k), count: s.children.list.filter(o => o.texture?.key === k).length };
+  }
+  return out;
+});
+console.log('INFO', JSON.stringify(info));
+await browser.close();
+process.exit(0);

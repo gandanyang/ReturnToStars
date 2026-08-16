@@ -80,3 +80,18 @@ _tmp_*.mjs
 
 # GPT 请示桥运行时 Chrome profile（含 ChatGPT 登录态/Cookies，切勿提交）
 .gpt-bridge-profile/
+
+# ============ 临时/测试产物补充（2026-08-16 归档整库时新增，均为不入库的本地产物） ============
+# 本地临时目录（语音批量/工作区缓存）
+.tmp/
+.zcode/
+# 探针测试结果截图/导出（探针运行时生成；对应已忽略 test-screenshots/）
+test-results/
+# 根目录零散探针截图/占位文件（勿入库，正式资产请放入对应目录）
+_farm_.png
+_station_.png
+# 根目录个人/误建空文件
+邓紫棋
+
+# Godot 独立原型（与主 Phaser 游戏不同技术栈，制作人 2026-08-16 拍板不入主库存入）
+godot_mvp/

@@ -48,6 +48,7 @@ export const COLORS = {
   miner: '#b89878',
   gardener: '#a0d888',
   adventurer: '#88b8e8',
+  laojiang: '#d8b878',
 };
 
 /** 操作提示文案：移动端（触屏）与桌面端（键盘）差异 */
@@ -177,6 +178,33 @@ export const XIYA_EVENING_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '以前你也是这样？' },
   { speaker: '林澈', color: COLORS.linche, text: '嗯。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '那以后记得早点休息。' },
+];
+
+/** NPC 剧情覆盖日程扩展（2026-08-16）：河畔夏雅（16-18 时在青禾河畔出现，看河/发呆，18 点后回农场） */
+export const XIYA_RIVERSIDE_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（河边的风比庄园大一点。夏雅蹲在岸边的石头上，看着水面出神。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '怎么一个人来河边？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '下午没事，就想来看看水。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '以前爷爷还在的时候，天一热他就搬个凳子坐这儿。什么都不干，就看。' },
+  { speaker: '林澈', color: COLORS.linche, text: '……看什么？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '不知道。可能就是觉得，水一直在流，心里就踏实。' },
+  { speaker: '', color: COLORS.system, text: '（她站起身，拍了拍裙子上的土。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '快傍晚了，我该回去了。你要是有空，明天下午也来坐坐。' },
+];
+
+/**
+ * 河畔夏雅·雨天变体（2026-08-16 天气扩面第二刀，制作人拍板）：
+ * 雨日 16-18 河畔看水时播放（雨窗 10-16，雨天她也在河边看雨），呼应雨天河螺——
+ * "雨天是青禾镇的自然日"，看水对白与雨天世界规律同源。D-017 文风已审。
+ */
+export const XIYA_RIVERSIDE_RAIN_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（雨落进河里，溅起很细的圈。夏雅蹲在岸边的石头上，撑着伞看水面。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '下雨天也来看水？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '下雨的时候，水面上什么都会冒出来。' },
+  { speaker: '', color: COLORS.system, text: '（她指了指浅滩的方向。水汽里，好像有什么东西在动。）' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '雨天的河，跟晴天的河，不是同一条河。' },
+  { speaker: '林澈', color: COLORS.linche, text: '……就为了看这个？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '嗯。小时候爷爷说，别怕下雨，那是河在说话。' },
 ];
 
 /**
@@ -424,16 +452,16 @@ export const ADVENTURER_WELCOME_BACK_DIALOGUE: DialogueLine[] = [
   { speaker: '阿风', color: '#88b8e8', text: '是啊，不过风还是那个风。慢慢来吧，我相信这里会重新热闹起来。' },
 ];
 
-// ============ T2 改动 2：关键对白（制作人 2026-08-06 定稿） ============
-/** 镇长「为什么种田」：星之碎片交付完成后追加（T2 改动 2，制作人定稿台词） */
+// ============ T2 改动 2：关键对白 ============
+/** 镇长「为什么种田」：星之碎片交付完成后追加。
+ *  2026-08-16 P1-01 改稿（制作人拍板方向：少讲道理、多讲具体生活，7→5 行）：
+ *  保留一个具体生活细节（邻居给葱），删讲道理句与内部重复；末句落回玩家自己种的萝卜（行动型）。 */
 export const ELDER_WHY_FARM_DIALOGUE: DialogueLine[] = [
-  { speaker: '镇长', color: COLORS.elder, text: '现在买东西方便了，想吃什么，去店里就能买到。' },
-  { speaker: '镇长', color: COLORS.elder, text: '可有时候，人容易忘了一件事。' },
-  { speaker: '镇长', color: COLORS.elder, text: '这些东西啊，也不是一开始就在货架上的。' },
-  { speaker: '镇长', color: COLORS.elder, text: '一粒种子，要有人种下去，有人照看它，才能变成餐桌上的东西。' },
-  { speaker: '镇长', color: COLORS.elder, text: '现在什么都能买到，菜市场有菜，商店有粮。' },
-  { speaker: '镇长', color: COLORS.elder, text: '可自己种出来的东西，吃的时候心里踏实。' },
-  { speaker: '镇长', color: COLORS.elder, text: '你知道它什么时候种下去，什么时候长出来，也知道这一口是怎么来的。' },
+  { speaker: '镇长', color: COLORS.elder, text: '以前家里缺点葱，出门喊一声，邻居就能给你一把。' },
+  { speaker: '镇长', color: COLORS.elder, text: '后来日子好了，什么都买得到。菜市场、商店，要啥有啥。' },
+  { speaker: '镇长', color: COLORS.elder, text: '可有时候，买回来的东西，总觉得少了点味儿。' },
+  { speaker: '镇长', color: COLORS.elder, text: '自己地里收的，才知道这一口是怎么来的。' },
+  { speaker: '镇长', color: COLORS.elder, text: '今年你那几畦萝卜，我看长势就好。' },
 ];
 
 /** 夏雅「为什么小事会改变这里」：花园恢复见证对白（GARDEN_RESTORED_XIYA_DIALOGUE）后追加
@@ -463,6 +491,23 @@ export const XIYA_BUTTERFLY_SHARE_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '连这些小东西什么时候消失了，都没人发现。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '谢谢你。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '你让我想起来——青禾镇，其实一直没有离开过。' },
+];
+
+// ============ P0.5 世界规律引导（2026-08-16 制作人拍板：生活发现式引导，不做任务） ============
+// 原则：第一次明确告知 → 第二次环境暗示 → 第三次以后交给玩家记忆。
+// 第一版只做"雨天→森林→蘑菇"（真实天气链 WeatherSystem → ResourceSpawner → DiscoveryManager 已闭环，
+// 只差把关系告诉玩家）。触发侧在 MapScene（triggerOnce 一次性，不进任务系统）。
+
+/** 第一场雨：小梅在农场顺口提起（第一次明确告知，玩家自主决定去不去） */
+export const RAIN_MUSHROOM_HINT_DIALOGUE: DialogueLine[] = [
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '下雨啦……后山的蘑菇，是不是又冒出来了？' },
+  { speaker: '林澈', color: COLORS.linche, text: '蘑菇还跟下雨有关系？' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '你自己去看看不就知道了。' },
+];
+
+/** 雨天第一次进森林：环境暗示（不直接告诉，只描述看到的） */
+export const RAIN_FOREST_ENTRANCE_HINT_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（雨水顺着树叶滴下来。地上好像多了些平时没见过的东西。）' },
 ];
 
 /**
@@ -570,6 +615,73 @@ export const XIAOMEI_OBSERVE_DONE_DIALOGUE: DialogueLine[] = [
   { speaker: '花匠小梅', color: COLORS.gardener, text: '是呀。' },
   { speaker: '花匠小梅', color: COLORS.gardener, text: '青禾镇的自然记录，这是第一条。' },
   { speaker: '花匠小梅', color: COLORS.gardener, text: '原来它们一直都在。只是我们以前，没认真看过。' },
+];
+
+// ============ 第一章 v0.11 图鉴墙：柳叶蝶 / 夜光蛾观察（2026-08-14，制作人拍板） ============
+// 复用 XIAOMEI_OBSERVE_CHOICES_DIALOGUE 的三个观察选项（翅膀/活动时间/环境），
+// 各自拥有 intro / detail×3 / done 收束；收束计数 2/10、3/10（与青禾凤蝶 1/10 组成首版三虫图鉴）。
+// 文本护栏：口语化、不演讲、留白，不重复青禾凤蝶已冻结收束台词「原来它们一直都在」。
+
+/** 柳叶蝶观察：小梅没见过的虫（河边柳树下，翅膀像柳叶） */
+export const XIAOMEI_OBSERVE_WILLOW_INTRO_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（小梅接过标本，歪着头看了好一会儿。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '咦，这只我没见过。翅膀绿绿的，像一片柳叶。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '来，用放大镜仔细看看，说不定能记下来。' },
+];
+
+/** 柳叶蝶观察细节（按下标对应：0翅膀 1活动时间 2环境） */
+export const XIAOMEI_OBSERVE_WILLOW_DETAIL_DIALOGUE: DialogueLine[][] = [
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '翅膀细长，绿得发亮，越靠近边儿颜色越淡。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '它贴柳枝上一动不动的时候，跟叶子混在一起，根本认不出来。' },
+  ],
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '它好像喜欢早上风小的时候出来，太阳一大就不见了。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '嗯，风一大它就躲进叶子背面去，等风停了再出来。' },
+  ],
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '它一直绕着河边那几棵柳树飞，不怎么往远处去。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '它把家安在河边了。柳树在，它就在。' },
+  ],
+];
+
+/** 柳叶蝶观察收束（自然记录第二条） */
+export const XIAOMEI_OBSERVE_WILLOW_DONE_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（你在自然笔记上写下了关于这只蝴蝶的三件事。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '柳叶蝶……嗯，记好了。' },
+  { speaker: '林澈', color: COLORS.linche, text: '原来它连颜色，都长成了柳树的样子。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '是呀。青禾镇的自然记录，这是第二条。' },
+];
+
+/** 夜光蛾观察：小梅夜里才见得到的虫（老树旁，翅膀泛淡光） */
+export const XIAOMEI_OBSERVE_MOTH_INTRO_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（小梅接过标本，就着月光看了半天，抬头时眼睛亮亮的。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '夜光蛾呀。白天躲树影里，天一黑才出来，能碰到它不容易。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '来，仔细看看，记一笔。' },
+];
+
+/** 夜光蛾观察细节（按下标对应：0翅膀 1活动时间 2环境） */
+export const XIAOMEI_OBSERVE_MOTH_DETAIL_DIALOGUE: DialogueLine[][] = [
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '翅膀不是白的，有点发灰，暗处会泛一点点光。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '那是它身上带着的夜光，天越黑越看得清楚。' },
+  ],
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '白天看不到它，天一黑才出来。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '对，它白天就歇在老树底下那块阴凉里，晚上才起身。' },
+  ],
+  [
+    { speaker: '林澈', color: COLORS.linche, text: '它总待在那棵老树旁边，飞得不高也不远。' },
+    { speaker: '花匠小梅', color: COLORS.gardener, text: '老树年岁大了，树皮缝里藏着些小东西，它守着自己的那一口。' },
+  ],
+];
+
+/** 夜光蛾观察收束（自然记录第三条） */
+export const XIAOMEI_OBSERVE_MOTH_DONE_DIALOGUE: DialogueLine[] = [
+  { speaker: '', color: COLORS.system, text: '（你在自然笔记上写下了关于这只蛾子的三件事。）' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '夜光蛾……嗯，记好了。' },
+  { speaker: '林澈', color: COLORS.linche, text: '白天它藏起来，晚上才出来，像是守着那棵树。' },
+  { speaker: '花匠小梅', color: COLORS.gardener, text: '老树在，它就在。青禾镇的自然记录，这是第三条。' },
 ];
 
 // ============ T3 NPC 生活事件（制作人 2026-08-07 定稿微调） ============
@@ -842,6 +954,10 @@ export const DEMO_ENDING_BRANCHES: Record<'try_stay' | 'unknown' | 'tonight', Di
     { speaker: '', color: COLORS.system, text: '（林澈把信收好。城市还在那里，但今晚，他属于这里。）' },
     { speaker: '林澈', color: COLORS.linche, text: '……说实话，我连明天会怎样都不知道。' },
     { speaker: '夏雅', color: COLORS.xiya, text: '不需要知道。' },
+    { speaker: '', color: COLORS.system, text: '（她往他那边挪了挪，风把她的头发吹起来一点。）' },
+    { speaker: '夏雅', color: COLORS.xiya, text: '……就是晚上风有点大。' },
+    { speaker: '林澈', color: COLORS.linche, text: '你冷？' },
+    { speaker: '夏雅', color: COLORS.xiya, text: '有一点。' },
     { speaker: '夏雅', color: COLORS.xiya, text: '你在这里，就足够了。' },
   ],
 };

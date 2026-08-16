@@ -26,11 +26,19 @@ export type ItemType = 'radish' | 'tomato' | 'corn' | 'strawberry' | 'radish_see
   | 'qinghe_fry'
   // 第一章 P2 生活采集 Phase 1（2026-08-14，制作人设计稿 v0.1）：5 种自然采集物，可售
   | 'dandelion' | 'wild_berry' | 'wild_mushroom' | 'small_flower' | 'twig'
+  // 天气扩面（2026-08-16 制作人拍板）：雨天河边河螺（水边资源第二种落地，water 标签首个消费者）
+  | 'river_snail'
+  // 天气扩面三刀收口（2026-08-16 制作人拍板）：河草（普通水边资源，water 标签第二个消费者）
+  | 'river_grass'
   // 钓鱼老人老姜《钓鱼修行》v0.1（2026-08-14 制作人拍板）：老姜送出的旧鱼竿，纪念物，不可售
   | 'old_fishing_rod';
 
 /** 出售优先级标签（FEATURE-039 智能出售） */
 export type SellPriority = 'normal' | 'reserve' | 'forbidden';
+
+/** 资源标签（自然资源与生活制作 P0-4，2026-08-15）：未来所有系统（堆肥/料理/制作/发现）的接口。
+ *   P0 只打标签不消费；后续 堆肥=plant+organic / 料理=food / 制作=wood 不再改资源定义。 */
+export type ResourceTag = 'wood' | 'plant' | 'flower' | 'food' | 'insect' | 'mineral' | 'water' | 'special';
 
 /** 物品定义 */
 export interface ItemDef {
@@ -42,6 +50,8 @@ export interface ItemDef {
   icon: string;
   /** 出售优先级：normal=正常出售 / reserve=保留（不自动卖，可手动卖）/ forbidden=不可售 */
   sellPriority: SellPriority;
+  /** 资源标签（可选；P0 为采集物/自然资源打标，供未来制作/图鉴系统查询） */
+  resourceTags?: ResourceTag[];
 }
 
 /** 物品定义表 */
@@ -96,11 +106,17 @@ export const ITEM_DEFS: Record<ItemType, ItemDef> = {
   qinghe_fry: { id: 'qinghe_fry', name: '青禾鱼苗', desc: '还没长大的小鱼。鳞片透明，能看见小小的心跳。', icon: '🐟', sellPriority: 'forbidden' },
   // 第一章 P2 生活采集 Phase 1（2026-08-14，制作人设计稿 v0.1）：5 种自然采集物，可售
   // 设计原则：采集是"顺手发现"，不是刷取；售价低，主要价值是"世界有生命"
-  dandelion: { id: 'dandelion', name: '蒲公英', desc: '路边常见的小花。风一吹，种子就散了。', icon: '🌼', sellPriority: 'normal' },
-  wild_berry: { id: 'wild_berry', name: '野莓', desc: '河边灌木丛里摘的。酸甜，手指会染红。', icon: '🫐', sellPriority: 'normal' },
-  wild_mushroom: { id: 'wild_mushroom', name: '野蘑菇', desc: '林子里背阴处长的小蘑菇。颜色朴素，应该没问题。', icon: '🍄', sellPriority: 'normal' },
-  small_flower: { id: 'small_flower', name: '小野花', desc: '不知名的小花一株。开得不大，但颜色好看。', icon: '🌸', sellPriority: 'normal' },
-  twig: { id: 'twig', name: '小树枝', desc: '地上捡的枯枝。修东西的时候总用得上。', icon: '🥢', sellPriority: 'normal' },
+  dandelion: { id: 'dandelion', name: '蒲公英', desc: '路边常见的小花。风一吹，种子就散了。', icon: '🌼', sellPriority: 'normal', resourceTags: ['plant', 'flower'] },
+  wild_berry: { id: 'wild_berry', name: '野莓', desc: '河边灌木丛里摘的。酸甜，手指会染红。', icon: '🫐', sellPriority: 'normal', resourceTags: ['plant', 'food'] },
+  wild_mushroom: { id: 'wild_mushroom', name: '野蘑菇', desc: '林子里背阴处长的小蘑菇。颜色朴素，应该没问题。', icon: '🍄', sellPriority: 'normal', resourceTags: ['plant', 'food'] },
+  small_flower: { id: 'small_flower', name: '小野花', desc: '不知名的小花一株。开得不大，但颜色好看。', icon: '🌸', sellPriority: 'normal', resourceTags: ['plant', 'flower'] },
+  twig: { id: 'twig', name: '小树枝', desc: '地上捡的枯枝。修东西的时候总用得上。', icon: '🥢', sellPriority: 'normal', resourceTags: ['wood'] },
+  // 天气扩面（2026-08-16 制作人拍板）：雨天河螺——雨天才爬上浅滩的小螺，河畔限定。
+  // water 标签首个消费者（为未来制作/料理/发现系统铺路）；"雨天去河边"的第二个记忆锚点（与蘑菇并列）。
+  river_snail: { id: 'river_snail', name: '河螺', desc: '雨天才爬上浅滩的小螺。壳上还沾着水珠。', icon: '🐚', sellPriority: 'normal', resourceTags: ['water'] },
+  // 天气扩面三刀收口（2026-08-16 制作人拍板）：河草——岸边常年见的水草，普通采集物。
+  // water 标签第二个消费者；"河畔水边的东西"与河螺（雨天）、芦苇（视觉）共同构成河岸采集带。
+  river_grass: { id: 'river_grass', name: '河草', desc: '河边湿地上长的水草。叶子细长，摸起来凉凉的。', icon: '🌿', sellPriority: 'normal', resourceTags: ['water'] },
   // 钓鱼老人老姜《钓鱼修行》v0.1（2026-08-14 制作人拍板）：老姜送出的旧鱼竿，纪念物，不可售
   old_fishing_rod: { id: 'old_fishing_rod', name: '老姜的旧鱼竿', desc: '竹竿磨得发亮，握把缠着旧布。老姜说，以后河边修行，就咱俩了。', icon: '🎣', sellPriority: 'forbidden' },
 };
@@ -147,6 +163,8 @@ const inventory: Record<ItemType, number> = {
   wild_mushroom: 0,
   small_flower: 0,
   twig: 0,
+  river_snail: 0,
+  river_grass: 0,
   old_fishing_rod: 0,
 };
 

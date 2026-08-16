@@ -21,6 +21,7 @@
 
 import { NPC, ScheduleEntry } from '../entities/NPC';
 import { getTime } from '../data/TimeSystem';
+import { getWeather, isCurrentlyRaining } from './WeatherSystem';
 import { getRevivalLevel, isRestored } from '../data/FarmRestore';
 import { countGrownTiles } from '../data/FarmState';
 import { hasTriggered } from './EventManager';
@@ -266,6 +267,26 @@ const ADVENTURER_DIALOGUES: DialogueLine[] = [
   { speaker: '阿风', color: '#88b8e8', text: '说得对。有空来后山，我带你转转。' },
 ];
 
+/**
+ * 阿风·后山场景固定对白（forest=后山，阿风清晨/上午在此，NPCSystem.ts 日程 08:00-14:00）。
+ * 2026-08-16 逻辑修复：默认对白 tail 行「有空来后山，我带你转转」是人已经站在后山却说"改天带你来看"的自相矛盾。
+ * 后山变体把「不在场、改天再去」的口吻改为「当下就在此地」的口吻；其余行与默认一致（后山深处/比看上去大在后山读得通），保住可复用的配音。
+ */
+const ADVENTURER_MOUNTAIN_DIALOGUES: DialogueLine[] = [
+  { speaker: '阿风', color: '#88b8e8', text: '嘿！还记得我不？小时候后山那一圈，就是我带你跑熟的。' },
+  { speaker: '阿风', color: '#88b8e8', text: '告诉你个秘密——后山深处有东西在发光，镇长神神秘秘的不肯说。' },
+  { speaker: '阿风', color: '#88b8e8', text: '想去探险的话，记得备足体力。后山可比看上去大得多！' },
+  { speaker: '林澈', color: COLORS.linche, text: '（笑）你越这么说，我越想去看。' },
+  { speaker: '阿风', color: '#88b8e8', text: '嘿！你这小子，胆子不小啊！' },
+  { speaker: '林澈', color: COLORS.linche, text: '不是胆子大。只是觉得，既然来了这座岛，就该看看它藏着什么。' },
+  { speaker: '阿风', color: '#88b8e8', text: '说得对。那就从这儿开始，往深里走。' }, // T-voice：adv_mountain_06（后山尾句，暂静音，待配音后接 voicebank）
+];
+
+/** 按当前所在场景取阿风固定对白（forest=后山时无法复用 he 默认 tail） */
+export function getAdventurerDialogue(location: string): DialogueLine[] {
+  return location === 'forest' ? ADVENTURER_MOUNTAIN_DIALOGUES : ADVENTURER_DIALOGUES;
+}
+
 /** 木匠老周：常驻对白（FEATURE-041，方向稿待制作人定稿） */
 const CARPENTER_DIALOGUES: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（老周蹲在木料堆旁，用刨子一遍遍推平木板。他抬头看见林澈，点了下头，没说话。）' },
@@ -433,18 +454,80 @@ function isNight(): boolean {
   return h >= 18 || h < 6;
 }
 
+// ============ 第一章 P1：时段对白切片 — 花匠小梅「世界在回应时间」示例 ============
+// 设计（2026-08-16，最小垂直切片）：小梅的口袋生活句按她当前日程所在场景对口吻不同的说法，
+// 让玩家感受"世界在回应时间"——上午她在农场照料、下午她去森林采撷（与 buildSchedule 同步，
+// 不会自相矛盾）；夜晚她回家则有 NIGHT_LINES 覆盖，白天不在场由 schedule 把她移走自然呈现。
+// 复用 getDailyNpcLine 的 seed 机制（当天随机一句，读档不跳变）。无配音（走 VoiceBank 静音跳过）。
+// 新台词遵守 D-017 文风护栏（具体情境 + 说话缺陷 + 不连续漂亮 + 遮名可辨认）。
+const GARDENER_PERIOD_LINES: Record<string, DialogueLine[]> = {
+  // farm：上午/中午（07:00–14:00），照料花圃
+  farm: [
+    { speaker: '花匠小梅', color: '#a0d888', text: '清早的露水重，我先把花圃浇一遍。这时候的花，精神头最好。' },
+    { speaker: '花匠小梅', color: '#a0d888', text: '这片地归我照看，天一亮我就得来看看。说不上累，就是惦记。' },
+  ],
+  // forest：下午（14:00–18:00），去森林采撷
+  forest: [
+    { speaker: '花匠小梅', color: '#a0d888', text: '下午去林子里摘了几把野花，回来手上扎了几个口子。不过值。' },
+    { speaker: '花匠小梅', color: '#a0d888', text: '林子里的那几株，比园子里开得野。我采几支回去，看能不能养活。' },
+  ],
+};
+
+// ============ 天气扩面第二刀（2026-08-16 制作人拍板）：雨天 NPC 生活台词 ============
+// 设计：雨日（getWeather(day)==='rain'，WeatherSystem 事件表同源）NPC 对"下雨"做生活感反馈，
+// 与雨天河螺/雨天蘑菇同一世界规律（"雨天是青禾镇的自然日"），强化天气参与规划的可感知。
+// 复用 getDailyNpcLine 的 seed 机制（当天固定一句，读档不跳变）；零新系统/零新存档字段。
+// 优先级：雨天 > 夜晚 > 集市恢复 > 时段场景生活句 > 默认生活句
+// （雨窗 10-16 与夜晚 18+ 不重叠，雨天池与夜晚池天然互斥；雨日 10-16 外 NPC 若无夜晚池走其余池，避免"雨停了还说下雨"的别扭——由 getWeather 判定整日雨，但仅雨窗内 isCurrentlyRaining 才真正下雨，故雨天池只在雨窗内命中）。
+// 新台词遵守 D-017 文风护栏（具体情境 + 说话缺陷 + 不连续漂亮 + 遮名可辨认），制作人已审。
+const RAIN_LINES: Record<string, DialogueLine[]> = {
+  elder: [
+    { speaker: '镇长', color: '#c8b898', text: '下着雨，路上的泥都软了。你爷爷以前下雨天也爱在桥头站着。' },
+  ],
+  shopkeeper: [
+    { speaker: '商店老板', color: '#8ac8a0', text: '雨一落，柜台前就没人了。正好，把旧账本翻出来擦擦灰。' },
+  ],
+  miner: [
+    { speaker: '矿工老张', color: '#d8a050', text: '下雨天矿洞里潮气重，我正好歇一天。你倒是有闲跑来镇上。' },
+  ],
+  gardener: [
+    { speaker: '花匠小梅', color: '#a0d888', text: '雨下得正好，花池子不用我浇了。就是一会儿风大，得把花盆往檐下挪挪。' },
+  ],
+  adventurer: [
+    { speaker: '阿风', color: '#88b8e8', text: '下雨天跑不了远路，憋得慌。要不……你陪我在镇口站会儿，看雨？' },
+  ],
+  carpenter: [
+    { speaker: '木匠老周', color: '#c89860', text: '雨天木料不能动，一动全翘。我就在棚里坐着，听雨打棚顶。' },
+  ],
+  mystery: [
+    { speaker: '神秘少女', color: '#b8a0e8', text: '下雨……灯影会碎在水里。' },
+  ],
+};
+
 /**
  * 获取某 NPC 当天的一句随机生活台词（无状态，seed = day + npcId hash）
  * @param npcId NPC id（miner/gardener/adventurer）
  * @param day 当天天数
+ * @param location 该 NPC 当前所在场景（基建于 schedule；仅小梅用于时段对白切片，其余忽略）
  * @returns 台词数组（1 条）；该 NPC 没有随机池时返回 null
  */
-export function getDailyNpcLine(npcId: string, day: number): DialogueLine[] | null {
+export function getDailyNpcLine(npcId: string, day: number, location?: string): DialogueLine[] | null {
   // 第一章 P2-2：集市恢复后，NPC 生活台词切到"集市热闹"分支（恢复前/后可感知不同）
   // 第一章 P1：夜晚 + 章节≥1 时优先切到「夜晚灯光回忆点」生活感分支（氛围层，不覆盖集市语义）
+  // 第一章 P1 时段切片：小梅按当前所在场景对口吻不同的生活句（farm=上午照料 / forest=下午采撷）
+  // 天气扩面第二刀：雨日（当前正在下雨，WeatherSystem 同源）切「雨天生活台词」分支
+  //   优先级：雨天 > 夜晚 > 集市恢复 > 时段场景生活句 > 默认生活句（只替换原本走通用生活句那一挡）
+  const isRaining = getWeather(day) === 'rain' && isCurrentlyRaining();
+  const rainPool = isRaining ? RAIN_LINES[npcId] : null;
   const nightPool = isNight() && getChapter() >= 1 ? NIGHT_LINES[npcId] : null;
-  let pool = nightPool ??
-    (isRestored('marketSquare') ? MARKET_RESTORED_LINES[npcId] : NPC_DAILY_LINES[npcId]);
+  const periodPool = npcId === 'gardener' && location ? GARDENER_PERIOD_LINES[location] : null;
+  let pool = rainPool ??
+    nightPool ??
+    (isRestored('marketSquare')
+      ? MARKET_RESTORED_LINES[npcId]
+      : periodPool && periodPool.length > 0
+        ? periodPool
+        : NPC_DAILY_LINES[npcId]);
   if (!pool || pool.length === 0) return null;
   // 土地回应系统 v1.4（B 菜园回应）：农田有成熟作物时，小梅偶尔一句"最近菜园看起来不错"
   // （世界状态判定，不做成就计数；seed 轮换自然形成"偶尔"）

@@ -12,6 +12,9 @@
  *   T8 选择 ch0_before_stargaze → chapter=0 + 无事件
  *   T9 无页面错误
  *
+ * 注：T5/T7 增加 questState='completed' 断言（2026-08-14 修复：跳档后 questState
+ *     缺省会卡 not_started → 镇长对话回到观星夜前的主线剧情）。
+ *
  * 依赖：dev server (localhost:5173/?devHub=1) + window.debug / window.__game
  * 视口：横屏 1024x768
  * 运行：node tests/probes/probe-dev-test-hub.mjs
@@ -138,19 +141,30 @@ try {
     const state = await page.evaluate(() => {
       return {
         chapter: window.debug.getChapter(),
+        questState: window.debug.getQuestState(),
         marketRestored: window.debug.events.hasTriggered('ch1_market_cleared'),
         stall1: window.debug.events.hasTriggered('ch1_market_stall_1'),
         stall2: window.debug.events.hasTriggered('ch1_market_stall_2'),
         stall3: window.debug.events.hasTriggered('ch1_market_stall_3'),
         marketSquare: window.__game.scene.getScene('town')?.marketSquareRestore?.restored,
+        farmWarm: window.debug.events.hasTriggered('ch1_elder_visit'), // elder_visit implies oldHouse restored
+        level: window.debug.getLevel?.() ?? null,
+        coins: window.debug.getCoins?.() ?? null,
       };
     });
     result('T5a chapter=1', state.chapter === 1, `got ${state.chapter}`);
-    result('T5b ch1_market_cleared triggered', state.marketRestored, '');
-    result('T5c 3 stalls triggered', state.stall1 && state.stall2 && state.stall3,
+    result('T5b questState=completed', state.questState === 'completed',
+      `got ${state.questState}（需 completed，否则镇长对话回到观星夜前）`);
+    result('T5c ch1_market_cleared triggered', state.marketRestored, '');
+    result('T5d 3 stalls triggered', state.stall1 && state.stall2 && state.stall3,
       `s1=${state.stall1} s2=${state.stall2} s3=${state.stall3}`);
-    result('T5d marketSquare restored', state.marketSquare === true,
+    result('T5e marketSquare restored', state.marketSquare === true,
       `got ${state.marketSquare}`);
+    // T5f: level=3（通过 SaveData 验证）
+    const saveData5 = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('return_star_save') || 'null')
+    );
+    result('T5f level=3', saveData5?.world?.level === 3, `got ${saveData5?.world?.level}`);
   }
 
   // ============ T6: 重新打开菜单 → 选择 ch1_house_tidy ============
@@ -189,6 +203,7 @@ try {
     const state = await page.evaluate(() => {
       return {
         chapter: window.debug.getChapter(),
+        questState: window.debug.getQuestState(),
         tidyLevel: window.debug.getHouseTidyLevel(),
         tidyComplete: window.debug.isHouseTidyComplete(),
         bed: window.debug.events.hasTriggered('ch1_bed_done'),
@@ -199,12 +214,14 @@ try {
       };
     });
     result('T7a chapter=1', state.chapter === 1, `got ${state.chapter}`);
-    result('T7b tidyLevel=4', state.tidyLevel === 4, `got ${state.tidyLevel}`);
-    result('T7c isHouseTidyComplete', state.tidyComplete, '');
-    result('T7d 4 tidy events all triggered',
+    result('T7b questState=completed', state.questState === 'completed',
+      `got ${state.questState}（需 completed，否则镇长对话回到观星夜前）`);
+    result('T7c tidyLevel=4', state.tidyLevel === 4, `got ${state.tidyLevel}`);
+    result('T7d isHouseTidyComplete', state.tidyComplete, '');
+    result('T7e 4 tidy events all triggered',
       state.bed && state.lamp && state.desk && state.radio,
       `bed=${state.bed} lamp=${state.lamp} desk=${state.desk} radio=${state.radio}`);
-    result('T7e aggregate event triggered', state.aggregate, '');
+    result('T7f aggregate event triggered', state.aggregate, '');
   }
 
   // ============ T8: ch0_before_stargaze → chapter=0 ============
@@ -236,8 +253,53 @@ try {
   result('T8a 切换到 farm 场景', farmLoaded, farmLoaded ? '' : 'farm 未加载');
 
   if (farmLoaded) {
-    const chapter = await page.evaluate(() => window.debug.getChapter());
-    result('T8b chapter=0', chapter === 0, `got ${chapter}`);
+    const state = await page.evaluate(() => ({
+      chapter: window.debug.getChapter(),
+      questState: window.debug.getQuestState(),
+    }));
+    result('T8b chapter=0', state.chapter === 0, `got ${state.chapter}`);
+    result('T8c questState=completed', state.questState === 'completed',
+      `got ${state.questState}`);
+    const saveData8 = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('return_star_save') || 'null')
+    );
+    result('T8d level=2', saveData8?.world?.level === 2, `got ${saveData8?.world?.level}`);
+  }
+
+  // ============ T8e: ch1_market_before → 背包含 wood25+stone15 ============
+  await page.evaluate(() => {
+    window.__game.scene.start('station');
+  });
+  await sleep(2000);
+  await waitScene('station', 15000);
+
+  await page.evaluate(() => {
+    const s = window.__game.scene.getScene('station');
+    s.player.x = 400;
+    s.player.y = 430;
+  });
+  await sleep(300);
+  await page.keyboard.press('KeyE');
+  await sleep(800);
+
+  await page.evaluate(() => {
+    const items = [...document.querySelectorAll('div')];
+    const target = items.find(
+      (el) => el.textContent.includes('集市恢复前') && el.style.cursor === 'pointer'
+    );
+    if (target) target.click();
+  });
+  await sleep(2000);
+  const townLoaded2 = await waitScene('town', 15000);
+  if (townLoaded2) {
+    // 用 SaveData 验证背包
+    const saveData = await page.evaluate(() => {
+      return JSON.parse(localStorage.getItem('return_star_save') || 'null');
+    });
+    const wood = saveData?.player?.inventory?.wood ?? 0;
+    const stone = saveData?.player?.inventory?.stone ?? 0;
+    result('T8e wood=25', wood === 25, `got ${wood}`);
+    result('T8f stone=15', stone === 15, `got ${stone}`);
   }
 
   // ============ T9: 无页面错误 ============

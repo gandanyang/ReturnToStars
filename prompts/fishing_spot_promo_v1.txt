@@ -1,0 +1,11 @@
+Use case: stylized-concept
+Asset type: promotional game key-art / emotion screenshot point (16:9, warm dusk)
+Primary request: A hidden river fishing spot at the edge of a quiet Chinese countryside town, where an old fisherman sits. The scene is warm, nostalgic, with signs of a slow-lived life. Any character name is a proper name; do NOT render any text or letters in the image.
+Scene: A clear small river flows gently with soft ripples and reflections; natural earthen banks (not artificial docks) with a few irregular stones as stepping points; a small old wooden plank dock with weathered wood; beside it: a bamboo fishing rod, a small wooden stool, an old fish basket, a small bait box, a thermos tea pot; a big tree casts dappled shade; reeds, water grass and small wildflowers along the bank; occasional butterflies, dragonflies, a fish leaping.
+Subject: an old fisherman sitting on a small wooden stool by the river, wearing simple countryside clothes and a straw hat, holding a bamboo fishing rod, gear old but carefully maintained. He looks peaceful, not lonely — he belongs here.
+Style/medium: 16-bit pixel art, cozy farming-game style, warm Japanese countryside atmosphere, Stardew Valley inspired but more delicate, soft lighting, hand-painted feeling, pixel RPG 45-degree view.
+Composition/framing: foreground water + rod + stool, middle old man fishing, background forest with distant houses and chimney smoke; dusk around 17:00, warm sunset golden light.
+Lighting/mood: warm golden-hour sunset light, quiet, nostalgic, nature recovering, someone has lived here.
+Color palette: warm golds and greens, soft water blues.
+Constraints: NOT a luxury dock, NOT a tourist attraction, NOT a large fishing harbor, NOT photorealistic 3D, NOT overly clean; single character only; no text, no letters, no signs, no subtitles, no watermarks, no Chinese characters anywhere in the image.
+Avoid: text, subtitles, captions, watermark, extra people, modern or fantasy elements.

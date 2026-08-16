@@ -1,10 +1,11 @@
 /**
  * BUG-048 归星岛环境循环系统（v0.10-lite）运行时验证探针
  *
- * 验证（事件表脚本化：Day2 10:00-16:00 小雨，其余晴）：
+ * 验证（事件表脚本化：天气表 Day2/6/10 10:00-16:00 小雨，其余晴）：
  *   1. 天气派生表（按 day/hour 行为验证）：
  *      day1 12:00 晴 / day2 09:00 无雨（窗口前）/ day2 12:00 雨（覆盖层+粒子）/
- *      day2 16:00 无雨（窗口后）/ day3 12:00 晴
+ *      day2 16:00 无雨（窗口后）/ day3 12:00 晴 / day6 12:00 雨（生活规律雨）/
+ *      day7 12:00 晴 / day10 12:00 雨
  *   2. 跨场景一致性：farm 与 town 同一天同一时刻天气一致
  *   3. 室内无雨：house（屋内）/ mine（矿洞有顶）不下雨（RAIN_MAPS 守卫）
  *   4. 切场景无残留：雨场景 → 屋内场景无覆盖层/粒子残留；回到雨场景恢复
@@ -150,7 +151,7 @@ async function run() {
 
   try {
     // ========== A. 天气派生表（farm 行为验证） ==========
-    console.log('── A. 天气派生表（Day2 10:00-16:00 小雨） ──');
+    console.log('── A. 天气派生表（天气表 Day2/6/10 10:00-16:00 小雨） ──');
 
     await gotoDayScene('farm', 1, 12);
     let d = await page.evaluate(snapWeather('farm'));
@@ -174,6 +175,18 @@ async function run() {
     await gotoDayScene('farm', 3, 12);
     d = await page.evaluate(snapWeather('farm'));
     check('A5 day3 12:00 晴天无雨', d.sceneLoaded && d.rainActive === false && !d.overlayActive, `实际=${JSON.stringify(d)}`);
+
+    await gotoDayScene('farm', 6, 12);
+    d = await page.evaluate(snapWeather('farm'));
+    check('A6 day6 12:00 生活规律雨（覆盖层+粒子）', d.sceneLoaded && d.rainActive === true && d.overlayActive && d.emitterActive, `实际=${JSON.stringify(d)}`);
+
+    await gotoDayScene('farm', 7, 12);
+    d = await page.evaluate(snapWeather('farm'));
+    check('A7 day7 12:00 晴天无雨', d.sceneLoaded && d.rainActive === false && !d.overlayActive, `实际=${JSON.stringify(d)}`);
+
+    await gotoDayScene('farm', 10, 12);
+    d = await page.evaluate(snapWeather('farm'));
+    check('A8 day10 12:00 生活规律雨（覆盖层+粒子）', d.sceneLoaded && d.rainActive === true && d.overlayActive && d.emitterActive, `实际=${JSON.stringify(d)}`);
 
     // ========== B. 跨场景一致性 + 室内无雨 ==========
     console.log('\n── B. 跨场景一致性 + 室内无雨 ──');

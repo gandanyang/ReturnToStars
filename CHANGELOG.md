@@ -6,6 +6,15 @@
 
 ## [未发布]
 
+### 腾讯云重新部署（2026-08-15）
+
+> 目标：刷新线上版本至最新代码（dist/ 重建自当前源码）并统一在线试玩地址
+
+- **重建构建**：`dist/` 此前为 08-14 00:52 旧版本，源码已有未提交改动；`npm run build` 重建后部署
+- **重新部署到腾讯云 CloudStudio**：在线试玩地址更新为 https://65957d6122464b4ab53c6e20a06a527a.app.workbuddy.link
+- ⚠️ 旧地址 https://c26017f1775c4dcaba5ffd57023e4d97.gz5.agentos-app.net 已废弃（部署域变更），原 QR 码/分享链接需替换
+- 文档同步：README.md 新增「在线试玩」章节；本文件 CloudStudio 部署条目同步
+
 ### 声音补全计划 v1.0 全量落地（2026-08-09）
 
 > 目标：玩家从车站 → 农场 → 青禾镇 → 森林 → 夏雅支线，每到一个重要地方都不会陷入声音真空
@@ -47,7 +56,7 @@
 - **BUG-046 机器人部署修复**：deployRobot 原拒绝 tilled 地块 → 改为拒绝 planted/watered（有作物），允许 empty/tilled（先开垦再放机器人是自然流程）；probe-bug046 3/3
 - **心语任务命名（D-012）**：角色剧情任务统一「心语任务」（春深有信=首个实例；废弃传说任务/角色篇章/剧情专线叫法），决策入 DESIGN_DECISIONS.md
 - **README 重写**：去除「类星露谷 二游 — Web 小游戏 Demo」旧定位，改为「像素风·治愈系·荒岛生活复兴 RPG」，新增核心循环/特色系统/目录结构补全
-- **CloudStudio 部署**：完整版已更新 https://c26017f1775c4dcaba5ffd57023e4d97.gz5.agentos-app.net
+- **CloudStudio 部署**：完整版已更新 https://65957d6122464b4ab53c6e20a06a527a.app.workbuddy.link
 
 ### 镇长配音重录 · MiniMax 线上接口（2026-08-08）
 

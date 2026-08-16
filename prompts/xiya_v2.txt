@@ -1,0 +1,34 @@
+A single game character sprite, isolated full body character.
+
+A young village woman around 24 years old, the town assistant and repair person of a small coastal village:
+short orange hair, warm and bright orange bob cut,
+fair warm skin, kind steady eyes, gentle confident smile,
+wearing a practical working outfit: orange work top and blue denim apron,
+a worn leather tool belt with a small wrench and old tools strapped at her waist,
+carrying an old canvas tool bag over one shoulder,
+someone who fixes things and keeps the town running,
+reliable, action-oriented, quietly warm,
+Stardew Valley inspired pixel game character.
+
+Refined pixel art style,
+detailed pixel art,
+hard pixel edges,
+limited color palette,
+clean readable silhouette,
+subtle shading for depth,
+facial features visible and readable at small size,
+no gradients,
+no smooth airbrush rendering.
+
+No text,
+no letters,
+no Chinese characters,
+no watermark,
+no name tag.
+
+Pure black background,
+centered character,
+full body visible head to feet,
+straight-on front view,
+the character fills most of the frame,
+only the character, floating alone on the black background.

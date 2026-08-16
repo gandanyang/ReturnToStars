@@ -1,0 +1,54 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "animagineXL40_v4Opt_4Opt.safetensors" },
+    "_meta": { "title": "加载 Animagine XL 4.0" }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, artist name",
+      "clip": ["1", 1]
+    },
+    "_meta": { "title": "负面提示词" }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "masterpiece, best quality, very aesthetic, absurdres, 1girl, solo, orange hair, medium hair, hair clip, warm smile, brown eyes, open jacket, white shirt, canvas shoulder bag, wrench, countryside, farm, green field, sunlight, blue sky, upper body, looking at viewer",
+      "clip": ["1", 1]
+    },
+    "_meta": { "title": "正面提示词" }
+  },
+  "4": {
+    "class_type": "EmptyLatentImage",
+    "inputs": { "width": 832, "height": 1216, "batch_size": 1 },
+    "_meta": { "title": "画布 832x1216" }
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 12345,
+      "steps": 28,
+      "cfg": 6.0,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["1", 0],
+      "positive": ["3", 0],
+      "negative": ["2", 0],
+      "latent_image": ["4", 0]
+    },
+    "_meta": { "title": "采样器 (Euler a, 28步, CFG6)" }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["5", 0], "vae": ["1", 2] },
+    "_meta": { "title": "VAE 解码" }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": { "filename_prefix": "animagine_portrait", "images": ["6", 0] },
+    "_meta": { "title": "保存图像" }
+  }
+}

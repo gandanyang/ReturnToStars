@@ -1,8 +1,9 @@
 /* eslint-disable */
 // ══════════════════════════════════════════════════════════════════
 // 语音映射数据 —— 由 tools/gen_mainline_voice.py --emit-voicebank 自动生成，勿手改
-// 生成时间：2026-08-13 22:31:14
+// 生成时间：2026-08-16 01:58:50
 // 说明：speaker='' 表示通配（少女/HR/纸条），text 为归一化后原文（已剥（笑）等标注）
+// 只收录 voice_normalized 中已存在的音频；未合成台词待音频就位后重新生成本文件自动收录
 // ══════════════════════════════════════════════════════════════════
 export interface VoiceEntry { file: string; speaker: string; text: string }
 
@@ -165,13 +166,6 @@ export const VOICE_ENTRIES: VoiceEntry[] = [
   { file: 'elder/shard_10.wav', speaker: '村长', text: '这么多年过去，终于又有人走到这里来了。' },
   { file: 'elder/house_01.wav', speaker: '村长', text: '你爷爷以前每天都会擦这里。' },
   { file: 'elder/house_02.wav', speaker: '村长', text: '擦整座屋子。他说，人走了不要紧，屋子不能没人擦。' },
-  { file: 'elder/farm_01.wav', speaker: '村长', text: '现在买东西方便了，想吃什么，去店里就能买到。' },
-  { file: 'elder/farm_02.wav', speaker: '村长', text: '可有时候，人容易忘了一件事。' },
-  { file: 'elder/farm_03.wav', speaker: '村长', text: '这些东西啊，也不是一开始就在货架上的。' },
-  { file: 'elder/farm_04.wav', speaker: '村长', text: '一粒种子，要有人种下去，有人照看它，才能变成餐桌上的东西。' },
-  { file: 'elder/farm_05.wav', speaker: '村长', text: '现在什么都能买到，菜市场有菜，商店有粮。' },
-  { file: 'elder/farm_06.wav', speaker: '村长', text: '可自己种出来的东西，吃的时候心里踏实。' },
-  { file: 'elder/farm_07.wav', speaker: '村长', text: '你知道它什么时候种下去，什么时候长出来，也知道这一口是怎么来的。' },
   { file: 'elder/tea_quest_01.wav', speaker: '村长', text: '对了——你爷爷以前啊，忙完一天的活，总喜欢去农田边坐一会儿。' },
   { file: 'elder/tea_quest_02.wav', speaker: '村长', text: '他说，那里安静，能看见很远的星星。' },
   { file: 'elder/tea_quest_03.wav', speaker: '村长', text: '你要是晚上有空，带壶茶去那儿坐坐，就当替他看看。' },

@@ -1,0 +1,31 @@
+A single game asset sprite, isolated object.
+
+A small neat stack of firewood logs:
+three or four round wood logs stacked in a small pile,
+warm brown bark with visible round end-cuts,
+a few small sticks leaning beside,
+small town rural village life,
+someone split and stacked them for winter,
+Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no animals,
+no house,
+no scenery around the woodpile.
+
+Pure black background,
+centered object,
+front view,
+the woodpile fills most of the frame,
+only the woodpile, floating alone on the black background.

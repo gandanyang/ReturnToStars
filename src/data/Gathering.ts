@@ -14,7 +14,7 @@
 import type { ItemType } from './Inventory';
 
 /** 采集物类型 */
-export type GatherKind = 'dandelion' | 'wild_berry' | 'wild_mushroom' | 'small_flower' | 'twig';
+export type GatherKind = 'dandelion' | 'wild_berry' | 'wild_mushroom' | 'small_flower' | 'twig' | 'river_snail' | 'river_grass';
 
 /** 采集点视觉/交互配置（静态） */
 export interface GatherPointDef {
@@ -93,12 +93,36 @@ export const FARM_GATHER_POINTS: GatherPointDef[] = [
   { id: 'farm_dand_1', kind: 'dandelion', x: 3 * T + 8, y: 14 * T + 4, clusterSize: 3 },
 ];
 
+/** 青禾河畔采集点（4 个：芦苇视觉复用 twig 小群落 + 河岸野莓/小野花/蒲公英）
+ *  2026-08-15 制作人拍板新地图：河畔 = 水边资源（普通：芦苇/贝壳/河草；特殊：雨天河螺/夜晚萤火虫）。
+ *  第一刀垂直切片：复用现有 5 种采集物分布在河岸（芦苇暂以 twig 视觉表达，贝壳/河草留后续扩展）。
+ *  2026-08-16 第二刀：新增雨天河螺（river_snail，仅雨天出现，走 ResourceSpawner weatherPresent）。 */
+export const QINGHE_RIVER_GATHER_POINTS: GatherPointDef[] = [
+  // 码头西侧岸边：芦苇丛（twig 视觉，岸线生活感）
+  { id: 'qinghe_reed_1', kind: 'twig', x: 2 * T + 4, y: 18 * T + 8, clusterSize: 4 },
+  // 码头东侧岸线：野莓（河岸灌木）
+  { id: 'qinghe_berry_1', kind: 'wild_berry', x: 10 * T + 8, y: 21 * T + 4, clusterSize: 3 },
+  // 南岸草地：小野花（散步偶遇）
+  { id: 'qinghe_flower_1', kind: 'small_flower', x: 24 * T + 4, y: 24 * T + 8, clusterSize: 3 },
+  // 东侧断桥旁草地：蒲公英（风会带种子过河）
+  { id: 'qinghe_dand_1', kind: 'dandelion', x: 35 * T + 8, y: 18 * T + 4, clusterSize: 2 },
+  // 东岸浅滩：雨天河螺（仅雨天出现；2026-08-16 天气扩面。
+  // 坐标 (23,21)：贴水边（左邻水面 tile）、远离码头/钓点/凉亭交互（≥82px），
+  // "下雨天到河岸浅滩找找有没有小螺"的独立发现位，不与钓鱼抢按键）
+  { id: 'qinghe_snail_1', kind: 'river_snail', x: 23 * T + 8, y: 21 * T + 8, clusterSize: 2 },
+  // 南岸草地：河草（普通资源，2026-08-16 天气扩面三刀收口。
+  // 坐标 (26,26)：南岸湿草地（y=26 往下临水），长在岸边的水草，
+  // 距最近交互（小野花 24,24）45px 安全；与雨天河螺互补="常态+条件"双水边资源）
+  { id: 'qinghe_grass_1', kind: 'river_grass', x: 26 * T + 8, y: 26 * T + 8, clusterSize: 3 },
+];
+
 /** 获取场景的采集点列表 */
 export function getGatherPointsForScene(sceneKey: string): GatherPointDef[] {
   switch (sceneKey) {
     case 'town': return TOWN_GATHER_POINTS;
     case 'forest': return FOREST_GATHER_POINTS;
     case 'farm': return FARM_GATHER_POINTS;
+    case 'qinghe_river': return QINGHE_RIVER_GATHER_POINTS;
     default: return [];
   }
 }
@@ -124,4 +148,8 @@ export const GATHER_VISUAL: Record<GatherKind, GatherVisualConfig> = {
   wild_mushroom: { color: 0xa1887f, highlight: 0xd7ccc8, shadow: 0x4e342e, width: 7, height: 8 },
   small_flower: { color: 0xec407a, highlight: 0xf48fb1, shadow: 0xad1457, width: 5, height: 7 },
   twig: { color: 0x6d4c41, highlight: 0x8d6e63, shadow: 0x3e2723, width: 8, height: 3 },
+  // 河螺：圆润小螺壳，浅褐/沙色，贴上水面反光（青禾河畔雨日限定）
+  river_snail: { color: 0xbfa58c, highlight: 0xe8d5c0, shadow: 0x7a5c44, width: 5, height: 5 },
+  // 河草：柔绿色细长叶，随风向水面一侧微倾（青禾河畔普通岸边水草）
+  river_grass: { color: 0x7bb76d, highlight: 0xa5d89a, shadow: 0x3f7a35, width: 6, height: 8 },
 };

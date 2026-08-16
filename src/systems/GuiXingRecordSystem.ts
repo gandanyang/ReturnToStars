@@ -35,7 +35,8 @@ export type GuiXingTag =
   | 'obtain_manor_key'
   | 'has_crops'
   | 'has_robot'
-  | 'old_tree_memory';
+  | 'old_tree_memory'
+  | 'fish_tomorrow_soup'; // 钓鱼 Phase 4（2026-08-14）：商店老板收下青禾鲫，答应明天留热汤
 
 // ============ 数据结构 ============
 

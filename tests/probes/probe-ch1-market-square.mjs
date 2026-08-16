@@ -41,6 +41,9 @@ function result(name, ok, detail) {
 }
 
 const warns = [];
+page.on('response', (res) => {
+  if (res.status() >= 400) warns.push(`[http ${res.status()}] ${res.url()}`);
+});
 page.on('console', (msg) => {
   if (msg.type() === 'error') warns.push('[console.error] ' + msg.text());
 });
@@ -265,7 +268,8 @@ async function arrangePlace(idx, wrongKey) {
   // 选正确
   await page.keyboard.press(spotCorrectKey[idx]);
   await sleep(900);
-  // 放对后的反馈对白推进完
+  // 放对后的反馈对白推进完（最后一个点会触发开张演出，由调用方在推进前捕获）
+  if (idx === 2) return true; // P1-02：spot2 放对即开张，留演出给调用方读文本
   for (let i = 0; i < 8; i++) {
     const open = await page.evaluate(() => {
       const s = window.__game?.scene?.getScenes(true)[0];
@@ -292,16 +296,36 @@ async function arrangePlace(idx, wrongKey) {
 }
 
 // ============ M5b 布置放对：3 个点依次放对 → placedCount 递增 ============
-{
+{ 
   // spot 0 已就位（M4b 放对后剩 2 个点）
   let st = await marketState();
   result('M5b-1 布置点0 工具摊就位', st.placedCount === 1, `placed=${st.placedCount}`);
+  // P1-02：spot1 放对前注入 ch1ElderChoice='help'，spot2 放对后开张演出应含镇长回应
+  await page.evaluate(() => {
+    const s = window.__game?.scene?.getScenes(true)[0];
+    if (s) s.ch1ElderChoice = 'help';
+  });
   await arrangePlace(1, '3'); // spot1 小吃摊，先选错 '3'
   st = await marketState();
   result('M5b-2 布置点1 小吃摊就位', st.placedCount === 2, `placed=${st.placedCount}`);
   await arrangePlace(2, '1'); // spot2 花摊，先选错 '1'
   st = await marketState();
   result('M5b-3 布置点2 花摊就位', st.placedCount === 3, `placed=${st.placedCount}`);
+  // P1-02 捕获：spot2 放对后开张演出（含 ch1ElderChoice='help' 镇长回应）刚开始
+  let p1Dialog = '';
+  for (let i = 0; i < 15; i++) {
+    p1Dialog = await page.evaluate(() => document.body.innerText);
+    if (p1Dialog.includes('留下来搭把手') || p1Dialog.includes('搭把手')) break;
+    // 推进当前对白（反馈对白 → 开张演出）
+    await page.evaluate(() => {
+      const s = window.__game?.scene?.getScenes(true)[0];
+      if (s?.storyDialogue?.isOpen?.()) s.storyDialogue.advance();
+    });
+    await sleep(450);
+  }
+  result('M6b0 P1-02 ch1ElderChoice=help 开张消费（镇长回应）',
+    p1Dialog.includes('看来你是真准备留下来搭把手') || p1Dialog.includes('留下来搭把手'),
+    p1Dialog ? `文本: ${p1Dialog.slice(-140)}` : 'body 为空');
   await page.screenshot({ path: 'tests/probes/test-screenshots/ch1-market-arranged.png' });
 }
 

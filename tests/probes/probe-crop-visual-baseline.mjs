@@ -43,6 +43,10 @@ const PLOTS = {
     { col: 21, cropType: 'radish' }, { col: 22, cropType: 'tomato' },
     { col: 23, cropType: 'corn' }, { col: 24, cropType: 'strawberry' },
   ],
+  growing: [
+    { col: 25, cropType: 'radish', gd: 2 }, { col: 26, cropType: 'tomato', gd: 2 },
+    { col: 27, cropType: 'corn', gd: 2 }, { col: 28, cropType: 'strawberry', gd: 2 },
+  ],
 };
 const CROP_IDX = { radish: 0, tomato: 1, corn: 2, strawberry: 3 };
 const ROW = 8;
@@ -52,7 +56,7 @@ const SNAP = `(() => {
   const s = window.__game.scene.getScene('farm');
   if (!s) return { sceneLoaded: false };
   const out = { sceneLoaded: true, tiles: {} };
-  for (let c = 12; c <= 24; c++) {
+  for (let c = 12; c <= 28; c++) {
     const v = s.tileRects.get(c + ',' + ${ROW});
     if (!v) { out.tiles[c] = null; continue; }
     out.tiles[c] = {
@@ -120,10 +124,15 @@ async function run() {
       tiles.push([`${col},${ROW}`, state]);
       if (cropType) crops.push([`${col},${ROW}`, { cropType, plantDay: 1, watered: state === 'watered' || state === 'grown' }]);
     };
+    const putGrowing = (col, cropType, gd) => {
+      tiles.push([`${col},${ROW}`, 'planted']);
+      crops.push([`${col},${ROW}`, { cropType, plantDay: 1, watered: false, grownDays: gd }]);
+    };
     put(PLOTS.tilled.col, 'tilled', null);
     for (const p of PLOTS.planted) put(p.col, 'planted', p.cropType);
     for (const p of PLOTS.watered) put(p.col, 'watered', p.cropType);
     for (const p of PLOTS.grown) put(p.col, 'grown', p.cropType);
+    for (const p of PLOTS.growing) putGrowing(p.col, p.cropType, p.gd);
 
     await page.evaluate(([tileArr, cropArr]) => {
       localStorage.setItem('return_star_save', JSON.stringify({
@@ -150,28 +159,40 @@ async function run() {
 
     // 2. 运行时视觉断言
     const d = await page.evaluate(SNAP);
-    check('tileRects 可访问（13 格）', d.sceneLoaded && Object.keys(d.tiles).length === 13, `实际=${Object.keys(d.tiles).length}`);
+    check('tileRects 可访问（17 格）', d.sceneLoaded && Object.keys(d.tiles).length === 17, `实际=${Object.keys(d.tiles).length}`);
 
     // tilled：plot frame 0 + crop 隐藏
     const td = d.tiles[PLOTS.tilled.col];
     check('tilled 地块帧=0', td?.plotFrame === 0, `实际=${td?.plotFrame}`);
     check('tilled 无作物精灵', td?.cropVisible === false, `实际=${td?.cropVisible}`);
 
-    // planted：plot frame 1 + crop 可见 frame cropIdx*3+0
+    // planted（种子阶段）：plot frame 1 + crop 隐藏
     for (const p of PLOTS.planted) {
       const v = d.tiles[p.col];
-      const expectFrame = CROP_IDX[p.cropType] * 3 + 0;
       check(`planted ${p.cropType} 地块帧=1`, v?.plotFrame === 1, `实际=${v?.plotFrame}`);
-      check(`planted ${p.cropType} 作物精灵帧=${expectFrame}（发芽）`, v?.cropVisible && v?.cropFrame === expectFrame,
-        `可见=${v?.cropVisible} 帧=${v?.cropFrame}`);
+      check(`planted ${p.cropType} 种子阶段作物隐藏`, v?.cropVisible === false, `可见=${v?.cropVisible}`);
     }
 
-    // watered：plot frame 2 + crop 可见 frame cropIdx*3+1
+    // watered（种子阶段，湿润土）：plot frame 2 + crop 隐藏
     for (const p of PLOTS.watered) {
       const v = d.tiles[p.col];
-      const expectFrame = CROP_IDX[p.cropType] * 3 + 1;
       check(`watered ${p.cropType} 地块帧=2`, v?.plotFrame === 2, `实际=${v?.plotFrame}`);
-      check(`watered ${p.cropType} 作物精灵帧=${expectFrame}（生长）`, v?.cropVisible && v?.cropFrame === expectFrame,
+      check(`watered ${p.cropType} 种子阶段作物隐藏`, v?.cropVisible === false, `可见=${v?.cropVisible}`);
+    }
+
+    // growing（grownDays=2）：按 growthDays 推导 幼苗/成长
+    const expectGrowing = {
+      radish: { plot: 3, cropOff: 1 },      // D=3：2>=2 → 成长
+      tomato: { plot: 2, cropOff: 0 },      // D=4：2<3 → 幼苗
+      corn: { plot: 2, cropOff: 0 },        // D=5：2<4 → 幼苗
+      strawberry: { plot: 2, cropOff: 0 },  // D=6：2<5 → 幼苗
+    };
+    for (const p of PLOTS.growing) {
+      const v = d.tiles[p.col];
+      const ex = expectGrowing[p.cropType];
+      const expectFrame = CROP_IDX[p.cropType] * 3 + ex.cropOff;
+      check(`growing ${p.cropType} 地块帧=${ex.plot}`, v?.plotFrame === ex.plot, `实际=${v?.plotFrame}`);
+      check(`growing ${p.cropType} 作物精灵帧=${expectFrame}`, v?.cropVisible && v?.cropFrame === expectFrame,
         `可见=${v?.cropVisible} 帧=${v?.cropFrame}`);
     }
 

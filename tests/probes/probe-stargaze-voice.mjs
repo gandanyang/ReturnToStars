@@ -143,7 +143,8 @@ async function run() {
     const options = await advanceToOptions(page);
     ok('2. 三选项渲染', options.length === 3, JSON.stringify(options));
 
-    const all = [...new Set(voiceReqs.map(r => r.file))];
+    // 资产瘦身（2026-08-07）后运行时请求 voice_normalized/*.ogg；期望集用 ogg 比对
+    const all = [...new Set(voiceReqs.map(r => r.file.replace(/\.ogg$/i, '.wav')))];
     const expect0 = ['xiya/ending_01.wav', 'xiya/ending_02.wav', 'xiya/ending_03.wav', 'linche/ending_04.wav',
       'xiya/ending_05.wav', 'grandpa/ending_06.wav', 'grandpa/ending_07.wav', 'grandpa/ending_08.wav',
       'grandpa/ending_09.wav', 'linche/ending_10.wav'];

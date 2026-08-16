@@ -414,56 +414,52 @@ def draw_head_side_32(img, skin, hair, hair_mid=None, hair_s=None, facing="left"
     def m(x):
         return (SP - 1 - x) if facing == "right" else x
 
-    # 脸：朝向方向偏一侧（约 4 像素），后脑占另一侧
-    # 脸区域（从朝向的那侧伸出来）
-    face_x0, face_x1 = m(3), m(13)
+    # 脸：朝向方向一侧，脸完整（y5-13，额头到下巴），前端不做尖鼻凸出
+    face_x0, face_x1 = m(5), m(14)
     if face_x0 > face_x1:
         face_x0, face_x1 = face_x1, face_x0
-    rect(img, face_x0, 6, face_x1, 13, skin)
-    # 后脑（与脸不重叠的那一侧）
-    head_x0, head_x1 = m(10), m(24)
+    rect(img, face_x0, 5, face_x1, 13, skin)
+    # 后脑（头发，x12-23，稍收窄避免头过大）
+    head_x0, head_x1 = m(12), m(23)
     if head_x0 > head_x1:
         head_x0, head_x1 = head_x1, head_x0
     rect(img, head_x0, 2, head_x1, 11, hair)
     # 头盖
-    rect(img, m(11), 0, m(22), 2, hair)
+    rect(img, m(10), 0, m(23), 2, hair)
     # 头发下沿阴影
     hline(img, head_x0, head_x1, 10, hair_s or hair)
     # 鬓角
-    px(img, m(10), 7, hair_s or hair)
-    # 脸圆形阴影
-    if facing == "left":
-        vline(img, m(3), 7, 12, C.SKIN_SHADOW)  # 脸后侧（接头发）
-    else:
-        vline(img, m(3), 7, 12, C.SKIN_SHADOW)
-    # 脸前侧（朝向侧）高光
-    vline(img, m(13), 7, 12, C.SKIN_MID)
+    px(img, m(11), 7, hair_s or hair)
+    # 脸圆形阴影（接头发侧）
+    vline(img, face_x0, 6, 12, C.SKIN_SHADOW)
+    # 脸前侧高光
+    vline(img, face_x1, 6, 12, C.SKIN_MID)
+    # 下巴阴影（脸底）
+    hline(img, face_x0, face_x1, 13, C.SKIN_SHADOW)
 
-    # 单眼（2x2，朝方向的那只）
-    eye_x = m(8)
+    # 眼睛（单眼 2x2，脸中部 x9-10，y9）
+    eye_x = m(9)
     eye_y = 9
     px(img, eye_x,     eye_y,     C.BLACK)
     px(img, eye_x + 1, eye_y,     C.WHITE) if facing == "left" else px(img, eye_x - 1, eye_y, C.WHITE)
     px(img, eye_x,     eye_y + 1, C.BLACK)
     # 眉毛
-    if facing == "left":
-        hline(img, eye_x - 1, eye_x + 1, eye_y - 2, C.BLACK)
-    else:
-        hline(img, eye_x - 1, eye_x + 1, eye_y - 2, C.BLACK)
-    # 鼻尖（朝方向前凸 1 像素）
-    nose_x = m(3) if facing == "left" else m(13)
+    hline(img, eye_x - 1, eye_x + 1, eye_y - 2, C.BLACK)
+    # 鼻子：短小内敛（脸内 x7，y10-11，不凸出脸缘）
+    nose_x = m(7)
     px(img, nose_x, 10, C.SKIN_SHADOW)
-    # 耳
-    ear_x = m(13) if facing == "left" else m(3)
+    px(img, nose_x, 11, C.SKIN_SHADOW)
+    # 耳（后缘 x13）
+    ear_x = m(13)
     px(img, ear_x, 9, skin)
     px(img, ear_x, 10, C.SKIN_SHADOW)
-    # 嘴（小点）
-    mouth_x = m(5)
+    # 嘴（脸中下部 x8，y12，有下巴在下）
+    mouth_x = m(8)
     px(img, mouth_x, 12, C.BLACK)
-    # 腮红
-    cheek_x = m(7)
+    # 腮红（眼睛下方脸中）
+    cheek_x = m(8)
     for dx, dy in [(-1, 0), (0, 0), (1, 0), (0, -1), (0, 1)]:
-        px(img, cheek_x + dx, 10 + dy, C.CHEEK)
+        px(img, cheek_x + dx, 11 + dy, C.CHEEK)
     # 头发高光绺
     if hair_mid:
         for x in (13, 16, 19):
@@ -688,29 +684,106 @@ def player_frame_32(direction: str, step: int) -> Image.Image:
         hline(img, 12, 19, by0 - 1, C.P_NECKLACE)
 
     elif direction == "left":
+        # 侧身（脸朝左）：身体 + 前/后臂 + 窄腿。right 行由 build_player_sheet_32 镜像 left 得到。
+        # —— 头（侧脸朝左，见 draw_head_side_32） ——
         draw_head_side_32(img, C.SKIN, C.P_HAIR, C.P_HAIR_MID, C.P_HAIR_SHADOW, "left")
-        # direction-B details (glasses / watch)
-        hline(img, 6, 10, 8, C.P_GLASSES)
-        hline(img, 6, 10, 10, C.P_GLASSES)
-        px(img, 6, 9, C.P_GLASSES)
-        px(img, 10, 9, C.P_GLASSES)
-        px(img, 11, 9, C.P_GLASSES)
-        # 头顶
-        rect(img, 10, 0 + hy_off, 22, 1 + hy_off, C.P_HAIR)
-        # 脖子（侧面）
-        rect(img, 14, 12, 19, by0 - 1, C.SKIN)
-        vline(img, 14, 12, by0 - 1, C.SKIN_SHADOW)
+        # 侧身眼镜（镜片覆盖眼睛 x7-11，脸中，前端镜架 x12）
+        gy = 9 + hy_off
+        hline(img, 7, 11, gy - 1, C.P_GLASSES)
+        hline(img, 7, 11, gy + 1, C.P_GLASSES)
+        px(img, 7, gy, C.P_GLASSES)
+        px(img, 11, gy, C.P_GLASSES)
+        px(img, 11, gy - 1, C.P_GLASSES)
+        px(img, 12, gy, C.P_GLASSES)
+        # 头顶头发（侧身：偏后脑一侧，覆盖头顶到后脑）
+        rect(img, 9, 0 + hy_off, 24, 1 + hy_off, C.P_HAIR)
+        rect(img, 8, 2 + hy_off, 23, 3 + hy_off, C.P_HAIR)
+        px(img, 12, 0 + hy_off, C.P_HAIR_MID)
+        px(img, 20, 0 + hy_off, C.P_HAIR_MID)
+        px(img, 16, 0 + hy_off, C.P_HAIR_SHADOW)
+        # 后脑发尾
+        px(img, 24, 4 + hy_off, C.P_HAIR)
+        px(img, 23, 5 + hy_off, C.P_HAIR_SHADOW)
+        # 侧身局部身体顶：下移到 y14（下巴 y11-13 下方），避免夹克盖住下巴
+        by0s = 14 + body_offset
+        by1s = by1
+        # 脖子（侧身偏前，接脸 x14-19，y12-13）
+        rect(img, 14, 12, 19, 13, C.SKIN)
+        vline(img, 14, 12, 13, C.SKIN_SHADOW)
+
+        # —— 侧身身体（夹克 x10-23，与头比例协调） ——
+        rect(img, 10, by0s, 23, by1s, C.P_SHIRT)
+        vline(img, 10, by0s, by1s, C.P_SHIRT_SHADOW)   # 背侧阴影
+        vline(img, 23, by0s, by1s, C.P_SHIRT_SHADOW)   # 胸侧阴影
+        hline(img, 10, 23, by1s, C.P_SHIRT_SHADOW)
+        # 前襟（朝左一侧）高光
+        vline(img, 22, by0s + 1, by1s - 1, C.P_SHIRT_HIGHLIGHT)
+        # 衣领（侧身 V 领偏前，接脖子）
+        px(img, 15, by0s, C.P_NECKLACE)
+        px(img, 16, by0s, C.SKIN_SHADOW)
+        px(img, 17, by0s, C.SKIN_SHADOW)
+        px(img, 18, by0s, C.P_NECKLACE)
+        px(img, 15, by0s + 1, C.P_SHIRT_SHADOW)
+        px(img, 18, by0s + 1, C.P_SHIRT_SHADOW)
+        # 侧身胸章（偏胸侧 x19-20）
+        badge_cx, badge_cy = 20, by0s + 3
+        box_outline(img, badge_cx - 1, badge_cy - 1, badge_cx + 1, badge_cy + 1, C.P_BADGE_OUTER)
+        px(img, badge_cx, badge_cy, C.P_BADGE_INNER)
+        px(img, badge_cx + 1, badge_cy, C.P_BADGE_OUTER)
+        px(img, badge_cx, badge_cy - 1, C.P_BADGE_OUTER)
+        px(img, badge_cx, badge_cy + 1, C.P_BADGE_OUTER)
+        # 腰带（x10-23）+ 侧扣
+        belt_y = by1s - 2
+        hline(img, 10, 23, belt_y, C.P_BELT)
+        hline(img, 10, 23, belt_y + 1, C.P_BELT)
+        rect(img, 15, belt_y, 16, belt_y + 1, C.P_BELT_BUCKLE)
+
+        # —— 手臂：前臂（朝左，身体左侧外）x8-9；后臂（右侧外）x24-25 ——
+        arm_f_y0 = by0s + 2 + arm_offsets_l   # 前臂（随步摆动）
+        arm_f_y1 = by1s - 1 + arm_offsets_l
+        rect(img, 8, arm_f_y0, 9, arm_f_y1, C.P_SHIRT)
+        vline(img, 8, arm_f_y0, arm_f_y1, C.P_SHIRT_SHADOW)
+        hline(img, 8, 9, arm_f_y1, C.P_BELT)
+        hand_f_y = min(arm_f_y1 + 1, 30)
+        rect(img, 8, hand_f_y, 9, hand_f_y + 1, C.SKIN)
+        # 手表（前臂）
+        px(img, 8, hand_f_y - 1, C.P_WATCH)
+        px(img, 9, hand_f_y - 1, C.P_WATCH_FACE)
+        arm_b_y0 = by0s + 2 + arm_offsets_r   # 后臂（反向摆动）
+        arm_b_y1 = by1s - 1 + arm_offsets_r
+        rect(img, 24, arm_b_y0, 25, arm_b_y1, C.P_SHIRT)
+        vline(img, 25, arm_b_y0, arm_b_y1, C.P_SHIRT_SHADOW)
+        hline(img, 24, 25, arm_b_y1, C.P_BELT)
+        hand_b_y = min(arm_b_y1 + 1, 30)
+        rect(img, 24, hand_b_y, 25, hand_b_y + 1, C.SKIN)
+
+        # —— 侧身腿（窄 6px：x14-19，前后腿微错位）+ 鞋 ——
+        # 前腿（左腿）x14-16，后腿（右腿）x17-19
+        leg_f_y0 = 23 + body_offset + leg_offsets_l
+        rect(img, 14, leg_f_y0, 16, 27 + leg_offsets_l, C.P_PANTS)
+        vline(img, 14, leg_f_y0, 27 + leg_offsets_l, C.P_PANTS_SHADOW)
+        hline(img, 14, 16, 27 + leg_offsets_l, C.P_PANTS_MID)
+        leg_b_y0 = 23 + body_offset + leg_offsets_r
+        rect(img, 17, leg_b_y0, 19, 27 + leg_offsets_r, C.P_PANTS)
+        vline(img, 19, leg_b_y0, 27 + leg_offsets_r, C.P_PANTS_MID)
+        hline(img, 17, 19, 27 + leg_offsets_r, C.P_PANTS_SHADOW)
+        # 前鞋 x13-16，后鞋 x17-20
+        shoe_f_y0 = 29 + leg_offsets_l
+        rect(img, 13, shoe_f_y0, 16, 31, C.P_SHOES)
+        hline(img, 13, 16, shoe_f_y0, C.P_SHOES_LACE)
+        shoe_b_y0 = 29 + leg_offsets_r
+        rect(img, 17, shoe_b_y0, 20, 31, C.P_SHOES)
+        hline(img, 17, 20, shoe_b_y0, C.P_SHOES_LACE)
+        hline(img, 13, 20, 31, (14, 14, 22, 255))
     elif direction == "right":
+        # right 帧由 build_player_sheet_32 用 left 镜像生成；此处仅作兜底（同 left）
         draw_head_side_32(img, C.SKIN, C.P_HAIR, C.P_HAIR_MID, C.P_HAIR_SHADOW, "right")
-        # direction-B details (glasses / watch)
-        hline(img, 21, 25, 8, C.P_GLASSES)
-        hline(img, 21, 25, 10, C.P_GLASSES)
-        px(img, 21, 9, C.P_GLASSES)
-        px(img, 25, 9, C.P_GLASSES)
-        px(img, 20, 9, C.P_GLASSES)
-        rect(img, 9, 0 + hy_off, 21, 1 + hy_off, C.P_HAIR)
-        rect(img, 12, 12, 17, by0 - 1, C.SKIN)
-        vline(img, 17, 12, by0 - 1, C.SKIN_SHADOW)
+        gy = 9 + hy_off
+        hline(img, 22, 26, gy - 1, C.P_GLASSES)
+        hline(img, 22, 26, gy + 1, C.P_GLASSES)
+        px(img, 26, gy, C.P_GLASSES)
+        rect(img, 7, 0 + hy_off, 22, 1 + hy_off, C.P_HAIR)
+        rect(img, 14, 12, 19, 13, C.SKIN)
 
     # —— 1px 深色外描边 ——
     add_outline(img, C.OUTLINE)
@@ -1180,12 +1253,16 @@ def npc_girl_frame_32() -> Image.Image:
 # Spritesheet 组装
 # ============================================================================
 def build_player_sheet_32() -> Image.Image:
-    """128x128 = 4 列 × 4 行，每帧 32x32。"""
+    """128x128 = 4 列 × 4 行，每帧 32x32。right 行 = left 行水平镜像（左右对称）。"""
     sheet = Image.new("RGBA", (SP * 4, SP * 4), C.TRANSPARENT)
     directions = ["down", "left", "right", "up"]
     for row, d in enumerate(directions):
         for col in range(4):
-            frame = player_frame_32(d, col)
+            if d == "right":
+                left_frame = player_frame_32("left", col)
+                frame = left_frame.transpose(Image.FLIP_LEFT_RIGHT)
+            else:
+                frame = player_frame_32(d, col)
             sheet.paste(frame, (col * SP, row * SP))
     return sheet
 

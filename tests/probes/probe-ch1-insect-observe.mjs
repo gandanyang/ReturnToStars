@@ -79,8 +79,10 @@ result('2.3 三项集齐 → triggerOnce("ch1_natural_record_1")',
   /xiaomeiObserveSeen\.every\(Boolean\)[\s\S]*?triggerOnce\('ch1_natural_record_1'/.test(mapSceneSrc));
 result('2.4 未集齐 → 继续下一轮',
   /else \{[\s\S]*?this\.playXiaomeiObserveChoices\(\)/.test(mapSceneSrc));
-result('2.5 完成反馈 memory moment "青禾镇自然记录 1/10"',
-  /showMemoryMoment\('青禾镇自然记录 1\/10 · 青禾凤蝶'\)/.test(mapSceneSrc));
+result('2.5 完成反馈 memory moment 计数动态化（1/10 · 2/10 · 3/10）',
+  /showMemoryMoment\('青禾镇自然记录 1\/10 · 青禾凤蝶'\)/.test(mapSceneSrc) &&
+  /showMemoryMoment\('青禾镇自然记录 2\/10 · 柳叶蝶'\)/.test(mapSceneSrc) &&
+  /showMemoryMoment\('青禾镇自然记录 3\/10 · 夜光蛾'\)/.test(mapSceneSrc));
 
 // --- 3. tryInteract 分支 ---
 console.log('\n--- 3. tryInteract 分支 ---');

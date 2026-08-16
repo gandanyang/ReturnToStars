@@ -1,0 +1,26 @@
+A single game asset sprite, isolated object.
+
+A small village food market stall: a wooden market stand with a warm red canvas awning, two wooden legs, a wooden counter top, steaming bamboo steamers stacked on the counter, a few small round food items, wisps of steam rising gently, cozy and inviting small-town restoration theme, modern rural village style, Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no shopkeeper,
+no sign with words,
+no other stalls,
+no scenery around the stand.
+
+Pure black background,
+centered object,
+straight-on front view,
+the stall fills most of the frame,
+only the stall itself, floating alone on the black background.

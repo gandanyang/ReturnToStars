@@ -158,6 +158,10 @@ T = [
     ("linche", "branchB_01", "他为什么来这里？他一个人在这里住了多久？"),
     ("linche", "branchB_02", "……我好像从来没问过他这些。"),
     ("linche", "branchC_01", "……说实话，我连明天会怎样都不知道。"),
+    # P1-03（2026-08-16）：观星夜 tonight 分支插入生活缝隙
+    ("linche", "branchC_04", "你冷？"),
+    # P1-02（2026-08-16）：集市开张——ch1ElderChoice='help' 时林澈回应
+    ("linche", "market_help_02", "先看看吧，总不能刚回来就闲着。"),
     # 支线试点：夏雅藤架（XIYA_GARDEN_TRELLIS_DIALOGUE）——林澈应答
     ("linche", "trellis_03", "需要几根木材。"),
     # 支线试点：村长星空（ELDER_TEA_QUEST_DIALOGUE）——林澈应答
@@ -223,6 +227,9 @@ T = [
     ("xiya", "branchA_02", "那就别走了。"),
     ("xiya", "branchC_02", "不需要知道。"),
     ("xiya", "branchC_03", "你在这里，就足够了。"),
+    # P1-03（2026-08-16）：观星夜 tonight 分支插入生活缝隙
+    ("xiya", "branchC_05", "……就是晚上风有点大。"),
+    ("xiya", "branchC_06", "有一点。"),
     ("xiya", "finale_01", "已经很久了，这片地没有这么热闹过。"),
     ("xiya", "finale_02", "青禾镇，欢迎你。"),
     # 支线试点：夏雅藤架（XIYA_GARDEN_TRELLIS_DIALOGUE / NEED / DONE）
@@ -286,13 +293,17 @@ T = [
     ("elder", "house_01", "你爷爷以前每天都会擦这里。"),
     ("elder", "house_02", "擦整座屋子。他说，人走了不要紧，屋子不能没人擦。"),
     # 为什么种田（ELDER_WHY_FARM_DIALOGUE）
-    ("elder", "farm_01", "现在买东西方便了，想吃什么，去店里就能买到。"),
-    ("elder", "farm_02", "可有时候，人容易忘了一件事。"),
-    ("elder", "farm_03", "这些东西啊，也不是一开始就在货架上的。"),
-    ("elder", "farm_04", "一粒种子，要有人种下去，有人照看它，才能变成餐桌上的东西。"),
-    ("elder", "farm_05", "现在什么都能买到，菜市场有菜，商店有粮。"),
-    ("elder", "farm_06", "可自己种出来的东西，吃的时候心里踏实。"),
-    ("elder", "farm_07", "你知道它什么时候种下去，什么时候长出来，也知道这一口是怎么来的。"),
+    # P1-01（2026-08-16）：镇长「为什么种田」7→5，少讲道理多讲具体生活（制作人拍板方向）。
+    #   文件名用 farm_v2_*（不复用旧 farm_01~07 音频，避免新旧文本共用一个文件造成文音不一致）；
+    #   旧 farm_01~07 音频保留在 voice_normalized 作参考/备份，待新语音合成后自然归档。
+    ("elder", "farm_v2_01", "以前家里缺点葱，出门喊一声，邻居就能给你一把。"),
+    ("elder", "farm_v2_02", "后来日子好了，什么都买得到。菜市场、商店，要啥有啥。"),
+    ("elder", "farm_v2_03", "可有时候，买回来的东西，总觉得少了点味儿。"),
+    ("elder", "farm_v2_04", "自己地里收的，才知道这一口是怎么来的。"),
+    ("elder", "farm_v2_05", "今年你那几畦萝卜，我看长势就好。"),
+    # P1-02（2026-08-16）：集市开张——ch1ElderChoice 消费（help/unsure 各一句镇长回应）
+    ("elder", "market_help_01", "看来你是真准备留下来搭把手。"),
+    ("elder", "market_unsure_01", "还没想好也没关系，先来看看。"),
     # 支线试点：村长星空（ELDER_TEA_QUEST_DIALOGUE）——村长委托
     ("elder", "tea_quest_01", "对了——你爷爷以前啊，忙完一天的活，总喜欢去农田边坐一会儿。"),
     ("elder", "tea_quest_02", "他说，那里安静，能看见很远的星星。"),
@@ -481,21 +492,31 @@ def story_speaker(role: str, tid: str) -> str:
 
 
 def emit_voicebank_ts(out_file: str) -> None:
-    """生成 src/audio/VoiceBank.ts 的 ENTRIES 数据段（单一数据源=T 清单，避免手抄错误）。"""
+    """生成 src/audio/VoiceBank.ts 的 ENTRIES 数据段（单一数据源=T 清单，避免手抄错误）。
+
+    只收录已进入 voice_normalized 的音频（T 清单里新增但尚未合成/标准化的台词，
+    不在映射里出现，运行时静默无语音；待音频就位后重新生成即自动收录）。
+    """
     lines = [
         "/* eslint-disable */",
         "// ══════════════════════════════════════════════════════════════════",
         "// 语音映射数据 —— 由 tools/gen_mainline_voice.py --emit-voicebank 自动生成，勿手改",
         "// 生成时间：%s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "// 说明：speaker='' 表示通配（少女/HR/纸条），text 为归一化后原文（已剥（笑）等标注）",
+        "// 只收录 voice_normalized 中已存在的音频；未合成台词待音频就位后重新生成本文件自动收录",
         "// ══════════════════════════════════════════════════════════════════",
         "export interface VoiceEntry { file: string; speaker: string; text: string }",
         "",
         "export const VOICE_ENTRIES: VoiceEntry[] = [",
     ]
+    norm_root = Path("public") / "audio" / "voice_normalized"
     for role, tid, text in T:
         out = output_path(role, tid)
         rel = out.relative_to(OUT_ROOT).as_posix()
+        norm_file = norm_root / rel.replace(".wav", ".ogg")
+        if not norm_file.exists():
+            warn(f"跳过未合成语音：{rel}（voice_normalized 中不存在 {norm_file.name}）")
+            continue
         spk = story_speaker(role, tid)
         lines.append(f"  {{ file: {rel!r}, speaker: {spk!r}, text: {text!r} }},")
     lines.append("];")

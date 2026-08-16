@@ -4,14 +4,18 @@ import { GAME_CONFIG, GAME_TITLE } from './config';
 import { TitleScene } from './scenes/TitleScene';
 import { MapScene } from './scenes/MapScene';
 import { StationScene } from './scenes/StationScene';
-import { getTime, nextDay as timeNextDay, setTime as setGameTime, formatTime } from './data/TimeSystem';
-import { refreshSchedule } from './systems/NPCSystem';
+import { getTime, nextDay as timeNextDay, setTime as setGameTime, setTimeFull as setGameTimeFull, consumeMinutes as consumeGameMinutes, formatTime } from './data/TimeSystem';
+import { getCurrentState as natureState, getWeatherToday as natureWeather, getTimePhase as naturePhase } from './systems/NatureSystem';
+import { isCurrentlyRaining } from './systems/WeatherSystem';
+import { getAllDiscoveries, recordDiscovery } from './systems/DiscoveryManager';
+import { refreshSchedule, getDailyNpcLine } from './systems/NPCSystem';
 import { refreshDailyQuests as refreshDQ, getDailyQuestSaveData, onWoodcut as dqOnWoodcut, getDailyQuests } from './systems/DailyQuestSystem';
 import { getQuestState, setQuestState } from './systems/QuestSystem';
 import { resetStamina } from './data/Stamina';
 import { resetOres } from './data/MineState';
-import { save } from './systems/SaveSystem';
-import { advanceStory, getStoryStep, setStoryStep, isObservatoryComplete } from './systems/StorySystem';
+import { save, getPlayerData } from './systems/SaveSystem';
+import { markRestored, getRestoreEntries } from './data/FarmRestore';
+import { advanceStory, getStoryStep, setStoryStep, isObservatoryComplete, markCh1TownIntroDone } from './systems/StorySystem';
 import { initAndroidBackHandler, initPcEscapeHandler } from './systems/AndroidBackHandler';
 import { addItem, getItemCount } from './data/Inventory';
 import { getRobotCount, runDailyAutomation } from './systems/AutomationSystem';
@@ -85,6 +89,8 @@ const game = new Phaser.Game({
     new MapScene('elder_house'),
     // 灯塔轻量版（2026-08-10 制作人解冻）：farm 海角可进入的探索区域
     new MapScene('lighthouse'),
+    // 青禾河畔（2026-08-15 制作人拍板：第一章替代灯塔开放的可玩新地图）
+    new MapScene('qinghe_river'),
   ],
 });
 
@@ -221,6 +227,7 @@ applyAdaptiveLogicalSize();
 // 用法：
 //   window.debug.nextDay()          结束今日，推进到次日 06:00
 //   window.debug.setTime(21, 50)    设置当前时间（hour, minute）
+//   window.debug.consumeMinutes(10) 动作时间成本（推进 n 游戏分钟，测试用）
 //   window.debug.advanceStory()     推进教程剧情一步
 //   window.debug.setStoryStep(s)    设置教程剧情步骤
 //   window.debug.getStoryStep()     获取当前教程步骤
@@ -229,7 +236,7 @@ applyAdaptiveLogicalSize();
 //   window.debug.getChapter()        获取当前章节
 //   window.debug.setChapter(c)       设置当前章节（调试/章节切换验证用）
 //   window.debug.setMusicBoxTrack(k) 设置音乐盒"我的歌"（null 清除，恢复地图默认）
-(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; getChapter: () => number; setChapter: (c: number) => void; getHouseTidyLevel: () => number; isHouseTidyComplete: () => boolean; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; getItemCount: (item: string) => number; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; sfxLog: () => string[]; ambience: () => { map: string | null; layers: number }; events: { triggerOnce: (id: string, fn: () => void) => boolean; triggerOnceIf: (id: string, cond: EventCondition | undefined, fn: () => void) => boolean; evalCondition: (cond?: EventCondition) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
+(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; setTimeFull: (d: number, h: number, m: number) => void; consumeMinutes: (n: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; markCh1TownIntroDone: () => void; getChapter: () => number; setChapter: (c: number) => void; getHouseTidyLevel: () => number; isHouseTidyComplete: () => boolean; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; getItemCount: (item: string) => number; markRestored: (key: string) => void; getRestoreEntries: () => Record<string, boolean>; nature: { state: () => { id: string; label: string; gatherKinds: string[] }; weather: () => string; weatherLegacy: () => string; phase: () => string; discoveries: () => Record<string, { resourceId: string; firstDiscoverDay: number; firstDiscoverLocation?: string; specialDiscoveries: string[] }>; recordDiscovery: (resourceId: string, day: number, location: string, special?: string) => 'created' | 'special_added' | 'noop' }; npcDaily: (npcId: string, location?: string) => Array<{ speaker: string; color: string; text: string }> | null; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; sfxLog: () => string[]; ambience: () => { map: string | null; layers: number }; events: { triggerOnce: (id: string, fn: () => void) => boolean; triggerOnceIf: (id: string, cond: EventCondition | undefined, fn: () => void) => boolean; evalCondition: (cond?: EventCondition) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
   getChapter,
   setChapter,
   getHouseTidyLevel,
@@ -242,6 +249,19 @@ applyAdaptiveLogicalSize();
     markTriggered,
     getSaveData: getGameEventSaveData,
   },
+  markRestored: (key: string) => {
+    markRestored(key as any);
+    // Dev 后门（2026-08-16 制作人拍板 Bug 2）：用当前活跃玩家位置保存，不覆盖为 0,0,''
+    const scene = game.scene.getScenes(true)[0] as MapScene | undefined;
+    const player = (scene as unknown as { player?: { x: number; y: number; facing: string } })?.player;
+    if (player) {
+      save({ x: player.x, y: player.y, scene: scene?.scene.key ?? 'farm', facing: player.facing } as any);
+    } else {
+      const existing = getPlayerData();
+      save(existing ?? { x: 0, y: 0, scene: 'farm', facing: 'down' });
+    }
+  },
+  getRestoreEntries,
   nextDay: () => {
     // Phase 4 起统一走 TimeSystem.nextDay，它内调 FarmState.advanceDay
     const newDay = timeNextDay();
@@ -284,6 +304,35 @@ applyAdaptiveLogicalSize();
     }
     console.log(`[debug] setTime → Day ${getTime().day} ${formatTime()}`);
   },
+  setTimeFull: (day: number, hour: number, minute: number) => {
+    setGameTimeFull(day, hour, minute);
+    console.log(`[debug] setTimeFull → Day ${day} ${hour}:${String(minute).padStart(2, '0')}`);
+  },
+  // 自然状态钩子（指向游戏真实 NatureSystem 实例，绕过 Vite dev 双模块问题；探针经此测试）
+  nature: {
+    state: () => {
+      const s = natureState();
+      return { id: s.id, label: s.label, gatherKinds: s.gatherKinds };
+    },
+    // 2026-08-16：天气统一到 WeatherSystem（isCurrentlyRaining，Day2 10-16 时雨窗）。
+    // 保留 natureWeather() 供对比旧占位规则，但"当前是否真的在下雨"以此为准。
+    weather: () => (isCurrentlyRaining() ? 'rain' : 'clear'),
+    weatherLegacy: () => natureWeather(),
+    phase: () => naturePhase(),
+    // P1 Discovery 图鉴：真实实例的发现记录快照（探针经此读取，绕过 Vite dev 双模块问题）
+    discoveries: () => getAllDiscoveries(),
+    // 真实实例的发现记录写入（探针经此写入，再经 SaveSystem 验证存档往返）
+    recordDiscovery: (resourceId: string, day: number, location: string, special?: string) =>
+      recordDiscovery({ resourceId, day, location, special }),
+  },
+  // 天气扩面第二刀（2026-08-16）：NPC 生活台词快照（探针经此读主实例 getDailyNpcLine，
+  // 绕过 Vite dev 双模块分裂——动态 import 命中 ?t= 副本会导致时间读取不一致）
+  npcDaily: (npcId: string, location?: string) =>
+    getDailyNpcLine(npcId, getTime().day, location),
+  consumeMinutes: (n: number) => {
+    consumeGameMinutes(n);
+    console.log(`[debug] consumeMinutes → ${n}min（${formatTime()}）`);
+  },
   advanceStory: () => {
     advanceStory();
     console.log(`[debug] advanceStory → ${getStoryStep()}`);
@@ -292,6 +341,8 @@ applyAdaptiveLogicalSize();
     setStoryStep(s as any);
     console.log(`[debug] setStoryStep → ${s}`);
   },
+  // 钓鱼 Phase 1 探针需要：跳过 town 入口剧情（避免 storyDialogue.isOpen() 阻断钓鱼交互）
+  markCh1TownIntroDone: () => markCh1TownIntroDone(),
   getStoryStep: () => {
     return getStoryStep();
   },

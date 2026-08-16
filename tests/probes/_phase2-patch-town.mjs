@@ -24,15 +24,20 @@ for (const r of [14, 16, 20, 23, 26, 29]) {
 
 // ---- Walls：零散作物(gid8) + 树(gid16) ----
 const s5Crops = [[42,13],[47,15],[43,19],[46,21],[41,24],[48,25],[44,27],[45,30]]; // S5 零散作物
-const s6Grass = [[5,8],[5,11],[5,14],[5,20],[5,23],[5,26]];                        // S6 岸线草丛
+const s6Grass = [[5,8],[5,11],[5,14],[5,20],[5,23],[5,26]];                        // S6 岸线草丛（首批）
+// S6 岸线补密（2026-08-13 第二轮）：x5 列沿岸 + x6 列点缀，避开路 y17-18 与已有格
+const s6Grass2 = [[5,6],[5,7],[5,9],[5,12],[5,13],[5,15],[5,19],[5,21],[5,24],[5,25],[5,28],
+                  [6,9],[6,13],[6,19],[6,24]];
 const s4Weeds = [[23,30],[26,30],[26,31],[23,32],[26,32]];                         // S4 院内荒草
+const s4Weeds2 = [[23,33],[26,33]];                                                // S4 院门口墙根乱草（截图可见）
 const s2Weeds = [[38,2],[37,6],[39,6],[38,7]];                                     // S2 路边杂草
 const s8Trees = [[41,3],[44,3],[47,3],[40,6],[43,6],[46,6],[49,6],[42,9],[45,9],[48,9],[44,11]]; // S8 果林树阵
 const s6Trees = [[6,10],[7,16],[6,22],[7,27]];                                     // S6 稀疏树
+const s6Trees2 = [[6,28]];                                                         // S6 岸线转角树
 
 const wallPatch = [];
-for (const [c, r] of [...s5Crops, ...s6Grass, ...s4Weeds, ...s2Weeds]) wallPatch.push({ c, r, gid: 8 });
-for (const [c, r] of [...s8Trees, ...s6Trees]) wallPatch.push({ c, r, gid: 16 });
+for (const [c, r] of [...s5Crops, ...s6Grass, ...s6Grass2, ...s4Weeds, ...s4Weeds2, ...s2Weeds]) wallPatch.push({ c, r, gid: 8 });
+for (const [c, r] of [...s8Trees, ...s6Trees, ...s6Trees2]) wallPatch.push({ c, r, gid: 16 });
 
 let skipped = 0;
 for (const { c, r, gid } of groundPatch) {

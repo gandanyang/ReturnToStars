@@ -150,6 +150,9 @@ async function run() {
   try {
     await page.goto(GAME_URL, { waitUntil: 'networkidle2' });
     await page.evaluate(() => localStorage.clear());
+    // 声音总开关（2026-08-13 制作人拍板：默认静音，localStorage 无记录即静音）。
+    // 探针必须显式开声音，否则 play() 第一步 isSoundEnabled() 直接 return，振荡器 0 个。
+    await page.evaluate(() => localStorage.setItem('return_star_sound_on', '1'));
     await page.reload({ waitUntil: 'networkidle2' });
     await sleep(2200);
     await installAudioSpy(page);
@@ -215,9 +218,10 @@ async function run() {
       const s = window.__game.scene.getScene('forest');
       s.doCollectShard();
     });
-    await sleep(200);
-    const shardUp = await hasFreq(page, snap, 880);
-    check('B3：碎片拾取琶音（shard 880Hz）', shardUp);
+    // 碎片采集音效（shard 880Hz）在闪回 playMemoryFlashback 回调后才播——
+    // 非空闪回（star_shard 计数>0）会先播闪回，采集音效延后；长轮询等它出现。
+    const shardUp = await waitFor(page, () => hasFreq(page, snap, 880), 15000);
+    check('B3：碎片拾取琶音（shard 880Hz）', !!shardUp);
 
     // ── 段B4：观星夜（tryStargaze）──
     // 存档注入：写完整存档 → reload → 游戏自身 SaveSystem.apply 设置状态，

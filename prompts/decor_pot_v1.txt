@@ -1,0 +1,30 @@
+A single game asset sprite, isolated object.
+
+A small terracotta flower pot with a blooming plant:
+a round warm-brown clay pot,
+one small green plant with a few soft flowers in warm colors,
+pale yellow and pink blooms, gently tended,
+small town rural village life,
+someone cares for this plant,
+Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no house,
+no scenery around the pot.
+
+Pure black background,
+centered object,
+front view,
+the pot fills most of the frame,
+only the pot and plant, floating alone on the black background.

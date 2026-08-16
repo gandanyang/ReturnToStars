@@ -112,6 +112,7 @@ mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
     // 跨天：radish growthDays=1，day2 时成熟→收获→补种
     await evalFarm(() => window.debug.nextDay());
+    await evalFarm(() => window.debug.nextDay()); // P0-2: radish growthDays=2，需跨2天成熟
     await sleep(500);
 
     let d = await evalFarm(() => {
@@ -165,6 +166,7 @@ mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await sleep(400);
 
     await evalFarm(() => window.debug.nextDay());
+    await evalFarm(() => window.debug.nextDay()); // P0-2: radish growthDays=2，需跨2天成熟
     await sleep(500);
 
     d = await evalFarm(() => {
@@ -209,6 +211,7 @@ mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await sleep(400);
 
     await evalFarm(() => window.debug.nextDay());
+    await evalFarm(() => window.debug.nextDay()); // P0-2: radish growthDays=2，需跨2天成熟
     await sleep(500);
 
     d = await evalFarm(() => {
@@ -264,6 +267,7 @@ mkdirSync(SCREENSHOT_DIR, { recursive: true });
     });
 
     await evalFarm(() => window.debug.nextDay());
+    await evalFarm(() => window.debug.nextDay()); // P0-2: radish growthDays=2，需跨2天成熟
     await sleep(500);
 
     const seedsAfter = await evalFarm(() => {
@@ -316,6 +320,7 @@ mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await sleep(400);
 
     await evalFarm(() => window.debug.nextDay());
+    await evalFarm(() => window.debug.nextDay()); // P0-2: radish growthDays=2，需跨2天成熟
     await sleep(500);
 
     d = await evalFarm(() => {

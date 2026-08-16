@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第一章《归园新序》剧情审核</title>
+<style>
+  :root{
+    --border:#d8cbb0; --card:#fffdf6; --bg:#f4efe3; --ink:#3a3428;
+    --accent:#8a6a45; --done:#3a7d44; --part:#c07f1f; --todo:#a03a3a; --muted:#8a8478;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.7}
+  header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#3a2f20,#2d2418);color:#f0e6d0;padding:18px 28px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+  header h1{margin:0;font-size:22px}
+  header .sub{margin-top:4px;font-size:13px;color:#cbb}
+  .toolbar{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .toolbar button,.chip{border:none;cursor:pointer;border-radius:6px;padding:7px 14px;font-size:13px;color:#fff}
+  .btn-export{background:#8a6a45}.btn-reset{background:#a03a3a}.btn-clear{background:#6a645a}
+  .btn{background:#445}
+  .saveStatus{margin-left:auto;font-size:12px;color:#e0d6bd;min-width:120px;text-align:right}
+  main{max-width:1080px;margin:0 auto;padding:24px 20px 60px}
+  .sec{margin:34px 0 8px;font-size:19px;font-weight:700;border-left:5px solid var(--accent);padding-left:12px;color:#4a3a26}
+  .sec.desc{color:var(--muted);font-weight:400;font-size:13px;margin:-4px 0 14px 17px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .card>summary{cursor:pointer;padding:12px 16px;list-style:none;display:flex;align-items:baseline;gap:10px}
+  .card>summary::-webkit-details-marker{display:none}
+  .card.open>summary::after{content:"▾";margin-left:auto;color:var(--muted)}
+  .card>summary::after{content:"▸";margin-left:auto;color:var(--muted)}
+  .idx{color:var(--muted);font-size:12px;min-width:20px}
+  .tt{font-weight:700;font-size:15px}
+  .tag{font-size:11px;padding:1px 8px;border-radius:10px;color:#fff;white-space:nowrap;margin-left:6px}
+  .st-done{background:var(--done)} .st-part{background:var(--part)} .st-todo{background:var(--todo)} .st-confirm{background:#5a6a8a}
+  .card .detail{padding:0 16px 12px;border-top:1px dashed var(--border);color:#4c4537;font-size:14px}
+  .meta{font-size:12px;color:var(--muted);margin:8px 0}
+  .note{font-size:13px;color:#7a2f2f;background:#fbeaea;border-left:3px solid #c06868;padding:6px 10px;border-radius:0 6px 6px 0}
+  .review{margin:12px 0 4px;font-size:13px;color:var(--accent);font-weight:700}
+  textarea{width:100%;min-height:64px;border:1px solid var(--border);border-radius:6px;padding:8px;font:inherit;font-size:13px;background:#fff;resize:vertical}
+  textarea:focus{outline:2px solid #b89a6f}
+  .saved{margin-top:6px;font-size:11px;color:#3a7d44;min-height:14px}
+  footer{text-align:center;color:var(--muted);font-size:12px;padding:20px}
+  details.reviewbox{background:#fbf7ee;border:1px dashed #c9b383;border-radius:6px;margin-top:10px}
+  details.reviewbox>summary{cursor:pointer;padding:6px 12px;font-size:13px;color:#7a6a4a;font-weight:600}
+  nav.filter{display:flex;gap:8px;flex-wrap:wrap;padding:10px 20px;background:#efe7d5}
+  nav.filter button{border:1px solid var(--border);background:#fff;color:var(--ink);cursor:pointer;border-radius:14px;padding:4px 12px;font-size:12px}
+  nav.filter button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  #out{margin-top:24px}
+  #exportOutput{white-space:pre-wrap;background:#26241f;color:#e6e0cc;border-radius:8px;padding:14px;font-family:Consolas,monospace;font-size:12px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>《归星物语》第一章《归园新序》剧情审核</h1>
+  <div class="sub">给制作人逐项批改用 · 批注自动保存在本浏览器（localStorage）· 点击卡片展开详情 · 点卡片内「✎ 写批改」输入</div>
+  <div class="toolbar">
+    <button class="btn-export" onclick="exportReview()">⬇ 导出批改（Markdown）</button>
+    <button class="btn-export" onclick="copyReview()">📋 复制批改</button>
+    <button class="btn-reset" onclick="resetReview()">↺ 清空所有批改</button>
+    <div class="saveStatus" id="saveStatus">已加载</div>
+  </div>
+</header>
+
+<nav class="filter" id="filterNav">
+  <button data-f="all" class="on">全部</button>
+  <button data-f="done">已实现</button>
+  <button data-f="part">部分</button>
+  <button data-f="todo">待施工/待拍板</button>
+  <button data-f="reviewed">只看「已批改」</button>
+</nav>
+
+<main id="main"></main>
+
+<footer>数据源：docs/reports/第一章剧情总结-v1.0-2026-08-16.md · 本工具不写入游戏，仅作审核批注</footer>
+<textarea style="display:none" id="exportOutput"></textarea>
+
+<script>
+// ─────────────────────── 第一章剧情数据（与 MD 保持一致） ───────────────────────
+const SECTIONS = [
+  { id:"main", title:"三、主线剧情脉络", desc:"观星夜结束 → 章末，按顺序。点击展开详情；每项可写批改。" },
+  { id:"char", title:"四、关键人物第一章戏份", desc:"每位一句定位，可逐人批改。" },
+  { id:"ending", title:"五、章末收束", desc:"已实现与设计指向的差距。" },
+  { id:"link", title:"六、与相邻章节衔接", desc:"第0章 / 第二章。" },
+  { id:"plan", title:"八、待制作人拍板 / 待确认 / 待施工", desc:"这些是需要你拍板或我知道的在办项。" },
+];
+
+const ITEMS = [
+  // ── 主线 ──
+  { id:"m0", sec:"main", idx:"0", t:"章节切换（观星夜收束）", st:"done", meta:"setChapter(1) 前存档；观星夜三选项落点=留下主轴",
+    body:"观星夜三选项（留下／弄清过去／还没想好）落点均为「留下」主轴；最终存档前进入第一章。" },
+  { id:"m1", sec:"main", idx:"①", t:"第一章开篇（章节开启仪式）", st:"done", meta:"CH1_AWAKENING_DIALOGUE · probe 15/15",
+    body:"观星夜后进农场白天，林澈短独白（晨光／星星→新的家→去整理老屋），承接第0章、引出第一章。" },
+  { id:"m2", sec:"main", idx:"②", t:"day2 清晨「岛屿的第一声回应」", st:"done", meta:"probe-day2-morning 18/18 · 制作人定稿不改写",
+    body:"睡醒见夏雅站老屋门口看农田；对白「归星岛好像又重新呼吸了一次」「植物比人更诚实」→ 注入「让农场重新运转」复兴任务。" },
+  { id:"m3", sec:"main", idx:"③", t:"首次进 town（第一章小镇开场）", st:"done", meta:"TOWN_INTRO · probe-ch1-town-intro 8/8",
+    body:"「从老屋出来，沿着土路走了一段」＋镇长听传「老屋来了新主人」；清第0章残留。" },
+  { id:"m4", sec:"main", idx:"④", t:"老屋整理 ★章节核心", st:"done", meta:"Sprint1 12/12",
+    body:"床／灯／书桌／收音机 4 交互点（零数值零新资产）：床=生活、灯=有人住、书桌=左爷爷旧物＋右林澈电脑「过去+现在缩影」、收音机=爷爷广播站生活声记忆。完成句「这间屋子，开始是我的了」。" },
+  { id:"m5", sec:"main", idx:"⑤", t:"村民谈论变化", st:"part", meta:"NPC 台词按章节/恢复态分支",
+    body:"镇上对话转向「以后」，有人注意到庄园灯亮；NPC 台词池随章节切换。" },
+  { id:"m6", sec:"main", idx:"⑥", t:"村长来访·复兴计划邀请", st:"done", meta:"Sprint2 14/14 · ⚠️ ch1ElderChoice 为死旗",
+    body:"老屋整理完成＋隔夜进老屋，镇长敲门给「要不要一起试试」复兴计划；选项（愿意帮忙／还没想好）入档 ch1ElderChoice。" },
+  { id:"m7", sec:"main", idx:"⑦", t:"集市广场恢复 ★", st:"done", meta:"Sprint3 14/14",
+    body:"村长来访后 town 中央荒地解锁；交付木材/石头/金币 → 荒地变草地＋摊位＋挂灯；NPC 台词切「集市热闹」池。" },
+  { id:"m7b", sec:"main", idx:"⑦b", t:"三阶段体验链（集市深化）", st:"done", meta:"D-029 · probe 捉虫38/集市14/观察22",
+    body:"荒地→清理→3 摊按居民需求摆放（老张工具摊／小梅小吃摊／夏雅花摊）→开张；并含捉虫引导＋昆虫观察（自然笔记）。" },
+  { id:"m8", sec:"main", idx:"⑧", t:"夏雅记忆线·一《春深有信》", st:"done", meta:"·一已实现+语音+花田反馈 · ·二正文定稿但 Alpha 不装",
+    body:"花田遇夏雅→4 段交互，玩家第一次理解夏雅（她在保存岛的「可能性」）；埋「下周岛上有个小活动」伏笔；完成后花田新花苗＋观星夜呼应半句。" },
+  { id:"m9", sec:"main", idx:"⑨", t:"春日集 ★章末", st:"done", meta:"P3 5/5 · 一次性 ch1_spring_fair · 克制版最低档",
+    body:"集市恢复+夜晚进 town：3 呼吸灯＋3 人剪影＋人群低语＋「青禾镇的集市，又开了」→镇长「上次这么热闹还是你爷爷在的时候」→灯塔钩子「海面上好像亮了一下…又暗下去」。规模 ≤ 观星夜 40%。" },
+
+  // ── 人物 ──
+  { id:"c1", sec:"char", t:"林澈（主角）", st:"done", body:"从「回来的人」变「开始生活的人」——整理老屋、回应村长邀请、交付集市、布置摊位；即「重新选择归处」。" },
+  { id:"c2", sec:"char", t:"夏雅", st:"done", body:"核心引导/情感角色。day2 邀约复兴、集市花摊、·一心语（「被第一次理解」，不展开恋爱/释怀）；埋春祭伏笔。" },
+  { id:"c3", sec:"char", t:"镇长（村长）", st:"done", body:"复兴的「邀请者」而非任务板；整理完毕夜晚来访「要不要一起试试」；春日集反馈台词。" },
+  { id:"c4", sec:"char", t:"阿风（冒险家）", st:"done", body:"第一章为「种子级」——集市热闹台词＋欢迎闲聊＋埋「追风」伏笔；完整《追风的人》冻结至 Beta。" },
+  { id:"c5", sec:"char", t:"花匠小梅", st:"done", body:"集市小吃摊居中（参与生活链一环）；自然引导/昆虫观察中的科普者。" },
+  { id:"c6", sec:"char", t:"矿工老张", st:"done", body:"集市工具摊靠路边；「这个·秋天」收成链代表「过去·旧手艺」。" },
+  { id:"c7", sec:"char", t:"神秘少女", st:"done", body:"第一章几乎无正面戏份（仅观星夜前后旁白 hook）；星轨守护者身份层主线不参与生活化内容。" },
+  { id:"c8", sec:"char", t:"木匠老周", st:"done", body:"集市热闹台词分支；第0章回归角（建设反馈）；第一章非核心。" },
+  { id:"c9", sec:"char", t:"商店老板", st:"done", body:"集市/春日集行动型反馈台词（「油锅一起，这味儿就对了」）。" },
+
+  // ── 章末 ──
+  { id:"e1", sec:"ending", t:"春日集（已实现）", st:"done", body:"克制版最低档：一次性，无镜头链/无选项，末尾灯塔钩子埋第二章。" },
+  { id:"e2", sec:"ending", t:"赶大集质感（设计指向）", st:"confirm", meta:"待制作人确认 3 项",
+    body:"红蓝布棚/油锅/叫卖/熟人碰面/散集余温；已实装为克制最低档，与完整「赶大集」有差距。" },
+  { id:"e3", sec:"ending", t:"《秋日晒场》（可扩展收束）", st:"todo", meta:"设计定稿+任务卡已出，约 8 人日未施工",
+    body:"章末「全镇第一次回应玩家」，立意「不是庆祝丰收，而是证明这里还有人在生活」；以玉米收成＋春日集后触发。" },
+
+  // ── 衔接 ──
+  { id:"l1", sec:"link", t:"与第0章《归星》", st:"done", body:"观星夜唯一切换点；情绪「为什么回来→为什么留下」；day2 清晨兑现爷爷笔记「岛屿会记住照顾它的人」；夏雅线顺序铁律=世界恢复→居民恢复→个人故事。" },
+  { id:"l2", sec:"link", t:"与第二章《故人远来》", st:"todo", body:"衔接句=「安顿→镇子发光→被远处看见→有人回来」；钩子=章末灯塔/旧信；第二章以「集市重开后镇民传说外面有人问起这里」+一封旧信承接。" },
+
+  // ── 待拍板/确认/待施工 ──
+  { id:"p1", sec:"plan", t:"镇长「为什么种田」7 连演讲去重", st:"todo", body:"叙事资产审计 P1；未定稿未实施（涉语音重配成本）。" },
+  { id:"p2", sec:"plan", t:"ch1ElderChoice（帮忙/没想好）死旗二选一", st:"confirm", meta:"①集市不消费",
+    body:"目前只记录态度、不入玩法。请你定：把它消费进集市反馈，还是移除/改观?" },
+  { id:"p3", sec:"plan", t:"观星夜 tonight「连续漂亮句」收敛", st:"todo", body:"叙事资产审计 P1；未定稿。" },
+  { id:"p4", sec:"plan", t:"老周口头禅与星星意象错开", st:"todo", body:"叙事资产审计 P1；未定稿。" },
+  { id:"p5", sec:"plan", t:"赶大集：集日节奏 N=2 / 触发方式 / 夏雅是否在场", st:"confirm", body:"三条设计口径待你确认。" },
+  { id:"p6", sec:"plan", t:"观星夜呼应夏雅半句文案（·一完成态）", st:"todo", meta:"需逐字定稿（涉配音）",
+    body:"·一完成后观星夜夏雅特殊对白半句：「……今晚的星星，好像比以前亮了一点。」——方向稿，待你人话化定稿。" },
+  { id:"p7", sec:"plan", t:"《秋日晒场》施工", st:"todo", meta:"约 8 人日",
+    body:"第一章章末收束事件，设计已定稿，待排期施工。" },
+  { id:"p8", sec:"plan", t:"夏雅·二《花期未至》", st:"todo", meta:"正文已定稿 · Alpha 不装",
+    body:"S1-S8 正文就绪；触发条件=·一完成＋第一章已开＋广场恢复＋白天。待排期。" },
+];
+
+// ─────────────────────── 渲染 + 批注持久化 ───────────────────────
+const LS_KEY = "ch1-review-v1";
+const saveStatus = document.getElementById("saveStatus");
+const main = document.getElementById("main");
+
+let notes = {};
+try { notes = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch(e){ notes={}; }
+
+const ST_LABEL = { done:["已实现","st-done"], part:["部分","st-part"], todo:["待施工/待拍板","st-todo"], confirm:["待确认","st-confirm"] };
+
+const STATUS_LABEL = { done:"已实现", part:"部分", todo:"待施工", confirm:"待确认" };
+
+function persist(){ localStorage.setItem(LS_KEY, JSON.stringify(notes)); flash("✓ 已保存 " + new Date().toLocaleTimeString()); }
+function flash(t){ saveStatus.textContent = t; }
+
+function cardHtml(it){
+  const tag = ST_LABEL[it.st] ? `<span class="tag ${ST_LABEL[it.st][1]}">${ST_LABEL[it.st][0]}</span>` : "";
+  const hasNote = (notes[it.id]||"").trim().length>0;
+  const idx = it.idx ? `<span class="idx">${it.idx}</span>` : "";
+  const meta = it.meta ? `<div class="meta">${it.meta}</div>` : "";
+  const note = notes[it.id] || "";
+  const noteBadge = hasNote ? ` <span class="tag st-todo">已批改</span>` : "";
+  return `<details class="card" data-id="${it.id}" data-st="${it.st}">
+    <summary>${idx}<span class="tt">${it.t}</span>${tag}${noteBadge}</summary>
+    <div class="detail">
+      ${meta}
+      <div>${it.body}</div>
+      <details class="reviewbox">
+        <summary>✎ 写批改${hasNote?"（有批注）":""}</summary>
+        <textarea data-n="${it.id}" placeholder="在这里写下你的意见 / 修改 / 确认……（自动保存）">${escapeHtml(note)}</textarea>
+        <div class="saved"></div>
+      </details>
+    </div>
+  </details>`;
+}
+
+function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function render(filter){
+  main.innerHTML = "";
+  SECTIONS.forEach(sec=>{
+    const group = ITEMS.filter(i=>i.sec===sec.id);
+    if(!group.length) return;
+    const h = document.createElement("div");
+    h.innerHTML = `<div class="sec">${sec.title}</div>${sec.desc?`<div class="sec desc">${sec.desc}</div>`:""}`;
+    main.appendChild(h);
+    group.forEach(it=>{
+      if(filter!=="all" && filter!=="reviewed"){
+        if(filter==="done" && it.st!=="done") return;
+        if(filter==="part" && it.st!=="part") return;
+        if(filter==="todo" && !["todo","confirm"].includes(it.st)) return;
+      }
+      if(filter==="reviewed" && !(notes[it.id]||"").trim()) return;
+      const el = document.createElement("div");
+      el.innerHTML = cardHtml(it);
+      main.appendChild(el.firstElementChild);
+    });
+  });
+  bind();
+}
+
+function bind(){
+  // 过滤下手动补一次显示状态（含无 item 的卡）不处理
+  main.querySelectorAll("textarea").forEach(ta=>{
+    ta.addEventListener("input", ()=>{ notes[ta.dataset.n]=ta.value; persist(); });
+    ta.addEventListener("blur", persist);
+  });
+}
+
+// 过滤按钮
+document.getElementById("filterNav").addEventListener("click", e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#filterNav button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on");
+  const f=b.dataset.f; render(f);
+});
+
+// 导出：把所有批注拼成带分组的 Markdown
+function collectMd(){
+  let out = "# 《归星物语》第一章《归园新序》制作人批改记录\n\n";
+  out += "> 来源：人工审核 · 数据对应 docs/reports/第一章剧情总结-v1.0-2026-08-16.md\n\n";
+  let any = false; let groupT = false;
+  SECTIONS.forEach(sec=>{
+    const group = ITEMS.filter(i=>i.sec===sec.id);
+    const reviewed = group.filter(i=> (notes[i.id]||"").trim());
+    if(!reviewed.length) return;
+    if(!groupT){ any=true; groupT=true; }
+    out += `## ${sec.title}\n`;
+    reviewed.forEach(i=>{
+      out += `### ${i.idx?i.idx+" ":""}${i.t}（${STATUS_LABEL[i.st]||""}）\n`;
+      out += `【正文】${i.body}\n\n`;
+      out += `【批改】${notes[i.id].trim()}\n\n`;
+    });
+    out += "\n";
+  });
+  if(!any) out += "（暂无批改记录）\n";
+  return out;
+}
+function exportReview(){
+  const md = collectMd();
+  const out = document.getElementById("exportOutput");
+  out.style.display="block"; out.value=md;
+  out.scrollIntoView({behavior:"smooth"});
+  download("第一章批改记录.md", md);
+}
+function copyReview(){
+  const md = collectMd();
+  navigator.clipboard.writeText(md).then(()=>flash("✓ 已复制批改到剪贴板")).catch(()=>flash("❌ 复制失败，见下方导出框"));
+  const out = document.getElementById("exportOutput"); out.style.display="block"; out.value=md;
+}
+function download(name, text){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([text],{type:"text/markdown"}));
+  a.download=name; a.click(); URL.revokeObjectURL(a.href);
+}
+function resetReview(){
+  if(!confirm("确定清空全部批注？此操作不可撤销。")) return;
+  notes={}; localStorage.removeItem(LS_KEY); render("all"); flash("已清空全部批注");
+}
+
+render("all");
+</script>
+</body>
+</html>

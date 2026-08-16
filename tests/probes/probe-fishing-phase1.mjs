@@ -51,11 +51,9 @@ function check(name, ok, detail) {
 }
 
 const errors = [];
-const fishLogs = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 page.on('console', (m) => {
   if (m.type() === 'error') errors.push('console: ' + m.text());
-  if (m.text().includes('[MapScene:fishing] fail reason=')) fishLogs.push(m.text());
 });
 
 /** 进入 town（种子存档 → reload → Enter → 等 town 场景就绪）；hour 可配（Phase 3 鱼种窗口） */
@@ -177,6 +175,7 @@ async function runMainSequence() {
       out.t4.fakeBite = s.fishingState;
       s.onFishingFail('early');
       out.t4.fail = s.fishingState;
+      out.t4.reelHintCleared = !document.body.textContent.includes('快按 [E] 收竿！');
       s.endFishing();
       out.t4.idle = s.fishingState;
       out.inv2 = readInvAll();
@@ -186,6 +185,7 @@ async function runMainSequence() {
       s.enterRealBite();
       s.onFishingFail('timeout');
       out.t5 = { fail: s.fishingState };
+      out.t5.reelHintCleared = !document.body.textContent.includes('快按 [E] 收竿！');
       s.endFishing();
       out.t5.idle = s.fishingState;
       out.inv3 = readInvAll();
@@ -328,11 +328,12 @@ try {
   if (r3.__error) throw new Error(`夜间会话崩于: ${r3.__error}\n${r3.stack}`);
   check('T8 pickCurrentFish：20:00+低随机 → 河鳗（夜间）', r3.pickEel === 'river_eel', `got=${r3.pickEel}`);
 
-  // T7 无运行时错误 + 失败原因日志
+  // T7 无运行时错误 + 失败反馈（两种失败原因都正确识别并清掉收竿提示）
   const realErrors = errors.filter((e) => !/favicon|404/.test(e));
   check('T7 无运行时错误', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
-  check('T7 失败原因日志含 early + timeout',
-    fishLogs.some((l) => l.includes('early')) && fishLogs.some((l) => l.includes('timeout')), fishLogs.join(' ; '));
+  check('T7 过早失败(early)清除收竿提示', r.t4?.reelHintCleared === true, `reelHintCleared=${r.t4?.reelHintCleared}`);
+  check('T7 超时失败(timeout)清除收竿提示', r.t5?.reelHintCleared === true, `reelHintCleared=${r.t5?.reelHintCleared}`);
+  check('T7 两种失败原因均结束为 fail 状态', r.t4?.fail === 'fail' && r.t5?.fail === 'fail', `t4=${r.t4?.fail} t5=${r.t5?.fail}`);
 
   await page.screenshot({ path: join(SHOT_DIR, 'fishing-01-spot.png') });
   console.log(`\n===== probe-fishing-phase1 结果: ${pass} 通过 / ${fail} 失败 =====`);

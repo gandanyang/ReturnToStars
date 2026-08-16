@@ -83,6 +83,9 @@ export const MAP_EXITS: Record<string, ExitZone[]> = {
     { x: 5 * T,  y: 18 * T,  w: 2 * T, h: 2 * T, target: 'farm',   spawn: { x: 27 * T, y: 10 * T } },
     { x: 24 * T, y: 0,       w: 2 * T, h: 2 * T, target: 'mine',   spawn: { x: 15 * T, y: 17 * T } },
     { x: 32 * T, y: 26 * T,  w: 2 * T, h: 2 * T, target: 'elder_house', spawn: { x: 5 * T, y: 8 * T } },
+    // 青禾河畔（2026-08-15 制作人拍板：第一章替代灯塔开放的可玩新地图）：
+    //   town 南侧（rows 33-34 空地，避开河/建筑/NPC 站位）→ qinghe_river 北侧入口
+    { x: 24 * T, y: 33 * T,  w: 2 * T, h: 2 * T, target: 'qinghe_river', spawn: { x: 24 * T, y: 3 * T } },
   ],
   // 矿洞：底→小镇，左→森林
   // 2026-08-13 矿洞→小镇出生点随小镇入口挪至最顶端而调整：(25T,11T) → (25T,4T)（新入口内侧 3 格）
@@ -104,6 +107,12 @@ export const MAP_EXITS: Record<string, ExitZone[]> = {
   lighthouse: [
     { x: 0,      y: 9 * T,   w: 1 * T, h: 5 * T, target: 'farm',   spawn: { x: 5 * T, y: 14 * T } },
   ],
+  // 青禾河畔：北侧入口 → town；东侧断桥（未来果园预埋，locked 不可进入）
+  qinghe_river: [
+    { x: 24 * T, y: 0,       w: 2 * T, h: 1 * T, target: 'town',   spawn: { x: 24 * T, y: 31 * T } },
+    // 断桥（未来果园）：当前 locked（视觉断桥已在 MapScene 绘制；开放时移除 locked）
+    { x: 31 * T, y: 8 * T,   w: 3 * T, h: 1 * T, target: 'old_orchard', spawn: { x: 31 * T, y: 2 * T }, locked: true },
+  ],
 };
 
 /** 场景 key → 中文名称（HUD 显示用） */
@@ -115,4 +124,5 @@ export const MAP_NAMES: Record<string, string> = {
   house: '家中',
   elder_house: '镇长家',
   lighthouse: '灯塔',
+  qinghe_river: '青禾河畔',
 };

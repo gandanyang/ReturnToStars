@@ -250,7 +250,10 @@ function createDom(): void {
  */
 function layoutControls(): void {
   const host = document.getElementById('game-container');
-  const canvasW = host?.clientWidth ?? innerWidth;
+  // P0-4 修复（2026-08-14）：gapX 用实际画布显示宽度（FIT 缩放后 canvas 居中，两侧黑边），
+  // 而非容器宽度（容器 = 视口全宽，会算出 gapX=0 → 摇杆压到游戏画面左侧）。
+  const canvas = host?.querySelector('canvas');
+  const canvasW = canvas ? canvas.getBoundingClientRect().width : (host?.clientWidth ?? innerWidth);
   const gapX = Math.max(0, (innerWidth - canvasW) / 2);
   if (joystickEl) joystickEl.style.left = `${Math.max(48, gapX - 130)}px`;
   if (questBtn) questBtn.style.left = `${Math.max(16, gapX - 58)}px`;
@@ -322,6 +325,7 @@ function endDrag(): void {
   if (currentInput) {
     currentInput.moveX = 0;
     currentInput.moveY = 0;
+    currentInput.moveMagnitude = 0;
   }
   if (joystickThumb) {
     joystickThumb.style.left = '50%';
@@ -329,7 +333,12 @@ function endDrag(): void {
   }
 }
 
-/** 根据手指位置计算 8 方向，设 moveX/moveY，移动 thumb */
+/** 根据手指位置计算 8 方向 + 拖动幅度（P0-1 手感专项：拖动距离 → 速度连续映射）。
+ *  moveX/moveY 存方向（-1/0/1，与键盘一致），moveMagnitude 存幅度 [0,1]：
+ *   死区内（<deadzone）→ 方向 0、幅度 0（不移动）
+ *   死区到最大半径 → 幅度 0.25~1 连续映射（轻推慢走、长拖快走）
+ *   Player 用 moveX/moveY × moveMagnitude × 基础速度，并做加减速平滑。
+ */
 function applyDirection(): void {
   if (!currentInput || !joystickBase || !joystickThumb) return;
   const rect = joystickBase.getBoundingClientRect();
@@ -346,9 +355,17 @@ function applyDirection(): void {
   // 移动 thumb
   joystickThumb.style.left = `${rect.width / 2 + dx}px`;
   joystickThumb.style.top = `${rect.height / 2 + dy}px`;
-  // 8 方向（与键盘 WASD 一致），死区防误触
+  // 方向（与键盘 WASD 一致）：死区防误触
   currentInput.moveX = dx > deadzone ? 1 : dx < -deadzone ? -1 : 0;
   currentInput.moveY = dy > deadzone ? 1 : dy < -deadzone ? -1 : 0;
+  // 幅度连续映射：死区内 0，死区→最大 0.25~1（轻推 = 慢速起步，长拖 = 满速）
+  if (dist <= deadzone) {
+    currentInput.moveMagnitude = 0;
+  } else {
+    const t = Math.min(1, (dist - deadzone) / (max - deadzone));
+    // 最低 0.25：轻推也有基础可感速度，避免太轻完全不动；上限 1
+    currentInput.moveMagnitude = 0.25 + t * 0.75;
+  }
 }
 
 export class TouchControls {

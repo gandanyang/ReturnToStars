@@ -22,7 +22,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = 16;
 const OLD_HOUSE_POS = { x: 11 * T + T / 2, y: 20 * T + T / 2 }; // farm 老屋互动锚点
 const LAMP_POS = { x: 12 * T + T / 2, y: 8 * T + T / 2 };       // mine 矿灯锚点
-const PLUM_POS = { x: 17 * T + T / 2, y: 9 * T + T / 2 };       // town 花圃锚点
+const PLUM_POS = { x: 28 * T + T / 2, y: 16 * T + T / 2 };       // town 花圃锚点（2026-08-14 移位 27,17→28,16）
 
 const makeSave = (scene, x, y, opts = {}) => ({
   version: '0.5', savedAt: 't3-npc-probe', timestamp: Date.now(),
@@ -179,8 +179,15 @@ async function run() {
   check('C1 入口对白出现', c1.allSeen, JSON.stringify(c1.seen));
   check('C2 入口入档（asked）', (await flags()).sideGardenerPlumAsked === true, JSON.stringify(await flags()));
 
+  // 等入口对白完全关闭（advanceUntilSeen 检测到首句即返回，但对白打字机动画未播完，
+  // 直接 pressE 会推进剩余行而不是触发完成对话 → C3 超时。循环推进直到对白关闭。）
+  await page.evaluate(() => {
+    const sc = window.__game?.scene?.getScene?.('town');
+    if (sc?.storyDialogue) sc.storyDialogue.reset();
+  });
+  await sleep(400);
   await pressE();
-  let c3 = await advanceUntilSeen(['它还是会开花的']);
+  let c3 = await advanceUntilSeen(['它会开花的']);
   check('C3 完成对白出现', c3.allSeen, JSON.stringify(c3.seen));
   const cT0 = Date.now();
   while (Date.now() - cT0 < 8000 && (await flags()).sideGardenerPlumDone !== true) {

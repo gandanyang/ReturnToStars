@@ -1,0 +1,11 @@
+Use case: stylized-concept
+Asset type: in-game dialogue character portrait (512x512 square avatar, face centered, rounded-card display)
+Primary request: half-body character portrait of "Lao Zhou" (老周), a 45-year-old Chinese township carpenter in a quiet island village. The character name "Lao Zhou" is a proper name; do NOT translate or transcribe it, and do NOT render any text in the image.
+Subject: middle-aged Chinese man, short dark-brown hair with a few grey strands, gentle tired eyes, light stubble, calm silent expression, modest craftsman aura; wearing a worn grey shirt under a brown canvas work apron, leather tool pouch on his waist belt, faint wood shavings on the apron and hands
+Style/medium: 2D anime game portrait, clean cel shading, painterly detail, matching the quality of modern gacha-game character portraits
+Composition/framing: chest-up half-body, face centered with headroom, looking slightly off-camera, warm and inviting
+Lighting/mood: warm late-afternoon workshop light, quiet dignity, kind but reserved
+Color palette: warm browns and wood tones with muted grey-green accents
+Background: softly blurred rustic wooden workshop interior with hanging hand tools and timber planks, warm bokeh
+Constraints: NOT a white-bearded elder, NOT a lumberjack with an axe, NOT a western carpenter; he is a modest township craftsman who stayed behind; single character only
+Avoid: text, letters, signs, subtitles, captions, watermarks, Chinese characters anywhere in the image; no extra people; no modern or fantasy elements

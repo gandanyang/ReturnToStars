@@ -1,0 +1,31 @@
+A single game character sprite, isolated character.
+
+A young village gardener girl, full body standing sprite:
+warm orange top and apron, blue skirt and apron straps,
+dark brown hair, warm fair skin,
+holding a small flower or pruning shears,
+gentle and kind expression, looking forward,
+flower gardener of a small rural village,
+Stardew Valley inspired pixel game character.
+
+Refined pixel art style,
+detailed pixel art,
+hard pixel edges,
+limited color palette,
+clean readable silhouette,
+subtle shading for depth,
+no gradients,
+no smooth airbrush rendering.
+
+No text,
+no letters,
+no Chinese characters,
+no watermark,
+no name tag.
+
+Pure black background,
+centered character,
+full body visible head to feet,
+straight-on front view,
+the character fills most of the frame,
+only the character, floating alone on the black background.

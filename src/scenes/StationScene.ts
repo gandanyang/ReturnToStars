@@ -139,6 +139,11 @@ export class StationScene extends Phaser.Scene {
       setStoryStep('station_move');
       this.showMoveHint();
     }
+
+    // 2026-08-16 修复：场景切换/销毁时必须清理底部交互提示与移动提示。
+    // 此前 shutdown() 已定义但从未注册到 SHUTDOWN 事件，导致从公告栏选种子切走后，
+    // 「按 [E] 查看」提示节点残留在 document.body 上卡屏（dev 教学雨入口必现）。
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
   }
 
   // ============ 绘制 ============
@@ -171,7 +176,7 @@ export class StationScene extends Phaser.Scene {
     this.drawMountains(0x1a2a10, 300, 0.2, 35, 60);    // 中（中绿）
     this.drawMountains(0x2a3a18, 320, 0.3, 25, 50);    // 近（浅绿）
 
-    // ── 星黎庄园远景 ──
+    // ── 农场远景 ──
     this.drawManorInDistance();
 
     // ── 站台外草地（更自然的绿色） ──
@@ -257,7 +262,7 @@ export class StationScene extends Phaser.Scene {
     }
 
     // ── 出口箭头（右侧） ──
-    const arrow = this.add.text(W - 80, 420, '▶ 庄园', {
+    const arrow = this.add.text(W - 80, 420, '▶ 农场', {
       fontSize: '14px',
       color: '#ffcc44',
       stroke: '#000',
@@ -310,7 +315,7 @@ export class StationScene extends Phaser.Scene {
     gfx.setScrollFactor(scrollX);
   }
 
-  /** 星黎庄园远景 */
+  /** 农场远景 */
   private drawManorInDistance(): void {
     const gfx = this.add.graphics();
     gfx.setScrollFactor(0.2);
@@ -324,7 +329,7 @@ export class StationScene extends Phaser.Scene {
     gfx.fillStyle(0x3a2a1a, 0.5);
     gfx.fillRect(710, 295, 6, 15);
     // 标签
-    this.add.text(700, 345, '星黎庄园', {
+    this.add.text(700, 345, '农场', {
       fontSize: '9px',
       color: '#7a6a5a',
     }).setOrigin(0.5).setScrollFactor(0.2).setAlpha(0.6);
@@ -747,6 +752,7 @@ export class StationScene extends Phaser.Scene {
       textShadow: '0 0 4px rgba(0,0,0,0.8)',
     });
     hint.textContent = isMobileLayout() ? '点击「交互」查看' : '按 [E] 查看';
+    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（切到地图后 MapScene 强制清除）
     document.body.appendChild(hint);
     this.interactHintEl = hint;
   }

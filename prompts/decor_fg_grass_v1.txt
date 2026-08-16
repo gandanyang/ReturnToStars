@@ -1,0 +1,30 @@
+A single game asset sprite, isolated object.
+
+A dense patch of foreground grass and small leaves:
+a cluster of tall grass blades with a few soft broad leaves,
+layered, overlapping, for foreground occlusion in a game,
+deep green blades in front, slightly lighter behind,
+natural and lush,
+rural village life,
+Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no flowers,
+no scenery around the grass.
+
+Pure black background,
+centered object,
+front view,
+the grass fills most of the frame,
+only the grass, floating alone on the black background.

@@ -35,6 +35,8 @@ const PORTRAIT_MAP: Record<string, string> = {
   花匠小梅: 'assets/portraits/xiaomei_ai.webp',
   小梅: 'assets/portraits/xiaomei_ai.webp',
   商店老板: 'assets/portraits/shopkeeper_ai.webp',
+  木匠老周: 'assets/portraits/laozhou_gemini_v1.webp',
+  老周: 'assets/portraits/laozhou_gemini_v1.webp',
 };
 
 export class StoryDialogue {

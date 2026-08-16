@@ -40,6 +40,7 @@ import { getQuestState, setQuestState, type QuestState } from '../systems/QuestS
 import { getDailyQuestSaveData, restoreDailyQuests, type DailyQuestSaveData } from '../systems/DailyQuestSystem';
 import { getGameEventSaveData, restoreGameEventSaveData, type GameEventSaveData } from './EventManager';
 import { getChapterSaveData, restoreChapterSaveData } from './ChapterSystem';
+import { getNatureDiscoverySaveData, restoreNatureDiscoverySaveData, type DiscoveryRecord } from './DiscoveryManager';
 import { MapScene, setPendingMapFlags } from '../scenes/MapScene';
 import type { MapSceneFlags } from '../scenes/MapScene';
 
@@ -101,6 +102,8 @@ export interface SaveData {
   mapFlags?: MapSceneFlags;
   /** 归星录·相簿：已解锁照片 ID（可选，旧档无此字段视为空，v0.1） */
   album?: string[];
+  /** 自然观察发现记录（P0 Phase C；玩家记忆——只存真正产生过的发现，不存图鉴百分比/数量） */
+  natureDiscovery?: Record<string, DiscoveryRecord>;
   /** 一次性事件状态（可选，旧档无此字段视为空；统一"只触发一次"机制，2026-08-06） */
   gameState?: GameEventSaveData;
   /** 章节（可选，旧档无该字段 → 默认 CHAPTER_0 归星；观星夜完成后升为 CHAPTER_1 复苏，2026-08-12） */
@@ -166,6 +169,7 @@ export function save(player: {
       ch1TownIntroDone: isCh1TownIntroDone(),
     },
     album: getAlbumSaveData(),
+    natureDiscovery: getNatureDiscoverySaveData(),
     mapFlags: MapScene.getCurrentFlags() ?? undefined,
     gameState: getGameEventSaveData(),
     chapter: getChapterSaveData(),
@@ -346,6 +350,8 @@ export function apply(data: SaveData): void {
   restoreLockedItems(data.player.lockedItems ?? []);
   // 归星录·相簿：恢复已解锁照片（旧档无 album 字段默认空）
   restoreAlbumSaveData(data.album ?? []);
+  // 自然观察发现记录：恢复玩家记忆（旧档无 natureDiscovery 字段默认空）
+  restoreNatureDiscoverySaveData(data.natureDiscovery);
   // 一次性事件状态：恢复已触发事件（旧档无 gameState 字段默认空）
   restoreGameEventSaveData(data.gameState);
   // 章节：恢复当前章节（旧档无 chapter 字段 → 默认 CHAPTER_0，restore 内部兜底）

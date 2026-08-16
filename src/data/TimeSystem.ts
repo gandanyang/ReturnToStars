@@ -81,24 +81,41 @@ export function setTimeFull(day: number, hour: number, minute: number): void {
 export function tick(dtMs: number): void {
   if (dtMs <= 0) return;
   pendingMinutes += dtMs * MS_TO_GAME_MIN;
-
-  while (pendingMinutes >= 1) {
-    pendingMinutes -= 1;
-    time.minute += 1;
-    if (time.minute >= 60) {
-      time.minute -= 60;
-      time.hour += 1;
-      // 到达 DAY_END_HOUR 整点：
-      // 强制停在 22:00:00 且不继续推进，剩余分钟丢弃
-      // 直到玩家睡觉 / 外部 nextDay 触发
-      if (time.hour >= DAY_END_HOUR) {
-        time.hour = DAY_END_HOUR;
-        time.minute = 0;
-        pendingMinutes = 0;
-        break;
-      }
-    }
+  const whole = Math.floor(pendingMinutes);
+  if (whole >= 1) {
+    pendingMinutes -= whole;
+    advanceGameMinutes(whole);
   }
+}
+
+/**
+ * 推进游戏时间（内部共用）：按"游戏分钟"进位（60 分=1 小时，到 DAY_END_HOUR 强制停）。
+ * 供 tick（现实流逝累积）与 consumeMinutes（动作时间成本）共用的唯一进位源。
+ */
+function advanceGameMinutes(n: number): void {
+  if (n <= 0) return;
+  const total = time.minute + n;
+  time.minute = total % 60;
+  const addHours = Math.floor(total / 60);
+  time.hour += addHours;
+  // 到达 DAY_END_HOUR 整点：强制停在 22:00:00（剩余丢弃），直到 sleep / nextDay
+  if (time.hour >= DAY_END_HOUR) {
+    time.hour = DAY_END_HOUR;
+    time.minute = 0;
+    pendingMinutes = 0;
+  }
+}
+
+/**
+ * 动作时间成本（P0 Action Time）：玩家做一个动作消耗 n 游戏分钟。
+ * 只负责"推进时间"——不参与判定"扣了多少"，由各动作自行决定成本；不改变天数。
+ * 对齐原则：时间系统只推进时间（机会成本），不做惩罚/不反向知道动作细节。
+ * @param n 消耗的游戏分钟数（>0）
+ */
+export function consumeMinutes(n: number): void {
+  if (!(n > 0)) return;
+  pendingMinutes = 0; // 动作推进是确定性的，丢弃残留现实累积，避免双源叠加
+  advanceGameMinutes(n);
 }
 
 /**

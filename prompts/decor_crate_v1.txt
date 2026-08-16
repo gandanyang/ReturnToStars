@@ -1,0 +1,30 @@
+A single game asset sprite, isolated object.
+
+A small wooden storage crate:
+a sturdy square wooden box,
+warm brown planks with visible grain lines and a diagonal cross brace,
+slightly worn at the corners,
+small town rural village life,
+Stardew Valley inspired pixel game asset.
+
+16x16 pixel art style,
+true pixel art,
+hard pixel edges,
+limited color palette,
+no gradients,
+no smooth shading,
+no realistic rendering.
+
+No text,
+no letters,
+no characters,
+no people,
+no fruits,
+no vegetables,
+no scenery around the crate.
+
+Pure black background,
+centered object,
+front view,
+the crate fills most of the frame,
+only the crate, floating alone on the black background.

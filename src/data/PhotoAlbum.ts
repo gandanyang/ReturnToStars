@@ -76,6 +76,14 @@ export const PHOTO_DATABASE: Photo[] = [
     description: '你在归星岛种下了第一颗种子。那一天，风很轻。',
     source: '种下第一颗种子',
   },
+  {
+    // 钓鱼 Phase 4（2026-08-14 制作人拍板）：青禾鲫换夏雅的果干 → 次日河边长椅小场景
+    id: 'xiya_dried_fruit',
+    title: '果干与河风',
+    image: 'assets/photos/album/xiya_dried_fruit.webp',
+    description: '第二天，长椅旁。河风一吹，干果就更好吃了。',
+    source: '用青禾鲫换夏雅的果干，第二天来河边坐坐',
+  },
 ];
 
 /** 已解锁照片 ID（模块级 Set，存档恢复后重新填充） */

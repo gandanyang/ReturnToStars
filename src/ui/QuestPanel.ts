@@ -17,6 +17,11 @@
 import { getQuestState, getQuestObjective } from '../systems/QuestSystem';
 import { getDailyQuests, claimReward, getTalkNpcHomeHint, type DailyQuestInstance } from '../systems/DailyQuestSystem';
 import { getResidentRequests, isRequestDone, canFulfillRequest } from '../systems/ResidentRequestSystem';
+import { getChapter, CHAPTER_1 } from '../systems/ChapterSystem';
+import { hasTriggered } from '../systems/EventManager';
+import { isRestored } from '../data/FarmRestore';
+import { getHouseTidyLevel, isHouseTidyComplete } from '../data/HouseTidy';
+import { getItemCount } from '../data/Inventory';
 import { play } from '../systems/AudioSystem';
 import { triggerTag } from '../systems/GuiXingRecordSystem';
 import { showMemoryMoment } from './MemoryMoment';
@@ -152,6 +157,109 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** 第一章任务链定义（2026-08-14 加入面板主线页签；状态从事件/恢复点/派生接口只读渲染，零新增存档字段） */
+interface Ch1QuestDef {
+  id: string;
+  title: string;
+  /** 未解锁时提示 */
+  lockHint: string;
+  /** 进行中目标文案（每次渲染实时计算，可带进度） */
+  objective: () => string;
+  isUnlocked: () => boolean;
+  isDone: () => boolean;
+}
+
+/** 第一章任务链（chapter>=1 显示）：捉蝶 → 自然记录 → 老屋整理 → 镇长来访 → 集市恢复 → 春日集 */
+const CH1_QUESTS: Ch1QuestDef[] = [
+  {
+    id: 'ch1_house_tidy',
+    title: '整理老屋',
+    lockHint: '完成观星夜后解锁',
+    objective: () => `整理老屋（床 / 灯 / 书桌 / 收音机） ${getHouseTidyLevel()}/4`,
+    isUnlocked: () => getChapter() >= CHAPTER_1,
+    isDone: () => isHouseTidyComplete(),
+  },
+  {
+    id: 'ch1_elder_visit',
+    title: '镇长来访',
+    lockHint: '整理完老屋，下一晚镇长会来',
+    objective: () => '整理完老屋，等镇长夜晚来访',
+    isUnlocked: () => isHouseTidyComplete(),
+    isDone: () => hasTriggered('ch1_elder_visit'),
+  },
+  {
+    id: 'ch1_market',
+    title: '集市重新开张',
+    lockHint: '镇长来访后解锁',
+    objective: () => '清理集市场地 → 布置 3 个摊位（按居民需求）',
+    isUnlocked: () => hasTriggered('ch1_elder_visit'),
+    isDone: () => isRestored('marketSquare'),
+  },
+  {
+    id: 'ch1_spring_fair',
+    title: '春日集',
+    lockHint: '集市开张后，夜晚去镇上',
+    objective: () => '夜晚去青禾镇，参加春日集',
+    isUnlocked: () => isRestored('marketSquare'),
+    isDone: () => hasTriggered('ch1_spring_fair'),
+  },
+  {
+    id: 'ch1_butterfly_catch',
+    title: '捉蝴蝶',
+    lockHint: '完成观星夜后解锁',
+    objective: () => '白天（06-18时）去青禾镇或花田，捉一只蝴蝶获得标本',
+    isUnlocked: () => getChapter() >= CHAPTER_1,
+    isDone: () => hasTriggered('ch1_qinghe_butterfly_guide') || hasTriggered('ch1_natural_record_1'),
+  },
+  {
+    id: 'ch1_natural_record',
+    title: '自然记录',
+    lockHint: '捉到蝴蝶后解锁',
+    objective: () => {
+      // 第一章 v0.11（制作人 2026-08-14 拍板）：计数动态化 1/10→2/10→3/10，随虫种记录推进
+      const rec = (hasTriggered('ch1_natural_record_1') ? 1 : 0)
+        + (hasTriggered('ch1_natural_record_2') ? 1 : 0)
+        + (hasTriggered('ch1_natural_record_3') ? 1 : 0);
+      const bag = getItemCount('butterfly_specimen') + getItemCount('willow_specimen') + getItemCount('moth_specimen');
+      const tip = rec === 0
+        ? (bag > 0 ? `带标本去农场花田找小梅（背包 ${bag} 只）` : '背包里没有标本，先去捉一只蝴蝶')
+        : rec === 1
+          ? '还可以去河边（白天）捉柳叶蝶，或老树旁（夜晚）捉夜光蛾'
+          : rec === 2
+            ? '还差一只：夜晚去森林老树旁捉夜光蛾'
+            : '青禾凤蝶、柳叶蝶、夜光蛾都记下了';
+      return `记录 ${rec}/10 · ${tip}`;
+    },
+    isUnlocked: () => getItemCount('butterfly_specimen') > 0
+      || getItemCount('willow_specimen') > 0
+      || getItemCount('moth_specimen') > 0
+      || hasTriggered('ch1_natural_record_1')
+      || hasTriggered('ch1_natural_record_2')
+      || hasTriggered('ch1_natural_record_3'),
+    isDone: () => hasTriggered('ch1_natural_record_1') && hasTriggered('ch1_natural_record_2') && hasTriggered('ch1_natural_record_3'),
+  },
+];
+
+/** 第一章任务行渲染：未解锁 / 进行中 / 已完成 */
+function ch1QuestRowHtml(q: Ch1QuestDef): string {
+  if (!q.isUnlocked()) {
+    return `<div style="padding:6px 10px;margin-bottom:6px;color:#7a7262;background:rgba(255,255,255,0.02);border-radius:6px;opacity:0.85;">
+      <div style="font-size:13px;color:#a09880;">🔒 ${escapeHtml(q.title)}</div>
+      <div style="font-size:11px;color:#6a6355;margin-top:2px;">${escapeHtml(q.lockHint)}</div>
+    </div>`;
+  }
+  if (q.isDone()) {
+    return `<div style="padding:6px 10px;margin-bottom:6px;color:#6a8a6a;background:rgba(126,220,126,0.10);border-radius:6px;">
+      <div style="font-size:13px;color:#7ec87e;">✅ ${escapeHtml(q.title)}</div>
+      <div style="font-size:12px;color:#8aa88a;margin-top:2px;">已完成</div>
+    </div>`;
+  }
+  return `<div style="padding:8px 10px;margin-bottom:6px;background:rgba(126,184,218,0.12);border-radius:6px;border-left:3px solid #7eb8da;">
+    <div style="font-size:13px;font-weight:bold;color:#cdeafa;">${escapeHtml(q.title)} <span style="font-size:11px;color:#8fd6ff;">进行中</span></div>
+    <div style="font-size:12px;color:#cbd2d6;margin-top:2px;">${escapeHtml(q.objective())}</div>
+  </div>`;
+}
+
 /** 主线程任务行渲染 */
 function mainRowHtml(): string {
   const state = getQuestState();
@@ -162,10 +270,16 @@ function mainRowHtml(): string {
     completed: '已完成 👑',
     not_started: '可接取',
   };
-  return `<div style="padding:8px 10px;margin-bottom:6px;background:rgba(126,184,218,0.12);border-radius:6px;border-left:3px solid #7eb8da;">
+  let html = `<div style="padding:8px 10px;margin-bottom:6px;background:rgba(126,184,218,0.12);border-radius:6px;border-left:3px solid #7eb8da;">
     <div style="font-size:13px;font-weight:bold;color:#cdeafa;">星之碎片 <span style="font-size:11px;color:#8fd6ff;">${stateLabel[state] ?? ''}</span></div>
     <div style="font-size:12px;color:#cbd2d6;margin-top:2px;">${objective}</div>
   </div>`;
+  // 第一章：追加任务链（观星夜完成进第一章后显示）
+  if (getChapter() >= CHAPTER_1) {
+    html += `<div style="margin:10px 0 4px;font-size:12px;color:#8a7a62;">—— 第一章 · 复苏 ——</div>`;
+    html += CH1_QUESTS.map((q) => ch1QuestRowHtml(q)).join('');
+  }
+  return html;
 }
 
 /** 每日任务行渲染（含进度 + 领奖 + 已领） */function dailyRowHtml(q: DailyQuestInstance): string {

@@ -19,9 +19,9 @@ const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 const GAME_URL = process.env.GAME_URL ?? 'http://localhost:5173/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// FEATURE-039 智能出售期望：100 + 萝卜3×15 + 番茄2×35 = 100 + 45 + 70 = 215
+// FEATURE-039 智能出售期望：100 + 萝卜3×15 + 番茄2×35 = 90 + 110 = 200；加初始 100 = 300
 // （石头/木材为 reserve 保留资源，不自动卖；种子 forbidden 不可售；工具/钥匙/机器人/钻石不在 SELLABLE_ITEMS）
-const EXPECTED_COINS_AFTER = 215;
+const EXPECTED_COINS_AFTER = 300;
 
 async function writeSeed(page) {
   await page.evaluate(() => {
@@ -166,7 +166,7 @@ async function run() {
     await sleep(800);
     bstate = await backpackState(page);
     console.log(`  卖出后: coins="${bstate.coins}" cellNames=[${bstate.cellNames.join(',')}]`);
-    check('金币累加至 215G（石头/木材 reserve 保留不卖）', bstate.coins.includes('215G'), bstate.coins);
+    check('金币累加至 395G（石头/木材 reserve 保留不卖）', bstate.coins.includes('395G'), bstate.coins);
     check('农作物已清空（萝卜/番茄卖出）', !bstate.cellNames.includes('萝卜') && !bstate.cellNames.includes('番茄'), bstate.cellNames.join(','));
     check('reserve 资源保留（石头/木材未自动卖）', bstate.cellNames.includes('石头') && bstate.cellNames.includes('木材'), bstate.cellNames.join(','));
     check('不可售物品保留（锄头/钥匙/机器人/钻石/种子）', bstate.cellNames.includes('旧锄头') && bstate.cellNames.includes('庄园钥匙') && bstate.cellNames.includes('自动农业机器人') && bstate.cellNames.includes('钻石') && bstate.cellNames.includes('萝卜种子'), bstate.cellNames.join(','));
@@ -189,7 +189,7 @@ async function run() {
     });
     await sleep(200);
     const coinAfterEmpty = await backpackState(page);
-    check('无可售时金币不变（仍 215G）', coinAfterEmpty.coins.includes('215G'), coinAfterEmpty.coins);
+    check('无可售时金币不变（仍 395G）', coinAfterEmpty.coins.includes('395G'), coinAfterEmpty.coins);
 
     // ========== 商店一键出售（停止农场场景 → 无活动玩家 → beforeunload 不会覆盖新种子）==========
     console.log('\n[Part 2] 商店一键出售');
@@ -229,7 +229,7 @@ async function run() {
     await sleep(800);
     sstate = await shopState(page);
     console.log(`  商店卖出后: coins="${sstate.coins}" sellableButtons=${sstate.sellableButtons}`);
-    check('商店卖出后金币 215G（石头/木材 reserve 保留）', sstate.coins.replace(/\s/g, '').includes('215G'), sstate.coins);
+    check('商店卖出后金币 395G（石头/木材 reserve 保留）', sstate.coins.replace(/\s/g, '').includes('395G'), sstate.coins);
     check('商店出售栏剩 2 个 reserve 可手动卖按钮（石头/木材）', sstate.sellableButtons === 2, `可卖按钮=${sstate.sellableButtons}`);
 
     // ========== 存档不新增字段（结构校验）==========

@@ -38,10 +38,12 @@ const MAP_AMBIENT: Record<string, { day: AmbientName[]; night: AmbientName[] }> 
   house:   { day: ['warmth'],                  night: ['warmth'] },
   // 灯塔礁石岛（2026-08-10 轻量版）：日夜海浪 + 白天风声 / 夜晚虫鸣
   lighthouse: { day: ['waves', 'wind'],       night: ['waves', 'crickets'] },
+  // 青禾河畔（2026-08-15 制作人拍板新地图）：日夜水声 + 白天鸟叫 / 夜晚虫鸣
+  qinghe_river: { day: ['water', 'birds'],    night: ['water', 'crickets'] },
 };
 
 /** 有雨天气的室外地图（矿洞/屋内/车站有顶，不下雨） */
-export const RAIN_MAPS = ['farm', 'forest', 'town', 'gate', 'lighthouse'];
+export const RAIN_MAPS = ['farm', 'forest', 'town', 'gate', 'lighthouse', 'qinghe_river'];
 
 /** 全局音源数上限（含操作音效的并发预估） */
 const MAX_SOURCES = 8;
