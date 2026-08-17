@@ -123,59 +123,77 @@ function formatSavedAt(date: Date): string {
   return `${y}-${mo}-${d} ${h}:${mi}`;
 }
 
-/** 保存游戏（序列化所有模块状态 → localStorage） */
+/**
+ * 保存游戏（序列化所有模块状态 → localStorage）
+ *
+ * 2026-08-17 P0：
+ *  - 全链路 try-catch：把 data 收集 + JSON.stringify + setItem 整体纳入保护，
+ *    避免 getter / stringify 抛异常时 save 打断调用方流程（如睡觉存档）。
+ *  - scene 空值保护：拒绝写入非法空场景，防止 DevHub 后门污染真实存档导致黑屏。
+ *  - 返回 boolean：true=成功；false=被拒绝或保存失败（调用方可按需消费，暂不强改）。
+ */
 export function save(player: {
   x: number;
   y: number;
   scene: string;
   facing: string;
   dailyQuest?: DailyQuestSaveData;
-}): void {
-  const t = getTime();
-  const now = new Date();
-  const data: SaveData = {
-    version: SAVE_VERSION,
-    savedAt: formatSavedAt(now),
-    timestamp: now.getTime(),
-    player: {
+}): boolean {
+  // ③ scene 空值保护：拒绝非法场景写入（防 DevTestHub 的 save({scene:''}) 后门黑屏）
+  if (!player.scene) {
+    console.warn('[SaveSystem] 拒绝写入：scene 为空，已拦截（防存档污染）', {
       x: player.x,
       y: player.y,
-      scene: player.scene,
       facing: player.facing,
-      inventory: Object.fromEntries(getAllInventoryEntries()) as Record<ItemType, number>,
-      lockedItems: getLockedItems(),
-    },
-    world: {
-      day: t.day,
-      hour: t.hour,
-      minute: t.minute,
-      coins: getCoins(),
-      level: getLevel(),
-      xp: getXp(),
-      stamina: getStamina(),
-      minedOres: getMinedOreIds(),
-      questState: getQuestState(),
-      dailyQuest: player.dailyQuest ?? getDailyQuestSaveData(),
-    },
-    farm: {
-      tiles: getAllTileEntries(),
-      crops: getAllCropEntries(),
-      trees: getAllTreeEntries(),
-      automation: getAutomationSave(),
-    },
-    worldRestore: getRestoreEntries(),
-    story: {
-      storyStep: getStoryStep(),
-      ch1TownIntroDone: isCh1TownIntroDone(),
-    },
-    album: getAlbumSaveData(),
-    natureDiscovery: getNatureDiscoverySaveData(),
-    mapFlags: MapScene.getCurrentFlags() ?? undefined,
-    gameState: getGameEventSaveData(),
-    chapter: getChapterSaveData(),
-  };
+    });
+    return false;
+  }
 
   try {
+    const t = getTime();
+    const now = new Date();
+    const data: SaveData = {
+      version: SAVE_VERSION,
+      savedAt: formatSavedAt(now),
+      timestamp: now.getTime(),
+      player: {
+        x: player.x,
+        y: player.y,
+        scene: player.scene,
+        facing: player.facing,
+        inventory: Object.fromEntries(getAllInventoryEntries()) as Record<ItemType, number>,
+        lockedItems: getLockedItems(),
+      },
+      world: {
+        day: t.day,
+        hour: t.hour,
+        minute: t.minute,
+        coins: getCoins(),
+        level: getLevel(),
+        xp: getXp(),
+        stamina: getStamina(),
+        minedOres: getMinedOreIds(),
+        questState: getQuestState(),
+        dailyQuest: player.dailyQuest ?? getDailyQuestSaveData(),
+      },
+      farm: {
+        tiles: getAllTileEntries(),
+        crops: getAllCropEntries(),
+        trees: getAllTreeEntries(),
+        automation: getAutomationSave(),
+      },
+      worldRestore: getRestoreEntries(),
+      story: {
+        storyStep: getStoryStep(),
+        ch1TownIntroDone: isCh1TownIntroDone(),
+      },
+      album: getAlbumSaveData(),
+      natureDiscovery: getNatureDiscoverySaveData(),
+      mapFlags: MapScene.getCurrentFlags() ?? undefined,
+      gameState: getGameEventSaveData(),
+      chapter: getChapterSaveData(),
+    };
+
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     console.log('[SaveSystem] 存档已保存', {
       version: SAVE_VERSION,
@@ -185,8 +203,11 @@ export function save(player: {
       coins: data.world.coins,
       level: data.world.level,
     });
+    return true;
   } catch (e) {
-    console.warn('[SaveSystem] 存档保存失败（localStorage 可能已满）', e);
+    // 覆盖：getter 抛异常 / JSON.stringify 抛异常 / setItem 失败（localStorage 满）等全部场景
+    console.error('[SaveSystem] 存档保存失败（getter/序列化/localStorage 异常）', e);
+    return false;
   }
 }
 
@@ -307,9 +328,21 @@ function sanitize(data: SaveData): void {
  * 存档迁移：加载时 version 与 SAVE_VERSION 不一致时调用。
  * v0.5 起始策略：直接清空旧存档 —— 宁可重新开始，也不让旧格式数据污染新分组结构。
  * 后续版本升级时，在此处编写逐字段搬移的真实迁移逻辑。
+ *
+ * 2026-08-17 P0：清档前先把旧档备份到 `return_star_save_backup_<oldVersion>`，
+ * 防止误升级 / 版本切换 / 数据异常导致玩家进度不可恢复。
  */
 function migrate(oldVersion: string): void {
-  console.warn(`[SaveSystem] 迁移 ${oldVersion} → ${SAVE_VERSION}：清空旧存档`);
+  const raw = localStorage.getItem(STORAGE_KEY);
+  console.warn(`[SaveSystem] 迁移 ${oldVersion} → ${SAVE_VERSION}：备份旧档后清空`);
+  if (raw !== null) {
+    try {
+      localStorage.setItem(`return_star_save_backup_${oldVersion}`, raw);
+    } catch (e) {
+      // 备份失败（如 localStorage 已满）也不阻断迁移：旧档结构已不适用当前版本
+      console.warn('[SaveSystem] 迁移备份失败，旧档可能无法恢复', e);
+    }
+  }
   localStorage.removeItem(STORAGE_KEY);
 }
 
