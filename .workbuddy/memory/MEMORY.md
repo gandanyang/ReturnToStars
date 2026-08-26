@@ -8,7 +8,7 @@
 ## 轮子清单（直接复用）
 - 存档 SaveSystem.ts｜事件 EventManager.ts｜剧情 StorySystem.ts（冻结区单写者制）｜任务 QuestSystem.ts+DailyQuestSystem.ts｜相簿 data/PhotoAlbum.ts｜恢复 data/FarmRestore.ts｜NPC NPCSystem.ts｜环境音 AmbienceSystem.ts｜音乐 audio/MusicSystem.ts｜语音 audio/VoiceBank.ts（镇长→村长 key 桥接）｜Debug main.ts window.debug
 - UI：模块级单例+panelFadeIn/Out；StoryDialogue.ts 打字机；MemoryFlashback.ts 闪回；MemoryMoment.ts 飘字
-- tools/（50+ 先查再写）：语音 gen_voice/gen_mainline_voice/gen_xiya_minimax.py+minimax_tts/fish_tts.ts；出图 gen_portrait_comfy.py/gpt_image_gen.mjs；GPT tileset 管线 gpt_tileset_normalizer.py+prompts/*.txt+锚点 tools/star_island_palette.json；打包 build_apk/install_apk.py；gpt-bridge.mjs 请示桥
+- tools/（50+ 先查再写）：语音 gen_voice/gen_mainline_voice/gen_xiya_minimax.py+minimax_tts/fish_tts.ts；出图 gen_portrait_comfy.py/gpt_image_gen.mjs；GPT tileset 管线 gpt_tileset_normalizer.py+prompts/*.txt+锚点 tools/star_island_palette.json；打包 build_apk/install_apk.py；gpt-bridge.mjs 请示桥；**项目工作台工具 tools/gen_workbench.py（生成根目录「项目工作台.html」，自动采集 git/文件统计 + 静态项目信息）**
 - 探针 tests/probes/：ch1-walkthrough/stargaze/photo-album/dialogue-history/voice/npc-*/lighthouse/west-coast-visual 等
 
 ## 协作约定
