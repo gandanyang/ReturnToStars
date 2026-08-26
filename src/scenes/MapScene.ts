@@ -123,6 +123,9 @@ import {
   FIRST_HARVEST_DIALOGUE,
   OLD_ROBOT_DIALOGUE,
   XIYA_LETTER_OPEN_DIALOGUE, XIYA_LETTER_FLOWER_DIALOGUE, XIYA_LETTER_RECORD_DIALOGUE, XIYA_LETTER_FINAL_DIALOGUE,
+  XIYA_BLOOM_S1_OPEN_DIALOGUE, XIYA_BLOOM_S2_STORAGE_DIALOGUE, XIYA_BLOOM_S3_FLOWERSTAND_DIALOGUE,
+  XIYA_BLOOM_S4_MISUNDERSTAND_DIALOGUE, XIYA_BLOOM_S5_TURNING_DIALOGUE, XIYA_BLOOM_S6_VILLAGERS_DIALOGUE,
+  XIYA_BLOOM_S7_FESTIVAL_DIALOGUE, XIYA_BLOOM_S8_FIREWORKS_DIALOGUE, XIYA_BLOOM_EPILOGUE_DIALOGUE,
 } from '../systems/StorySystem';
 import { hasSave, load, apply, save, getLastIncompatibleVersion, clearIncompatibleVersion, SAVE_VERSION, isAutoSaveSuppressed } from '../systems/SaveSystem';
 import { play, isSoundEnabled, setSoundEnabled } from '../systems/AudioSystem';
@@ -202,12 +205,23 @@ export interface MapSceneFlags {
   xiyaLetterDone?: boolean;
   /** D-011 剧情阶段（0=未开始 / 1=开场完成 / 2=整理花苗完成 / 3=旧花种记录完成；读档恢复现场用） */
   xiyaLetterStage?: number;
+  /** D-011 夏雅《春深有信·二 花期未至》：剧情专线（旧广场 9 段，stage 驱动，一次性入档） */
+  xiyaBloomAsked?: boolean;
+  xiyaBloomDone?: boolean;
+  xiyaBloomStage?: number;
   /** 小镇计划·星光艺术展（Feature-XXX，2026-08-15 制作人拍板）：筹备/活动/永久状态 */
   artShowUnlocked?: boolean;      // 「小镇计划」已解锁（首次打开面板看过契机）
   artShowEnvStage?: number;       // 环境准备进度 0-3（展台→灯光→花艺）
   artShowMaterialsDone?: boolean; // 素材准备完成（鱼·晚餐食材）
   artShowHeld?: boolean;          // 活动当天已办（演出触发）
   artShowPerm?: boolean;          // 永久变化已落地（广场东侧艺术角）
+  /** 小镇计划·秋日晒场（EventPlan 第二实例，2026-08-15 制作人拍板，设计定稿 v1.1）：筹备/当天/永久
+   *  复用 mapFlags + triggerOnce 范式（对齐 artShow 字段），不新增顶层字段/不升 SAVE_VERSION。 */
+  dryyardUnlocked?: boolean;      // EventPlan 已解锁（开场演出「老张提起晒场」已看过）
+  dryyardEnvStage?: number;       // 环境准备进度 0-3（晒架→竹席晒篮→玉米串辣椒串）
+  dryyardMaterialsDone?: boolean; // 资源准备完成（「今年的收成」已摆出）
+  dryyardHeld?: boolean;          // 当天演出已触发（傍晚晒场→夜晚长桌→灯塔）
+  dryyardPerm?: boolean;          // 永久变化已落地（青禾晒场）
   /** 邮箱系统（2026-08-15 制作人拍板）：grandpa_gift_opened 后解锁；信件随存档持久 */
   mailUnlocked?: boolean;         // 是否解锁（收到爷爷的信后）
   mailLastDay?: number;           // 上次来信的游戏天数（-1=未来过）
@@ -491,6 +505,23 @@ export class MapScene extends Phaser.Scene {
   private artShowTravelerLabel: Phaser.GameObjects.Text | null = null;
   private artShowTravelerHint: HTMLDivElement | null = null;
   private readonly artShowTravelerPos = { x: 516, y: 322 };       // 长椅 (512,322) 上落座
+  // ══════ 秋日晒场（EventPlan 第二实例，2026-08-15 制作人拍板 · 设计定稿 v1.1 · 台词定稿 v0.3）══════
+  private dryyardUnlocked = false;
+  private dryyardEnvStage = 0;        // 0-3：晒架→竹席晒篮→玉米串辣椒串
+  private dryyardMaterialsDone = false; // 「今年的收成」已摆出
+  private dryyardHeld = false;
+  private dryyardPerm = false;
+  private inDryyardCutscene = false;
+  private dryyardSprites: Phaser.GameObjects.GameObject[] = [];   // 演出期临时精灵
+  private dryyardBox: Phaser.GameObjects.Container | null = null; // 征集筐（交付点）
+  private dryyardXiya: Phaser.GameObjects.Sprite | null = null;   // 筹备期晒场夏雅（旧照片）
+  private dryyardXiyaLabel: Phaser.GameObjects.Text | null = null;
+  /** 永久期晒场老张（白天停留照看晒架；收成时令台词） */
+  private dryyardLaozhang: Phaser.GameObjects.Sprite | null = null;
+  private dryyardLaozhangLabel: Phaser.GameObjects.Text | null = null;
+  private dryyardHint: HTMLDivElement | null = null;              // 征集筐/夏雅/老张靠近提示
+  /** 会话级：晒场环境物件已构建到第几阶段（幂等，避免重复 add） */
+  private dryyardEnvBuilt = 0;
   private townPlanPanel: HTMLDivElement | null = null;            // 「小镇计划」只读面板
   // 第一章 P2 生活采集 Phase 1（2026-08-14 设计稿 v0.1）：
   // 6 种采集物（蒲公英/野莓/野蘑菇/小野花/小树枝/河螺）× farm/town/forest/qinghe_river 四场景手工分布。
@@ -761,6 +792,10 @@ export class MapScene extends Phaser.Scene {
   private xiyaLetterAsked = false;
   private xiyaLetterDone = false;
   private xiyaLetterStage = 0;
+  // D-011 夏雅《春深有信·二 花期未至》剧情专线 flags（随 mapFlags 存档，读档不重复触发）
+  private xiyaBloomAsked = false;
+  private xiyaBloomDone = false;
+  private xiyaBloomStage = 0;
   /** T3.5 前置：本会话是否卖出过作物（会话级，不入档；读档后需重新卖出才可触发） */
   private shopSoldOnce = false;
   // T3 互动点视觉（场景级，destroy 时清理）
@@ -779,6 +814,12 @@ export class MapScene extends Phaser.Scene {
   private letterRecordMark: Phaser.GameObjects.Text | null = null;
   /** 春深有信·一 完成后花田旁的新花苗视觉（制作人 2026-08-13 拍板纳入：玩家行为→世界变化） */
   private letterFlowerSprite: Phaser.GameObjects.Image | null = null;
+  // D-011 夏雅《春深有信·二 花期未至》剧情专线场景级对象（旧广场剧情夏雅 + 交互点标记；destroy 时清理）
+  private bloomXiya: Phaser.GameObjects.Sprite | null = null;
+  private bloomXiyaLabel: Phaser.GameObjects.Text | null = null;
+  private bloomMark: Phaser.GameObjects.Text | null = null;
+  /** 花期未至完成后：春祭记忆小景（旧广场角落补一朵旧灯 + 纸花挂饰；世界反馈，制作人未单独拍板，克制视觉） */
+  private bloomPermSprite: Phaser.GameObjects.Container | null = null;
   // 教程进度计数（锄地/播种/浇水各需3次）
   private tutorialProgress = 0;
   private readonly TUTORIAL_TARGET = 3;
@@ -889,6 +930,9 @@ export class MapScene extends Phaser.Scene {
       xiyaLetterAsked: inst.xiyaLetterAsked,
       xiyaLetterDone: inst.xiyaLetterDone,
       xiyaLetterStage: inst.xiyaLetterStage,
+      xiyaBloomAsked: inst.xiyaBloomAsked,
+      xiyaBloomDone: inst.xiyaBloomDone,
+      xiyaBloomStage: inst.xiyaBloomStage,
       dawnXiyaDay: inst.dawnXiyaDay,
       eveningXiyaDay: inst.eveningXiyaDay,
       riversideXiyaDay: inst.riversideXiyaDay,
@@ -901,6 +945,11 @@ export class MapScene extends Phaser.Scene {
       artShowMaterialsDone: inst.artShowMaterialsDone,
       artShowHeld: inst.artShowHeld,
       artShowPerm: inst.artShowPerm,
+      dryyardUnlocked: inst.dryyardUnlocked,
+      dryyardEnvStage: inst.dryyardEnvStage,
+      dryyardMaterialsDone: inst.dryyardMaterialsDone,
+      dryyardHeld: inst.dryyardHeld,
+      dryyardPerm: inst.dryyardPerm,
       mailUnlocked: inst.mailUnlocked,
       mailLastDay: inst.mailLastDay,
       mailNextDay: inst.mailNextDay,
@@ -955,6 +1004,9 @@ export class MapScene extends Phaser.Scene {
       this.xiyaLetterAsked = saved.xiyaLetterAsked ?? false;
       this.xiyaLetterDone = saved.xiyaLetterDone ?? false;
       this.xiyaLetterStage = saved.xiyaLetterStage ?? 0;
+      this.xiyaBloomAsked = saved.xiyaBloomAsked ?? false;
+      this.xiyaBloomDone = saved.xiyaBloomDone ?? false;
+      this.xiyaBloomStage = saved.xiyaBloomStage ?? 0;
       this.dawnXiyaDay = saved.dawnXiyaDay ?? 0;
       this.eveningXiyaDay = saved.eveningXiyaDay ?? 0;
       this.riversideXiyaDay = saved.riversideXiyaDay ?? 0;
@@ -967,6 +1019,11 @@ export class MapScene extends Phaser.Scene {
       this.artShowMaterialsDone = saved.artShowMaterialsDone ?? false;
       this.artShowHeld = saved.artShowHeld ?? false;
       this.artShowPerm = saved.artShowPerm ?? false;
+      this.dryyardUnlocked = saved.dryyardUnlocked ?? false;
+      this.dryyardEnvStage = saved.dryyardEnvStage ?? 0;
+      this.dryyardMaterialsDone = saved.dryyardMaterialsDone ?? false;
+      this.dryyardHeld = saved.dryyardHeld ?? false;
+      this.dryyardPerm = saved.dryyardPerm ?? false;
       this.mailUnlocked = saved.mailUnlocked ?? false;
       this.mailLastDay = saved.mailLastDay ?? -1;
       this.mailNextDay = saved.mailNextDay ?? -1;
@@ -1010,6 +1067,8 @@ export class MapScene extends Phaser.Scene {
     this.clearElderVisit();
     // D-011 《春深有信·一》剧情专线精灵/交互点清理（场景切换时销毁，防止残留）
     this.clearLetterXiya();
+    // D-011 《春深有信·二 花期未至》剧情专线精灵清理（场景切换时销毁，防止残留）
+    this.clearBloomXiya();
     // 相簿解锁 toast 清理（DOM，防跨场景残留）
     this.hidePhotoUnlockToast();
     // M1-3 夏雅见证精灵清理（场景切换时销毁，防止残留）
@@ -1030,6 +1089,8 @@ export class MapScene extends Phaser.Scene {
     this.cleanupArtShowTraveler();
     // 星光艺术展余波：庆典后夏雅清理（视觉 + label + DOM hint，场景切换防残留）
     this.clearArtShowAfterXiya();
+    // 秋日晒场：会话级视觉与 DOM 提示清理（征集筐/夏雅/老张/演出精灵，场景切换防残留）
+    this.cleanupDryyard();
     // 青禾河畔：码头/凉亭 DOM 提示清理（场景切换防残留）
     this.cleanupQingheRiver();
     // 青禾河畔 Stage 2 / 果园预埋：NPC/提示清理（场景切换防残留）
@@ -1544,6 +1605,10 @@ this.setupTownBottomLife();
 this.setupTownSouthLife();
 // 小镇计划·星光艺术展：筹备/活动/永久状态挂载（见 setupArtShow）
 this.setupArtShow();
+// 小镇计划·秋日晒场（EventPlan 第二实例）：筹备/当天/永久状态挂载（见 setupDryyard）
+this.setupDryyard();
+// 秋日晒场：玉米首收 + 春日集后，傍晚进 town 软触发开场演出（镇民讨论→老张提起晒场，见 tryDryyardIntro）
+this.time.delayedCall(1600, () => this.tryDryyardIntro());
 // 种植升级 v2：萝卜赠予后的河边腌萝卜罐（世界留下痕迹）
 this.setupCropLifeLeftovers();
 // 居民需求系统升级：镇长灯笼 / 阿风小灶 / 老姜鱼篓（交付后世界变化）
@@ -1717,6 +1782,12 @@ this.setupFieldLife();
       this.setupLetterXiya();
     }
 
+    // D-011 夏雅《春深有信·二 花期未至》：剧情专线（旧广场剧情夏雅，S1→S8+尾声，stage 驱动）
+    // 前置门禁（CURRENT_TASK §衔接设计 v1.1 拍板）：·一 完成 + 集市恢复（marketSquare）
+    if (this.mapKey === 'town' && isTutorialDone()) {
+      this.setupBloomXiya();
+    }
+
     // v0.5.3 剧情密度 E5：爷爷的笔记（庄园角落可读物件，多条轮换、不解释）
     if (this.mapKey === 'farm') {
       this.setupGrandpaNote();
@@ -1804,6 +1875,8 @@ this.setupFieldLife();
         sideShopCropDone: this.sideShopCropDone,
         xiyaLetterAsked: this.xiyaLetterAsked,
         xiyaLetterDone: this.xiyaLetterDone,
+        xiyaBloomAsked: this.xiyaBloomAsked,
+        xiyaBloomDone: this.xiyaBloomDone,
       }),
     );
     // E-09 消磨时间：移动端等待按钮 → 打开等待面板
@@ -2229,6 +2302,9 @@ this.setupFieldLife();
     this.checkArtShowTravelerProximity();
     // 星光艺术展余波：庆典后夏雅靠近提示（白天/傍晚在艺术角时，与旅人提示互斥）
     this.checkArtShowAfterXiyaProximity();
+    // 小镇计划·秋日晒场：征集筐/晒场夏雅/永久期老张靠近提示 + 当天演出触发检测
+    this.checkDryyardProximity();
+    this.checkDryyardAuto();
     // 阶段3 光照：town 黄昏暖光按小时切换（小时内幂等）
     this.updateTownDuskOverlay();
     // 钓鱼 Phase 1 靠近提示（仅 town 场景，S6 老河堤钓点附近 + 非钓鱼中 + 无对话）
@@ -5175,6 +5251,14 @@ this.setupFieldLife();
     xiya: { x: 492, y: 276 },     // 广场夏雅（筹备期策划）
     plaza: { x: 400, y: 288 },    // 广场中心（活动触发判定）
   };
+  /** 秋日晒场落点：镇东头空地（地图 50x35，东头 x38-48 / y14-19 tiles 为空旷带，不与艺术角(≈x31)/NPC 站位冲突） */
+  private static readonly DRYYARD = {
+    yard:  { x: 656, y: 262 },    // 晒场中心（环境物件簇 + 当天演出触发判定）
+    box:   { x: 624, y: 292 },    // 征集筐（「今年的收成」交付点）
+    xiya:  { x: 676, y: 236 },    // 筹备期晒场夏雅（抱旧照片）
+    sign:  { x: 620, y: 238 },    // 「青禾晒场」木牌（永久期）
+    laozhang: { x: 648, y: 288 }, // 永久期老张停留（照看晒架）
+  };
   /** 收获专属描述（v1.1 收获仪式感：让每种作物有自己的"手感"） */
   private static readonly HARVEST_DESC: Record<CropType, string> = {
     radish: '水灵灵的萝卜',
@@ -5626,8 +5710,7 @@ this.setupFieldLife();
       done.style.cssText = 'color:#8bc34a;margin-bottom:8px;';
       done.textContent = '展览办完了。广场东侧多了个艺术角——以后路过，有人会坐在那里看一会儿。';
       content.appendChild(done);
-      return;
-    }
+    } else {
     addSection('环境', [
       { ok: this.artShowEnvStage >= 1, text: '展台（木材×2）' },
       { ok: this.artShowEnvStage >= 2, text: '灯光（矿石×1）' },
@@ -5664,6 +5747,91 @@ this.setupFieldLife();
       mat.appendChild(tip);
       content.appendChild(mat);
     }
+    }
+
+    // ── 秋日晒场（EventPlan 第二实例）：状态 + 三类准备 + 交付按钮 ──
+    if (this.dryyardUnlocked || this.dryyardAvailable()) {
+      const sep = document.createElement('div');
+      sep.style.cssText = 'border-top:1px solid rgba(216,184,120,0.25);margin:12px 0;';
+      content.appendChild(sep);
+      const dHead = document.createElement('div');
+      dHead.style.cssText = 'font-size:14px;color:#ffe9b0;margin-bottom:8px;';
+      dHead.textContent = this.dryyardHeld ? '秋日晒场 · 已举办' : '秋日晒场 · 筹备中';
+      content.appendChild(dHead);
+      if (!this.dryyardUnlocked) {
+        const dIntro = document.createElement('div');
+        dIntro.style.cssText = 'color:#b0b0b0;margin-bottom:10px;white-space:pre-line;';
+        dIntro.textContent = '今年的玉米收下来了，镇上的人在议论收成。\n\n傍晚的镇子里，好像有老人想起了什么旧事。';
+        content.appendChild(dIntro);
+      } else if (this.dryyardHeld) {
+        const dDone = document.createElement('div');
+        dDone.style.cssText = 'color:#8bc34a;margin-bottom:8px;';
+        dDone.textContent = '晒场办过了。镇子东头多了一处「青禾晒场」——以后路过，有人在那里晒今年的东西。';
+        content.appendChild(dDone);
+      } else {
+        addSection('晒场恢复', [
+          { ok: this.dryyardEnvStage >= 1, text: '晒架（木材×2）' },
+          { ok: this.dryyardEnvStage >= 2, text: '竹席·鱼干架（鱼×1）' },
+          { ok: this.dryyardEnvStage >= 3, text: '玉米串·辣椒串（玉米×2）' },
+        ]);
+        addSection('人际', [
+          { ok: hasTriggered('dryyard_laozhang_craft'), text: '老张 · 过去（旧手艺）' },
+          { ok: hasTriggered('dryyard_xiya_photo'), text: '夏雅 · 现在（旧照片）' },
+          { ok: hasTriggered('dryyard_afeng_help'), text: '阿风 · 未来（搭把手）' },
+        ]);
+        addSection('今年的收成', [
+          { ok: this.dryyardMaterialsDone, text: '蔬菜或野花×1' },
+        ]);
+        const dMat = document.createElement('div');
+        dMat.style.cssText = 'margin-top:8px;';
+        const btnStyle = 'display:inline-block;margin:3px 6px 3px 0;padding:4px 10px;border-radius:6px;cursor:pointer;pointer-events:auto;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#e0e0e0;font-size:12px;';
+        const addBtn = (label: string, act: () => void, disabled: boolean): void => {
+          const b = document.createElement('span');
+          b.textContent = label;
+          b.style.cssText = btnStyle + (disabled ? 'opacity:0.4;cursor:default;' : '');
+          if (!disabled) b.addEventListener('click', () => { act(); this.refreshTownPlanPanel(); });
+          dMat.appendChild(b);
+        };
+        addBtn('放入木材×2', () => this.dryyardDeliver('wood', 2, () => { this.dryyardEnvStage = Math.max(this.dryyardEnvStage, 1); }), getItemCount('wood') < 2);
+        addBtn('放入鱼×1', () => this.dryyardDeliver('qinghe_crucian', 1, () => { this.dryyardEnvStage = Math.max(this.dryyardEnvStage, 2); }), getItemCount('qinghe_crucian') < 1);
+        addBtn('放入玉米×2', () => this.dryyardDeliver('corn', 2, () => { this.dryyardEnvStage = Math.max(this.dryyardEnvStage, 3); }), getItemCount('corn') < 2);
+        addBtn('放入蔬菜或野花×1', () => this.dryyardDeliverCrop(), this.dryyardCropCount() < 1);
+        const dTip = document.createElement('div');
+        dTip.style.cssText = 'color:#8a8a80;font-size:11px;margin-top:6px;';
+        dTip.textContent = '收成筐在镇子东头的晒场边——老张说，把这一年种出来的东西，摆一些出来。';
+        dMat.appendChild(dTip);
+        content.appendChild(dMat);
+      }
+    }
+  }
+
+  /** 晒场「今年的收成」可用蔬菜/野花计数（番茄/萝卜/野花/蒲公英任一） */
+  private dryyardCropCount(): number {
+    return getItemCount('tomato') + getItemCount('radish') + getItemCount('small_flower') + getItemCount('dandelion');
+  }
+
+  /** 晒场「今年的收成」交付（蔬菜或野花任一 → materialsDone） */
+  private dryyardDeliverCrop(): void {
+    for (const id of ['tomato', 'radish', 'small_flower', 'dandelion'] as const) {
+      if (getItemCount(id) > 0) {
+        setItemCount(id, getItemCount(id) - 1);
+        break;
+      }
+    }
+    this.dryyardMaterialsDone = true;
+    this.buildDryyardEnvObjects();
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    if (this.dryyardReady()) this.showDialogueText('镇子说：都齐了，挑个傍晚，把晒场办起来。');
+  }
+
+  /** 晒场交付素材：扣库存 → 状态变化 → 世界物件 → 存档（对齐 artShowDeliver 范式） */
+  private dryyardDeliver(item: 'wood' | 'qinghe_crucian' | 'corn', count: number, onChange: () => void): void {
+    if (getItemCount(item) < count) return;
+    setItemCount(item, getItemCount(item) - count);
+    onChange();
+    this.buildDryyardEnvObjects();
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    if (this.dryyardReady()) this.showDialogueText('镇子说：都齐了，挑个傍晚，把晒场办起来。');
   }
 
   private artShowOreCount(): number {
@@ -5924,6 +6092,517 @@ this.setupFieldLife();
   private clearArtShowSprites(): void {
     for (const s of this.artShowSprites) s.destroy();
     this.artShowSprites = [];
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 小镇计划·秋日晒场（EventPlan 第二实例）
+  // 依据：docs/design/秋日晒场-垂直切片设计稿-v1.0.md（v1.1 定稿）
+  //      + docs/design/秋日晒场-剧情文本草稿-2026-08-16.md（台词定稿 v0.3，2026-08-19 拍板）
+  //      + docs/tasks/任务-秋日晒场-EventPlan第二实例-v1.0.md（施工任务卡）
+  // 核心立意：不是庆祝丰收，而是证明这里还有人在生活。
+  // 范式：完全对齐星光艺术展（第一实例）——mapFlags 状态 + triggerOnce 一次性 + 零素材 Graphics。
+  // ═══════════════════════════════════════════════════════════════
+
+  /** 触发门禁：春日集完成 + 首次收获玉米（设计定稿 §四：玉米首收即解锁，前置链） */
+  private dryyardAvailable(): boolean {
+    return isChapterAtLeast(CHAPTER_1) && hasTriggered('ch1_spring_fair') && hasTriggered('crop_corn_first_harvest');
+  }
+
+  /** 人际三时代完成判定（老张·过去 / 夏雅·现在 / 阿风·未来） */
+  private dryyardPeopleDone(): boolean {
+    return hasTriggered('dryyard_laozhang_craft')
+      && hasTriggered('dryyard_xiya_photo')
+      && hasTriggered('dryyard_afeng_help');
+  }
+
+  /** 三类准备齐备（环境 + 人际 + 资源） */
+  private dryyardReady(): boolean {
+    return this.dryyardUnlocked && this.dryyardEnvStage >= 3
+      && this.dryyardPeopleDone() && this.dryyardMaterialsDone && !this.dryyardHeld;
+  }
+
+  /** create 挂载（town）：按存档状态重建晒场环境物件/征集筐/筹备夏雅/永久变化 */
+  private setupDryyard(): void {
+    if (this.mapKey !== 'town' || !this.dryyardUnlocked) return;
+    this.dryyardEnvBuilt = 0;
+    this.buildDryyardEnvObjects();
+    this.buildDryyardBox();
+    this.spawnDryyardXiya();
+    if (this.dryyardPerm) {
+      this.buildDryyardPermanent();
+      this.setupDryyardLaozhang();
+    }
+  }
+
+  /** 环境物件（按 envStage 增量构建：晒架→竹席晒篮→玉米串辣椒串；镇东头空地） */
+  private buildDryyardEnvObjects(): void {
+    if (this.mapKey !== 'town') return;
+    const y = MapScene.DRYYARD.yard;
+    // Stage 1 · 晒架（木架）：两排立柱 + 横杆（老张拍过灰的那副旧架子）
+    if (this.dryyardEnvStage >= 1 && this.dryyardEnvBuilt < 1) {
+      this.dryyardEnvBuilt = 1;
+      const g = this.add.graphics().setDepth(3);
+      g.fillStyle(0x2e2e34, 0.25); g.fillEllipse(y.x, y.y + 8, 76, 9);          // 地面投影
+      for (const ox of [-20, 0, 20]) {
+        g.fillStyle(0x6e4a24, 1); g.fillRect(y.x + ox - 1, y.y - 16, 3, 24);      // 立柱
+      }
+      g.fillStyle(0x8a6a45, 1); g.fillRect(y.x - 24, y.y - 18, 48, 3);           // 横杆
+      g.fillStyle(0x5b4226, 1); g.fillRect(y.x - 24, y.y - 16, 48, 1);            // 杆缝
+      // 挂钩（后阶段挂玉米串用）
+      g.fillStyle(0x4c3618, 1);
+      for (const hx of [-14, -4, 6, 16]) g.fillRect(y.x + hx, y.y - 15, 1, 3);
+    }
+    // Stage 2 · 竹席 + 晒篮（摊在地上晒）
+    if (this.dryyardEnvStage >= 2 && this.dryyardEnvBuilt < 2) {
+      this.dryyardEnvBuilt = 2;
+      const g = this.add.graphics().setDepth(3);
+      // 竹席（浅黄编织纹，两块）
+      for (const [mx, my] of [[-30, 12], [14, 16]] as const) {
+        g.fillStyle(0xd8c89a, 0.95); g.fillRect(y.x + mx, y.y + my, 26, 14);
+        g.lineStyle(1, 0xb8a878, 0.8);
+        for (let i = 1; i < 4; i++) g.lineBetween(y.x + mx + i * 6.5, y.y + my, y.x + mx + i * 6.5, y.y + my + 14);
+        g.lineBetween(y.x + mx, y.y + my + 7, y.x + mx + 26, y.y + my + 7);
+        g.lineStyle(1, 0xa89868, 0.9); g.strokeRect(y.x + mx, y.y + my, 26, 14);
+      }
+      // 晒篮（圆浅口篮 ×2）
+      for (const [bx, by] of [[-14, 4], [22, 2]] as const) {
+        g.fillStyle(0x9a7a52, 1); g.fillEllipse(y.x + bx, y.y + by, 14, 6);
+        g.fillStyle(0xb89868, 1); g.fillEllipse(y.x + bx, y.y + by - 1, 14, 5);
+        g.lineStyle(1, 0x7a5a33, 1); g.strokeEllipse(y.x + bx, y.y + by, 14, 6);
+      }
+    }
+    // Stage 3 · 玉米串 + 辣椒串 + 鱼干架（镇上东西陆续挂上来）
+    if (this.dryyardEnvStage >= 3 && this.dryyardEnvBuilt < 3) {
+      this.dryyardEnvBuilt = 3;
+      const g = this.add.graphics().setDepth(3);
+      // 玉米串（横杆上挂 3 串：绳 + 金黄玉米粒）
+      for (const hx of [-14, -4, 6]) {
+        g.lineStyle(1, 0xd8c89a, 0.9); g.lineBetween(y.x + hx, y.y - 15, y.x + hx, y.y - 6);
+        g.fillStyle(0xe8b040, 1);
+        for (let i = 0; i < 3; i++) g.fillRect(y.x + hx - 2, y.y - 13 + i * 3, 4, 2);
+      }
+      // 辣椒串（右侧挂 2 串红）
+      for (const hx of [16, 20]) {
+        g.lineStyle(1, 0xd8c89a, 0.9); g.lineBetween(y.x + hx, y.y - 15, y.x + hx, y.y - 8);
+        g.fillStyle(0xc03828, 1);
+        for (let i = 0; i < 2; i++) g.fillRect(y.x + hx - 1, y.y - 13 + i * 3, 2, 2);
+      }
+      // 海边鱼干架（晒场南端独立小架：两柱一杆，挂咸鱼）
+      const fx = y.x + 30, fy = y.y + 20;
+      g.fillStyle(0x6e4a24, 1); g.fillRect(fx - 1, fy - 10, 2, 12); g.fillRect(fx + 13, fy - 10, 2, 12);
+      g.fillStyle(0x8a6a45, 1); g.fillRect(fx - 3, fy - 12, 20, 2);
+      for (const dx of [1, 6, 11]) {
+        g.fillStyle(0xa89878, 1); g.fillRect(fx + dx, fy - 10, 3, 6);   // 咸鱼（银灰）
+        g.fillStyle(0x88846a, 1); g.fillRect(fx + dx, fy - 4, 3, 1);   // 鱼尾
+      }
+    }
+  }
+
+  /** 征集筐（「今年的收成」交付点） */
+  private buildDryyardBox(): void {
+    const b = MapScene.DRYYARD.box;
+    const c = this.add.container(b.x, b.y).setDepth(3);
+    const g = this.add.graphics();
+    g.fillStyle(0x9a7a52, 1); g.fillEllipse(0, 0, 16, 9);            // 筐口
+    g.fillStyle(0xb89868, 1); g.fillEllipse(0, -1, 16, 8);
+    g.lineStyle(1, 0x7a5a33, 1); g.strokeEllipse(0, -1, 16, 8);
+    g.fillStyle(0x8a6a45, 1); g.fillRect(-7, 0, 14, 5);               // 筐身
+    g.lineStyle(1, 0x6a4a28, 0.9); g.lineBetween(-6, 2, 6, 2);
+    c.add(g);
+    this.add.text(b.x, b.y - 14, '收成筐', {
+      fontSize: '10px', color: '#e8d8a8', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(4);
+    this.dryyardBox = c;
+  }
+
+  /** 筹备期晒场夏雅（白天出现，抱旧照片；照片对白未触发时） */
+  private spawnDryyardXiya(): void {
+    if (this.mapKey !== 'town') return;
+    if (hasTriggered('dryyard_xiya_photo')) return;
+    const t = getTime();
+    if (t.hour < 8 || t.hour >= 18) return;
+    const p = MapScene.DRYYARD.xiya;
+    this.dryyardXiya = this.add.sprite(p.x, p.y, 'npc_xiya');
+    this.dryyardXiya.setScale(0.5).setDepth(5);
+    this.dryyardXiyaLabel = this.add.text(p.x, p.y - 24, '夏雅', {
+      fontSize: '12px', color: '#f0a050', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(6);
+  }
+
+  /**
+   * 开场演出软触发（create 后 1.6s）：
+   * 玉米首收 + 春日集后 → 傍晚（17-22 时）进 town → 镇民讨论 → 老张提起晒场（triggerOnce 一次性）。
+   * 与其他自动演出互斥（春日集/观星夜/艺术展当天，对齐 trySpringFairSequence 范式）。
+   */
+  private tryDryyardIntro(): void {
+    if (this.mapKey !== 'town') return;
+    if (this.inStargazeCutscene || this.inSpringFairCutscene || this.inArtShowCutscene || this.inDryyardCutscene) return;
+    if (this.firstMorningActive) return;
+    if (!this.dryyardAvailable()) return;
+    if (hasTriggered('dryyard_intro')) return;
+    const t = getTime();
+    if (t.hour < 17 || t.hour >= 22) return; // 傍晚（「收成的时候」+ 收工后的闲时）
+    this.startDryyardIntro();
+  }
+
+  /** 开场演出：镇民讨论 → 老张提起晒场（台词定稿 v0.3【触发】段） */
+  private startDryyardIntro(): void {
+    this.inDryyardCutscene = true;
+    const ok = triggerOnce('dryyard_intro', () => {
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+      this.storyDialogue.play([
+        narrator('（傍晚。林澈把今年的玉米从地里收回来。镇上有人在议论。）'),
+        { speaker: '镇民甲', color: '#b8b8a8', text: '最近这批玉米，长得真不错。' },
+        { speaker: '镇民乙', color: '#a8b8b0', text: '今年雨水好，地也养回来了。' },
+        narrator('（老张走过来，看了一眼晒在墙角的玉米，没说话。过了一会儿，他开口了。）'),
+        { speaker: '老张', color: COLORS.miner, text: '以前每到这个时候，镇里都会把这一年的东西，拿到晒场上去晒一晒。' },
+        { speaker: '林澈', color: COLORS.linche, text: '晒场？' },
+        { speaker: '老张', color: COLORS.miner, text: '嗯。镇子东头那块空地。晒粮食、晒鱼、晒菜干。那时候家家户户都往那儿搬。' },
+        narrator('（老张拍了拍旁边的木架子，灰尘扬起来。）'),
+        { speaker: '老张', color: COLORS.miner, text: '木架还没烂透。搭起来，应该还能晒一季。' },
+      ], () => {
+        // EventPlan 解锁：环境物件（旧晒架雏形）/征集筐/晒场夏雅即时挂载（幂等）
+        this.dryyardUnlocked = true;
+        this.buildDryyardEnvObjects();
+        if (!this.dryyardBox) this.buildDryyardBox();
+        this.spawnDryyardXiya();
+        this.inDryyardCutscene = false;
+        this.updateHUD();
+        showMemoryMoment('老张说：木架还没烂透。');
+      });
+    });
+    // ★ triggerOnce 已返回（先执行 fn 后标记）→ 存档（EventSystem.md 时序纪律）
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    if (!ok) {
+      this.inDryyardCutscene = false;
+    }
+  }
+
+  /** 人际三时代注入（showDialogue 调用）：老张·过去（旧手艺）/ 阿风·未来（搭把手，不站队商业）；夏雅走独立交互点 */
+  private buildDryyardDialogue(npc: NPC): DialogueLine[] | null {
+    if (!this.dryyardUnlocked || this.dryyardPeopleDone()) return null;
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    if (npc.id === 'miner' && !hasTriggered('dryyard_laozhang_craft')) {
+      triggerOnce('dryyard_laozhang_craft', () => { /* 仅标记 */ });
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      return [
+        narrator('（晒场清理那天，老张来得最早。）'),
+        { speaker: '老张', color: COLORS.miner, text: '这活儿我熟。以前晒场就是我们家管的。鱼要怎么挂、菜要怎么摊，我心里有数。' },
+      ];
+    }
+    if (npc.id === 'adventurer' && !hasTriggered('dryyard_afeng_help')) {
+      triggerOnce('dryyard_afeng_help', () => { /* 仅标记 */ });
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      return [
+        narrator('（阿风扛着一筐玉米过来，放在晒架下。）'),
+        { speaker: '阿风', color: '#8ab8d8', text: '我小时候没见过这阵仗。不过看着挺踏实的。' },
+        { speaker: '林澈', color: COLORS.linche, text: '你也来帮忙？' },
+        { speaker: '阿风', color: '#8ab8d8', text: '那当然。这么好的日子，不搭把手说不过去。要是以后有人路过瞧见，说不定也会喜欢。' },
+        { speaker: '老张', color: COLORS.miner, text: '（头也不抬）喜欢不喜欢另说。先把今年的东西晒好，别糟蹋了。' },
+      ];
+    }
+    return null;
+  }
+
+  /** 晒场夏雅交互（旧照片，一次性；台词定稿 v0.3【筹备·人际】段） */
+  private tryDryyardXiyaInteract(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.dryyardXiya || !this.dryyardXiya.visible) return false;
+    if (hasTriggered('dryyard_xiya_photo')) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const dx = this.player.x - this.dryyardXiya.x;
+    const dy = this.player.y - this.dryyardXiya.y;
+    if (dx * dx + dy * dy > 34 * 34) return false;
+    // 互动即隐藏靠近提示（对齐 tryArtShowXiyaInteract 范式：开对话前先隐藏）
+    this.hideDryyardHint();
+    this.inputManager.clearAction();
+    triggerOnce('dryyard_xiya_photo', () => {
+      this.dryyardXiya?.destroy();
+      this.dryyardXiya = null;
+      this.dryyardXiyaLabel?.destroy();
+      this.dryyardXiyaLabel = null;
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+      this.storyDialogue.play([
+        narrator('（夏雅抱着一叠旧照片来了。）'),
+        { speaker: '夏雅', color: COLORS.xiya, text: '我在柜子底下翻到这些。你看——这是以前的晒场，边上站了一排人。' },
+        { speaker: '林澈', color: COLORS.linche, text: '那时候真热闹。' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '嗯。小时候我还在里面跑过，大人老喊我别踩到晒好的东西。' },
+        narrator('（夏雅把照片放在晒架边上。）'),
+        { speaker: '夏雅', color: COLORS.xiya, text: '我还以为这些照片也该不知道丢哪去了。' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '结果翻箱子的时候，它们还夹在里面。' },
+        { speaker: '夏雅', color: COLORS.xiya, text: '……还能摆回这里。' },
+      ], () => this.updateHUD());
+    });
+    // ★ triggerOnce 已返回 → 存档（EventSystem.md 时序纪律）
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    return true;
+  }
+
+  /** 征集筐/晒场夏雅/永久期老张靠近提示（update 调用） */
+  private checkDryyardProximity(): void {
+    if (this.mapKey !== 'town' || !this.dryyardUnlocked) {
+      this.hideDryyardHint();
+      return;
+    }
+    // 当天已办：筹备期提示失效，仅保留永久期老张提示
+    if (this.storyDialogue?.isOpen() || this.townPlanPanel) {
+      this.hideDryyardHint();
+      return;
+    }
+    let near = false;
+    if (!this.dryyardHeld && this.dryyardBox) {
+      const dx = this.player.x - MapScene.DRYYARD.box.x;
+      const dy = this.player.y - MapScene.DRYYARD.box.y;
+      near = near || dx * dx + dy * dy < 34 * 34;
+    }
+    if (!this.dryyardHeld && this.dryyardXiya) {
+      const dx = this.player.x - this.dryyardXiya.x;
+      const dy = this.player.y - this.dryyardXiya.y;
+      near = near || dx * dx + dy * dy < 34 * 34;
+    }
+    if (this.dryyardPerm && this.dryyardLaozhang) {
+      const dx = this.player.x - MapScene.DRYYARD.laozhang.x;
+      const dy = this.player.y - MapScene.DRYYARD.laozhang.y;
+      near = near || dx * dx + dy * dy < 34 * 34;
+    }
+    if (near) this.showDryyardHint(); else this.hideDryyardHint();
+  }
+
+  private showDryyardHint(): void {
+    if (this.dryyardHint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffe9b0', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none',
+      textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = isMobileLayout() ? '点击「交互」查看' : '按 [E] 查看';
+    hint.classList.add('hint-interact'); // 兜底清扫标记（hideAllInteractHints 强制移除残留）
+    document.body.appendChild(hint);
+    this.dryyardHint = hint;
+  }
+
+  private hideDryyardHint(): void {
+    if (this.dryyardHint) {
+      this.dryyardHint.remove();
+      this.dryyardHint = null;
+    }
+  }
+
+  /** 当天演出触发检测（update 调用）：三类准备完成 + 傍晚靠近晒场 → 办晒场（一次性） */
+  private checkDryyardAuto(): void {
+    if (this.mapKey !== 'town' || !this.dryyardReady()) return;
+    if (this.inDryyardCutscene || this.storyDialogue?.isOpen()) return;
+    const h = getTime().hour;
+    if (h < 17 || h >= 22) return;
+    const dx = this.player.x - MapScene.DRYYARD.yard.x;
+    const dy = this.player.y - MapScene.DRYYARD.yard.y;
+    if (dx * dx + dy * dy > 190 * 190) return;
+    this.startDryyard();
+  }
+
+  private startDryyard(): void {
+    if (!this.dryyardReady() || this.dryyardHeld || this.inDryyardCutscene) return;
+    this.inDryyardCutscene = true;
+    this.dryyardHeld = true;
+    const ok = triggerOnce('dryyard_held', () => this.runDryyard());
+    if (!ok) {
+      this.inDryyardCutscene = false;
+      this.dryyardHeld = false;
+      return;
+    }
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+  }
+
+  /** 当天演出（对白链三段：傍晚晒场 → 夜晚长桌 → 灯塔回应；台词定稿 v0.3【当天】段） */
+  private runDryyard(): void {
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    this.clearDryyardSprites();
+    // 第一段：傍晚晒场（晒架搭好，众人各忙各的，孩子跑过）
+    this.storyDialogue.play([
+      narrator('（晒场搭好了。木架上挂着一串串辣椒，竹席上摊着玉米和萝卜干，鱼干架边晾着几条咸鱼。）'),
+      narrator('（老张在理晒架，夏雅把旧照片一张张摆在长凳上，阿风来回搬东西。）'),
+      narrator('（一个小孩跑过晒场，差点踩到竹席上的玉米。）'),
+      { speaker: '小孩他娘', color: '#d8a8b8', text: '慢点！别踩到晒好的东西！' },
+      { speaker: '小孩', color: '#c8d8f0', text: '知道啦——' },
+      narrator('（远处传来几声笑。晒场边上，有人搬来板凳，有人提着菜篮子。）'),
+    ], () => {
+      this.spawnDryyardResidents();
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      // 第二段：夜晚海边长桌（无篝火——"很久没有这样坐下来吃一顿饭了"）
+      this.dryyardNightFinale();
+    });
+  }
+
+  /** 夜晚长桌 + 灯塔回应 + 永久变化落地（克制：无烟花，高潮=人回来了+灯塔亮一下） */
+  private dryyardNightFinale(): void {
+    const t = getTime();
+    if (t.hour < 20) setTimeFull(t.day, 20, 0);
+    this.updateTownDuskOverlay();
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    // 长桌暖光（灯笼一盏一盏挂起来——对齐艺术展夜晚收尾的暖光范式）
+    const y = MapScene.DRYYARD.yard;
+    const glow = this.add.ellipse(y.x, y.y - 6, 110, 60, 0xffc878, 0.22).setDepth(4);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: glow, alpha: { from: 0.12, to: 0.28 }, duration: 1600, yoyo: true, repeat: -1 });
+    this.dryyardSprites.push(glow);
+    // 长桌（零素材 Graphics：长板桌 + 碗筷热气）
+    const table = this.add.graphics().setDepth(4);
+    table.fillStyle(0x2e2e34, 0.25); table.fillEllipse(y.x, y.y + 26, 90, 10);
+    table.fillStyle(0x8a6a45, 1); table.fillRect(y.x - 42, y.y + 20, 84, 5);
+    table.fillStyle(0x6e4a24, 1); table.fillRect(y.x - 40, y.y + 25, 3, 8); table.fillRect(y.x + 37, y.y + 25, 3, 8);
+    for (const dx of [-30, -10, 12, 30]) table.fillStyle(0xd8d0c0, 1), table.fillEllipse(y.x + dx, y.y + 19, 6, 3);
+    this.dryyardSprites.push(table);
+    // 灯笼（两盏，暖黄呼吸）
+    for (const lx of [y.x - 48, y.x + 48]) {
+      const lamp = this.add.graphics().setDepth(4);
+      lamp.fillStyle(0xd86028, 1); lamp.fillEllipse(lx, y.y - 8, 6, 8);
+      lamp.fillStyle(0xffd98a, 0.95); lamp.fillEllipse(lx, y.y - 8, 3, 4);
+      this.tweens.add({ targets: lamp, alpha: 0.55, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      this.dryyardSprites.push(lamp);
+    }
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    this.storyDialogue.play([
+      narrator('（天暗下来。灯笼一盏一盏挂起来。海风从桌边吹过去，桌上的菜还冒着热气。）'),
+      narrator('（大家围着长桌坐下来。夹菜声。碗碰碗。）'),
+      { speaker: '老人', color: '#c8b898', text: '（夹了一筷子菜）以前镇里人多的时候，每年都这么坐一桌。' },
+      narrator('（有人给旁边人添了碗汤。）'),
+      { speaker: '另一老人', color: '#b8c8a8', text: '好多年没坐过这么多人了。' },
+      narrator('（小孩从桌子底下钻过去，被绊了一下。有人笑。有人喊：慢点吃。）'),
+      narrator('（阿风把一盘菜推到老张面前。老张看了一眼，没说话，夹了一筷子。）'),
+    ], () => {
+      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+      // 第三段：高潮——灯塔亮了一下（极克制：不解释，林澈看过去，没有说话）
+      this.storyDialogue.play([
+        narrator('（远处，灯塔忽然亮了一下。不是庆典的光，就是亮了一下。）'),
+        narrator('（林澈看过去。）'),
+        narrator('（没有说话。）'),
+      ], () => {
+        // 永久变化落地：青禾晒场
+        this.dryyardPerm = true;
+        this.buildDryyardPermanent();
+        this.setupDryyardLaozhang();
+        this.clearDryyardSprites();
+        this.inDryyardCutscene = false;
+        this.updateHUD();
+        save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+        // 完成瞬间：世界反馈句 → UI（设计定稿 §三：先「多年以后…」，再「青禾晒场已恢复。」）
+        showMemoryMoment('多年以后，青禾镇又晒起了今年的收成。');
+        setTimeout(() => showMemoryMoment('青禾晒场已恢复。'), 1800);
+      });
+    });
+  }
+
+  /** 当天居民入场精灵（傍晚晒场段；演出结束销毁） */
+  private spawnDryyardResidents(): void {
+    const y = MapScene.DRYYARD.yard;
+    const spots: Array<[string, number, number, string]> = [
+      ['npc_miner', y.x - 8, y.y - 4, '老张'],
+      ['npc_xiya', y.x + 14, y.y - 10, '夏雅'],
+      ['npc_adventurer', y.x + 26, y.y + 6, '阿风'],
+      ['npc_girl', y.x - 22, y.y + 10, '孩子'],
+      ['npc_elder', y.x + 6, y.y + 14, '老人'],
+      ['npc_carpenter', y.x - 34, y.y + 16, '老周'],
+    ];
+    for (const [tex, x, yy, name] of spots) {
+      const s = this.add.sprite(x, yy, tex);
+      s.setScale(0.5).setDepth(5);
+      const label = this.add.text(x, yy - 22, name, {
+        fontSize: '11px', color: '#e0d8c8', stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(6);
+      this.dryyardSprites.push(s);
+      this.dryyardSprites.push(label);
+    }
+  }
+
+  /** 永久变化：青禾晒场（晒架含收成串/鱼干架/竹席晒篮/木牌——读档保持） */
+  private buildDryyardPermanent(): void {
+    if (this.mapKey !== 'town') return;
+    // 环境物件（含三阶段全部内容；幂等由 dryyardEnvBuilt 保证——永久期强制满进度重建）
+    this.dryyardEnvStage = Math.max(this.dryyardEnvStage, 3);
+    this.dryyardEnvBuilt = 0;
+    this.buildDryyardEnvObjects();
+    const s = MapScene.DRYYARD.sign;
+    // 「青禾晒场」木牌
+    const sign = this.add.graphics().setDepth(3);
+    sign.fillStyle(0x6e4a24, 1); sign.fillRect(s.x - 1, s.y - 12, 2, 14);
+    sign.fillStyle(0x8a6a45, 1); sign.fillRect(s.x - 9, s.y - 16, 18, 7);
+    sign.fillStyle(0xffe9b0, 0.9); sign.fillRect(s.x - 7, s.y - 14, 14, 3);
+    this.add.text(s.x, s.y - 20, '青禾晒场', {
+      fontSize: '9px', color: '#ffe9b0', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(4);
+  }
+
+  /** 永久期晒场老张（白天停留照看晒架；傍晚回家后不在，对齐 NPC 作息直觉） */
+  private setupDryyardLaozhang(): void {
+    if (this.mapKey !== 'town') return;
+    if (!this.dryyardPerm) return;
+    if (this.dryyardLaozhang) return; // 幂等
+    const h = getTime().hour;
+    if (h < 8 || h >= 18) return;      // 晒场照看时段：白天
+    const p = MapScene.DRYYARD.laozhang;
+    this.dryyardLaozhang = this.add.sprite(p.x, p.y, 'npc_miner');
+    this.dryyardLaozhang.setScale(0.5).setDepth(5);
+    this.dryyardLaozhangLabel = this.add.text(p.x, p.y - 24, '老张', {
+      fontSize: '11px', color: '#d8a050', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(6);
+  }
+
+  /** 永久期老张交互：收成时令台词（首次一句 + 日常句；「第二次路过晒场不一样」的载体之一） */
+  private tryDryyardLaozhangInteract(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.dryyardPerm) return false;
+    if (!this.dryyardLaozhang || !this.dryyardLaozhang.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const dx = this.player.x - MapScene.DRYYARD.laozhang.x;
+    const dy = this.player.y - MapScene.DRYYARD.laozhang.y;
+    if (dx * dx + dy * dy >= 42 * 42) return false;
+    this.hideDryyardHint();
+    this.inputManager.clearAction();
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    const once = triggerOnce('dryyard_laozhang_first', () => { /* 仅标记 */ });
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+    const lines: DialogueLine[] = once ? [
+      narrator('（老张站在晒架边上，翻动着竹席上的萝卜干。）'),
+      { speaker: '老张', color: COLORS.miner, text: '……晒场又像样了。有些东西，放一放，不会坏。' },
+    ] : [
+      narrator('（老张照看着晒场，不时翻一翻晒着的东西。）'),
+      { speaker: '老张', color: COLORS.miner, text: '晒个三五天，收进屋里，今年的日子就算全落定了。' },
+    ];
+    this.storyDialogue.play(lines, () => this.updateHUD());
+    return true;
+  }
+
+  private clearDryyardSprites(): void {
+    for (const s of this.dryyardSprites) s.destroy();
+    this.dryyardSprites = [];
+  }
+
+  /** 场景切换清理（视觉 + label + DOM hint；状态已由 mapFlags/triggerOnce 持久化） */
+  private cleanupDryyard(): void {
+    this.dryyardBox?.destroy();
+    this.dryyardBox = null;
+    this.dryyardXiya?.destroy();
+    this.dryyardXiya = null;
+    this.dryyardXiyaLabel?.destroy();
+    this.dryyardXiyaLabel = null;
+    this.dryyardLaozhang?.destroy();
+    this.dryyardLaozhang = null;
+    this.dryyardLaozhangLabel?.destroy();
+    this.dryyardLaozhangLabel = null;
+    this.clearDryyardSprites();
+    this.hideDryyardHint();
+    this.dryyardEnvBuilt = 0; // 会话级幂等标记复位（下个 town 实例重建）
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -9798,7 +10477,12 @@ this.setupFieldLife();
     const cropEx = this.buildCropGiftDialogue(npc);
     // 小镇计划·星光艺术展：人际准备注入（镇长协调 / 老周旧照片 / 小梅花艺；未参与过时替代默认对白）
     const artShowLines = this.buildArtShowDialogue(npc);
-    const finalLines = fishEx
+    // 小镇计划·秋日晒场：人际三时代注入（老张·过去旧手艺 / 阿风·未来搭把手；晒场夏雅走独立交互点）。
+    // 优先于日常交换类——EventPlan 阶段推进 > 生活交换（dryyardUnlocked 且人际未完成时才命中）。
+    const dryyardLines = this.buildDryyardDialogue(npc);
+    const finalLines = dryyardLines
+      ? dryyardLines
+      : fishEx
       ? fishEx.lines
       : gatherEx
         ? gatherEx.lines
@@ -10314,6 +10998,18 @@ this.setupFieldLife();
     // 星光艺术展余波：庆典后夏雅在艺术角照看展台（白天/傍晚可对话）
     if (this.tryArtShowAfterXiyaInteract()) return;
 
+    // 小镇计划·秋日晒场：晒场夏雅（旧照片，一次性）→ 征集筐（「今年的收成」，打开面板）→ 永久期老张（收成时令台词）
+    if (this.tryDryyardXiyaInteract()) return;
+    if (this.mapKey === 'town' && this.dryyardBox && !this.dryyardHeld) {
+      const dbdx = this.player.x - MapScene.DRYYARD.box.x;
+      const dbdy = this.player.y - MapScene.DRYYARD.box.y;
+      if (dbdx * dbdx + dbdy * dbdy < 34 * 34) {
+        this.openTownPlan();
+        return;
+      }
+    }
+    if (this.tryDryyardLaozhangInteract()) return;
+
     // 钓鱼老人老姜（氛围锚点）：人在旁边时先说话；站到水边才钓鱼
     if (this.tryLaoJiangInteract()) return;
 
@@ -10455,6 +11151,11 @@ this.setupFieldLife();
     // D-011 夏雅《春深有信·一》：剧情专线（花田边，下午/傍晚时段；独立于 E9 傍晚闲聊）
     if (this.mapKey === 'farm' && isTutorialDone()) {
       if (this.tryXiyaLetterInteract()) return;
+    }
+
+    // D-011 夏雅《春深有信·二 花期未至》：剧情专线（旧广场，白天 8~20；前置：·一 完成 + 集市恢复）
+    if (this.mapKey === 'town' && isTutorialDone()) {
+      if (this.tryBloomXiyaInteract()) return;
     }
 
     // 花田支线：帮小梅开垦花田（farm 左上角花田 (3,7)，交付木材×3 → 盛开 + 记忆卡，一次性入档）
@@ -11121,12 +11822,14 @@ this.setupFieldLife();
    * B 观星夜呼应：构建观星夜对白（·一 完成 → 夏雅加半句，玩家做的事被世界记住）。
    * - 观星夜对白 `DEMO_ENDING_DIALOGUE` 逐句定稿（一字不改红线），此处用副本注入，不碰定稿数组。
    * - 插在夏雅"总有一天，会有人回来继续看。"之后、信揭示之前。
-   * - 方向稿（制作人 2026-08-15 拍板：看见过去但继续向前，不是感谢拯救）；待"人话化"定稿后替换。
+   * - 定稿（制作人 2026-08-19 拍板候选 4，替换 08-15 方向稿）："……最近，看星星的人，好像多了。"
+   *   callback 爷爷"总有一天，会有人回来继续看"→"看星星的人多了"；避开与爷爷笔记"今晚的星星，比往年亮"撞车；
+   *   不说"亮"、不说"变好"，留白给玩家自己拼（有人回来了）。
    */
   private buildStargazeLines(): DialogueLine[] {
     const lines = [...DEMO_ENDING_DIALOGUE];
     if (this.xiyaLetterDone) {
-      lines.splice(6, 0, { speaker: '夏雅', color: COLORS.xiya, text: '……今晚的星星，好像比以前亮了一点。' });
+      lines.splice(6, 0, { speaker: '夏雅', color: COLORS.xiya, text: '……最近，看星星的人，好像多了。' });
     }
     return lines;
   }
@@ -11662,6 +12365,11 @@ this.setupFieldLife();
     if (this.mapKey === 'farm' && isTutorialDone()) {
       this.clearLetterXiya();
       this.setupLetterXiya();
+    }
+    // D-011 《春深有信·二 花期未至》：跨天后重新判断剧情专线（完成态只挂永久视觉）
+    if (this.mapKey === 'town' && isTutorialDone()) {
+      this.clearBloomXiya();
+      this.setupBloomXiya();
     }
     // v0.5.3 E5：跨天后刷新爷爷笔记（按新天数轮换，重建精灵保持坐标）
     if (this.mapKey === 'farm') {
@@ -15218,6 +15926,8 @@ this.setupFieldLife();
 
   /** 花田（旧花园）区域中心像素坐标：col 30, row 5（可走格，无碰撞） */
   private readonly LETTER_POS = { x: 30 * TILE_SIZE + TILE_SIZE / 2, y: 5 * TILE_SIZE + TILE_SIZE / 2 };
+  /** 花期未至统一交互锚点（需求板 (32,16) 左侧 2 格；距需求板/公告栏 ≈64px，无冲突） */
+  private readonly BLOOM_POS = { x: 30 * TILE_SIZE + TILE_SIZE / 2, y: 16 * TILE_SIZE + TILE_SIZE / 2 };
 
   /** 剧情时段窗口（下午/傍晚；与设计「夕阳落在田埂上」的傍晚氛围一致） */
   private letterTimeOk(): boolean {
@@ -15416,6 +16126,252 @@ this.setupFieldLife();
 
     return false;
   }
+
+  // ========== D-011 夏雅《春深有信·二 花期未至》剧情专线 ==========
+
+  /** 花期未至前置门禁（CURRENT_TASK §衔接设计 v1.1 拍板）：·一 完成 + 集市恢复（marketSquare） */
+  private bloomPrereqOk(): boolean {
+    return !!this.xiyaLetterDone && isRestored('marketSquare');
+  }
+
+  /** 花期未至默认时段窗口：白天 8~20（与 S1「午后公告栏」一致，读档跨日保持） */
+  private bloomTimeOk(): boolean {
+    const t = getTime();
+    return t.hour >= 8 && t.hour < 20;
+  }
+
+  /** 清花期未至场景级对象（剧情精灵 + 交互点 + 永久视觉；destroy/清场跨天调用） */
+  private clearBloomXiya(): void {
+    if (this.bloomXiya) { this.bloomXiya.destroy(); this.bloomXiya = null; }
+    if (this.bloomXiyaLabel) { this.bloomXiyaLabel.destroy(); this.bloomXiyaLabel = null; }
+    if (this.bloomMark) { this.bloomMark.destroy(); this.bloomMark = null; }
+    if (this.bloomPermSprite) { this.bloomPermSprite.destroy(); this.bloomPermSprite = null; }
+  }
+
+  /** 存档：花期未至标记（复用 ·一 save 契约：x/y/scene/facing/dailyQuest） */
+  private saveBloomFlags(): void {
+    save({
+      x: this.player.x, y: this.player.y,
+      scene: this.mapKey, facing: this.player.facing,
+      dailyQuest: getDailyQuestSaveData(),
+    } as any);
+  }
+
+  /** 花期未至剧情夏雅生成（公告板旁：BLOOM_POS 左上偏移，面朝玩家来向） */
+  private spawnBloomXiya(facingRight = true): void {
+    if (this.bloomXiya) return;
+    const px = this.BLOOM_POS.x - 24;
+    const py = this.BLOOM_POS.y;
+    this.bloomXiya = this.add.sprite(px, py, 'npc_xiya')
+      .setScale(0.5).setDepth(5).setFlipX(!facingRight);
+    this.bloomXiyaLabel = this.add.text(px, py - 24, '夏雅', {
+      fontSize: '13px', color: '#f0a050',
+      stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      padding: { x: 3, y: 2 },
+    }).setShadow(0, 1, '#000000', 2).setOrigin(0.5).setDepth(6);
+  }
+
+  /** 花期未至当前段对应的"交互点标签"（S1/S8/E 生成夏雅；其余段生成标记） */
+  private bloomMarkTextForStage(): { text: string } | null {
+    switch (this.xiyaBloomStage) {
+      case 1: return { text: '旧布匹' };      // S2 仓库整理
+      case 2: return { text: '花台材料' };    // S3 老集市门口
+      case 3: return { text: '邻居婆婆' };    // S4 误会解释
+      case 4: return { text: '日记纸页' };    // S5 老裁缝铺前
+      case 5: return { text: '邻居们' };      // S6 广场四处走动
+      case 6: return { text: '春祭摊位' };    // S7 市集广场
+      case 7: return { text: '烟花灯' };      // S8 夜晚前挂灯
+      default: return null;
+    }
+  }
+
+  private spawnBloomMark(text: string): void {
+    if (this.bloomMark) return;
+    this.bloomMark = this.add.text(this.BLOOM_POS.x, this.BLOOM_POS.y - 14, text, {
+      fontFamily: 'Arial', fontSize: '10px', color: '#f0e0b0',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(4);
+  }
+
+  /** 花期未至完成后：旧广场角落出现「春祭记忆小景」
+   *  ——克制视觉：挂饰 + 纸花 + 一小盏暖灯（"夏雅说的'明年春天'，真的来了"）。
+   *  放在公告板 (32,16) 右下 (34,17)，不挡需求板与任何 NPC。
+   */
+  private spawnBloomPermVignette(): void {
+    if (this.bloomPermSprite) return;
+    const T = TILE_SIZE;
+    const px = 34 * T + T / 2;
+    const py = 17 * T + T / 2;
+    const c = this.add.container(px, py).setDepth(3);
+    // 暖灯（小圆 + 光晕）
+    const lamp = this.add.graphics();
+    lamp.fillStyle(0x5c3a20, 1).fillCircle(0, -12, 4);
+    lamp.fillStyle(0xffd080, 1).fillCircle(0, -12, 2);
+    const glow = this.add.graphics();
+    glow.fillStyle(0xffdd99, 0.18).fillCircle(0, -12, 14);
+    // 两朵纸花挂饰
+    const f1 = this.add.graphics();
+    f1.fillStyle(0xf0a0a0, 1).fillCircle(-8, -2, 3);
+    f1.fillStyle(0xffffff, 1).fillCircle(-8, -2, 1);
+    const f2 = this.add.graphics();
+    f2.fillStyle(0xe8a8c0, 1).fillCircle(6, -6, 3);
+    f2.fillStyle(0xffffff, 1).fillCircle(6, -6, 1);
+    // 彩带
+    const rib = this.add.graphics();
+    rib.lineStyle(1, 0xf0c8c8, 0.8).lineBetween(-10, -16, 10, -16);
+    c.add([glow, lamp, rib, f1, f2]);
+    this.bloomPermSprite = c;
+  }
+
+  /** 花期未至入口（create / 跨天）：按前置 + stage 恢复现场 */
+  private setupBloomXiya(): void {
+    if (this.mapKey !== 'town') return;
+    if (!isTutorialDone()) return;
+    // P1 世界反馈：完成后永久挂饰（跨天/读档恢复）
+    if (this.xiyaBloomDone) {
+      this.spawnBloomPermVignette();
+      return;
+    }
+    if (!this.bloomPrereqOk()) return;
+    if (!this.bloomTimeOk()) return;
+    // 0=S1 夏雅；8=S8 挂灯后收尾夏雅；其余 stage 生成对应交互点标记
+    if (this.xiyaBloomStage === 0 && !this.xiyaBloomAsked) {
+      this.spawnBloomXiya(true);
+    } else if (this.xiyaBloomStage === 8) {
+      this.spawnBloomXiya(false);
+    } else {
+      const m = this.bloomMarkTextForStage();
+      if (m) this.spawnBloomMark(m.text);
+    }
+  }
+
+  /** 花期未至交互路由（按 E 调用）：9 段 stage 驱动，依次推进 S1→S8→尾声 */
+  private tryBloomXiyaInteract(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (this.xiyaBloomDone) return false;
+    if (!isTutorialDone()) return false;
+    if (!this.bloomPrereqOk()) return false;
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    const R = 32 * 32;
+    // 复用 ·一 专属音乐：spring_letter 仍契合本篇章"花期未至"主题
+    const ensureMusic = () => {
+      if (MusicSystem.current() !== 'spring_letter') MusicSystem.playStory('spring_letter');
+    };
+    const restoreBgm = () => {
+      const t = getTime().hour;
+      MusicSystem.endStory();
+      MusicSystem.playSceneBgm('town', t);
+    };
+    const advanceStage = (next: number, dialogue: DialogueLine[], after?: () => void) => {
+      ensureMusic();
+      this.xiyaBloomAsked = true;
+      this.xiyaBloomStage = next;
+      this.saveBloomFlags();
+      this.storyDialogue!.play(dialogue, () => {
+        // 清理当前交互对象
+        if (this.bloomMark) { this.bloomMark.destroy(); this.bloomMark = null; }
+        if (this.bloomXiya) { this.bloomXiya.destroy(); this.bloomXiya = null; }
+        if (this.bloomXiyaLabel) { this.bloomXiyaLabel.destroy(); this.bloomXiyaLabel = null; }
+        this.saveBloomFlags();
+        after?.();
+        // 下一段按 stage 生成对应对象
+        const m = this.bloomMarkTextForStage();
+        if (m) this.spawnBloomMark(m.text);
+        else if (this.xiyaBloomStage === 8) this.spawnBloomXiya(false);
+        this.updateHUD();
+      });
+    };
+
+    // S1 开场：公告栏旁剧情夏雅（stage=0 → 1）
+    if (!this.xiyaBloomAsked && this.bloomXiya?.visible) {
+      const dx = this.player.x - this.bloomXiya.x;
+      const dy = this.player.y - this.bloomXiya.y;
+      if (dx * dx + dy * dy > R) return false;
+      advanceStage(1, XIYA_BLOOM_S1_OPEN_DIALOGUE);
+      return true;
+    }
+    // S2 仓库整理（stage=1 → 2）
+    if (this.xiyaBloomStage === 1 && this.bloomMark) {
+      const dx = this.player.x - this.bloomMark.x;
+      const dy = this.player.y - this.bloomMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      advanceStage(2, XIYA_BLOOM_S2_STORAGE_DIALOGUE);
+      return true;
+    }
+    // S3 花台搭起（stage=2 → 3）
+    if (this.xiyaBloomStage === 2 && this.bloomMark) {
+      const dx = this.player.x - this.bloomMark.x;
+      const dy = this.player.y - this.bloomMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      advanceStage(3, XIYA_BLOOM_S3_FLOWERSTAND_DIALOGUE);
+      return true;
+    }
+    // S4 邻居误会（stage=3 → 4）
+    if (this.xiyaBloomStage === 3 && this.bloomMark) {
+      const dx = this.player.x - this.bloomMark.x;
+      const dy = this.player.y - this.bloomMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      advanceStage(4, XIYA_BLOOM_S4_MISUNDERSTAND_DIALOGUE);
+      return true;
+    }
+    // S5 日记本（stage=4 → 5）
+    if (this.xiyaBloomStage === 4 && this.bloomMark) {
+      const dx = this.player.x - this.bloomMark.x;
+      const dy = this.player.y - this.bloomMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      advanceStage(5, XIYA_BLOOM_S5_TURNING_DIALOGUE);
+      return true;
+    }
+    // S6 邻居们（stage=5 → 6）
+    if (this.xiyaBloomStage === 5 && this.bloomMark) {
+      const dx = this.player.x - this.bloomMark.x;
+      const dy = this.player.y - this.bloomMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      advanceStage(6, XIYA_BLOOM_S6_VILLAGERS_DIALOGUE);
+      return true;
+    }
+    // S7 春祭当天（stage=6 → 7）
+    if (this.xiyaBloomStage === 6 && this.bloomMark) {
+      const dx = this.player.x - this.bloomMark.x;
+      const dy = this.player.y - this.bloomMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      advanceStage(7, XIYA_BLOOM_S7_FESTIVAL_DIALOGUE);
+      return true;
+    }
+    // S8 烟花前挂灯（stage=7 → 8）
+    if (this.xiyaBloomStage === 7 && this.bloomMark) {
+      const dx = this.player.x - this.bloomMark.x;
+      const dy = this.player.y - this.bloomMark.y;
+      if (dx * dx + dy * dy > R) return false;
+      advanceStage(8, XIYA_BLOOM_S8_FIREWORKS_DIALOGUE);
+      return true;
+    }
+    // 尾声（stage=8 → done）：收尾夏雅
+    if (this.xiyaBloomStage === 8 && this.bloomXiya?.visible) {
+      const dx = this.player.x - this.bloomXiya.x;
+      const dy = this.player.y - this.bloomXiya.y;
+      if (dx * dx + dy * dy > R) return false;
+      ensureMusic();
+      this.xiyaBloomDone = true;
+      this.xiyaBloomStage = 9;
+      this.saveBloomFlags();
+      this.storyDialogue.play(XIYA_BLOOM_EPILOGUE_DIALOGUE, () => {
+        this.clearBloomXiya();
+        // P1 世界反馈：完成后春祭记忆小景常驻
+        this.spawnBloomPermVignette();
+        // L3 事件记忆卡
+        showStoryComplete('春深有信·二 花期未至', '明年春天，我们再一起等一场花会。');
+        this.updateHUD();
+        this.saveBloomFlags();
+        restoreBgm();
+      });
+      return true;
+    }
+    return false;
+  }
+
+  // ========== D-011 花期未至 END ==========
 
   /**
    * 老张「矿灯」：矿洞独立点灯点。

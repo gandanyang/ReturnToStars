@@ -48,6 +48,8 @@ export interface QuestFlags {
   sideShopCropDone?: boolean;
   xiyaLetterAsked?: boolean;
   xiyaLetterDone?: boolean;
+  xiyaBloomAsked?: boolean;
+  xiyaBloomDone?: boolean;
 }
 
 /** 支线任务定义（解锁/进行中/完成判定基于注入 flags） */
@@ -127,6 +129,15 @@ const SIDE_QUESTS: SideQuestDef[] = [
     isUnlocked: (f) => f.xiyaLetterAsked === true,
     isAsked: (f) => f.xiyaLetterAsked === true,
     isDone: (f) => f.xiyaLetterDone === true,
+  },
+  {
+    id: 'xiya_bloom',
+    title: '春深有信·二 花期未至',
+    lockHint: '完成「春深有信·一」且集市恢复后，白天在旧广场会遇见夏雅',
+    objective: '陪夏雅一步一步筹办一场小镇春祭',
+    isUnlocked: (f) => f.xiyaBloomAsked === true,
+    isAsked: (f) => f.xiyaBloomAsked === true,
+    isDone: (f) => f.xiyaBloomDone === true,
   },
 ];
 
