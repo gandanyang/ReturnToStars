@@ -5,9 +5,13 @@
  * 作用：把「任务上下文 + 我的输出」发到网页版 ChatGPT，取回它的回复。
  * 用法：
  *   node tools/gpt-bridge.mjs --check            # 只检查登录状态（冒烟测试）
- *   node tools/gpt-bridge.mjs --ask "内容文本"    # 发一条消息并等回复
+ *   node tools/gpt-bridge.mjs --ask "内容文本"    # 发一条消息并等回复（默认新对话）
  *   node tools/gpt-bridge.mjs --ask-file 文件路径 # 从文件读内容再发（长文用这个）
  *   node tools/gpt-bridge.mjs --check --wait      # 检查登录态，未登录则等你手动登录
+ *   node tools/gpt-bridge.mjs --list-convo        # 列出侧栏已有对话（用来挑 --convo）
+ *   node tools/gpt-bridge.mjs --ask "..." --convo 3          # 去已有对话[3]
+ *   node tools/gpt-bridge.mjs --ask "..." --convo "青禾凤蝶" # 按标题/链接片段匹配
+ *   node tools/gpt-bridge.mjs --ask "..." --new    # 重新开启新对话（默认也是新对话）
  *
  * 说明：
  *   - 用独立 profile（.gpt-bridge-profile/），不碰你日常 Chrome 的登录
@@ -26,13 +30,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const out = { check: false, wait: false, ask: null, askFile: null, noContext: false };
+  const out = { check: false, wait: false, ask: null, askFile: null, noContext: false, listConvo: false, newChat: false, convo: null };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--check') out.check = true;
     else if (args[i] === '--wait') out.wait = true;
     else if (args[i] === '--ask') out.ask = args[i + 1];
     else if (args[i] === '--ask-file') out.askFile = args[i + 1];
     else if (args[i] === '--no-context') out.noContext = true;
+    else if (args[i] === '--list-convo') out.listConvo = true;
+    else if (args[i] === '--new') out.newChat = true;
+    else if (args[i] === '--convo') out.convo = args[i + 1];
   }
   return out;
 }
@@ -69,6 +76,98 @@ function loginState(url) {
   if (url.includes('auth.openai.com') || url.includes('login') || url.includes('signin') || url.includes('accounts.google')) return 'not-logged-in';
   if (url.includes('chatgpt.com')) return 'logged-in';
   return 'unknown';
+}
+
+/** 等待侧栏会话列表出现；侧栏收起时先尝试展开 */
+async function ensureSidebar(page) {
+  for (let i = 0; i < 20; i++) {
+    const has = await page.evaluate(() =>
+      !!document.querySelector('a[data-testid="conversation-item"], a[href^="/c/"]'));
+    if (has) return true;
+    const opened = await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button, a')].find((b) => {
+        const label = (b.getAttribute('aria-label') || '') + (b.getAttribute('title') || '');
+        return /new chat|chat history|sidebar|toggle|新对话|对话列表|侧栏/i.test(label);
+      });
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    if (!opened) return false;
+    await sleep(800);
+  }
+  return false;
+}
+
+/** 读取侧栏全部会话（标题 + 链接），用 conversation-item 或 /c/ 链接两种方式兜底识别 */
+function collectConversations() {
+  return [...document.querySelectorAll('a[data-testid="conversation-item"], a[href^="/c/"]')]
+    .map((el, index) => {
+      const titleEl = el.querySelector('.truncate, h3, .line-clamp-2, span[class*="line-clamp"]');
+      return {
+        index,
+        title: ((titleEl || el).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) || '(无标题)',
+        href: el.getAttribute('href') || '',
+      };
+    });
+}
+
+/** 列出侧栏已有对话，方便挑 --convo */
+async function listConversations(page) {
+  await ensureSidebar(page);
+  const convos = await page.evaluate(collectConversations);
+  if (convos.length === 0) {
+    console.log('（侧栏没有读到会话，可能页面还没加载完或布局变更。）');
+    return;
+  }
+  console.log(`共 ${convos.length} 个对话：`);
+  convos.forEach((c) => console.log(`  [${c.index}] ${c.title}  (${c.href})`));
+  console.log('  选其中一个用 --convo <编号|标题片段|链接片段>；开新对话用 --new。');
+}
+
+/**
+ * 根据 --convo 选中目标对话：纯数字=侧栏序号，否则按标题/链接做包含匹配（取第一个命中）。
+ */
+async function pickConversation(page, selector) {
+  await ensureSidebar(page);
+  const convos = await page.evaluate(collectConversations);
+  if (convos.length === 0) {
+    console.log('❌ 没读到侧栏会话，无法选择目标对话。');
+    return false;
+  }
+  const num = /^\d+$/.test(selector.trim());
+  const target = num
+    ? convos[parseInt(selector, 10)]
+    : convos.find((c) =>
+        c.title.toLowerCase().includes(selector.toLowerCase()) ||
+        c.href.toLowerCase().includes(selector.toLowerCase()));
+  if (!target) {
+    console.log(`❌ 没找到匹配「${selector}」的对话。可用 --list-convo 查看。`);
+    return false;
+  }
+  console.log(`▶ 切换到已有对话 [${target.index}] ${target.title} ...`);
+  const ok = await page.evaluate((href) => {
+    const el = [...document.querySelectorAll('a[data-testid="conversation-item"], a[href^="/c/"]')]
+      .find((x) => x.getAttribute('href') === href);
+    if (el) { el.click(); return true; }
+    return false;
+  }, target.href);
+  if (ok) await sleep(1500); // 等会话页面加载
+  return ok;
+}
+
+/** 点「新对话」开启一个全新对话（已在首页时可不操作） */
+async function openNewChat(page) {
+  const clicked = await page.evaluate(() => {
+    const el = document.querySelector('a[data-testid="new-chat-button"], [data-testid="new-chat-button"], a[aria-label*="New chat"], a[aria-label*="新对话"], a[href="/"]');
+    if (el) { el.click(); return true; }
+    const fallback = [...document.querySelectorAll('button, a')].find((b) =>
+      /新对话|new chat/i.test((b.getAttribute('aria-label') || '') + (b.getAttribute('title') || '') + (b.textContent || '')));
+    if (fallback) { fallback.click(); return true; }
+    return false;
+  });
+  if (clicked) { console.log('▶ 已开启新对话。'); await sleep(1200); }
+  else console.log('（未找到「新对话」按钮，可能已在首页/新对话。）');
+  return true;
 }
 
 async function main() {
@@ -120,6 +219,13 @@ async function main() {
 
   if (state === 'logged-in') {
     console.log('✅ 已登录 ChatGPT，可以直接传话。');
+
+    // 只列表模式：打印侧栏对话后即关，不发消息
+    if (opts.listConvo) {
+      await listConversations(page);
+      await browser.close();
+      return;
+    }
   } else if (state === 'not-logged-in') {
     console.log('⚠️ 未登录（跳到了登录页）。');
     if (opts.wait) {
@@ -139,6 +245,15 @@ async function main() {
 
   // 传话模式：已登录才发消息
   if (opts.ask && state === 'logged-in') {
+    // 选择对话：给了 --convo 就去已有会话，否则默认开新对话
+    if (opts.convo) {
+      if (!(await pickConversation(page, opts.convo))) {
+        await browser.close();
+        process.exit(1);
+      }
+    } else {
+      await openNewChat(page);
+    }
     console.log(`▶ 发送内容（${opts.ask.length} 字符）...`);
     // 等待输入框出现（新版 ChatGPT 用 contenteditable / ProseMirror）
     let inputSel = null;

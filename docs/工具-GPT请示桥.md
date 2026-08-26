@@ -10,18 +10,34 @@
 
 制作人需要时（例："把结果拿去请示 GPT"），把 agent 的输出交给网页版 ChatGPT 做顾问，再把回复拉回来供制作人拍板：**完全遵循 / 再沟通一轮**。
 
-## 二、用法（3 条命令）
+## 二、用法（6 条命令）
 
 ```bash
 # 1. 检查登录态（冒烟，确认 Chrome profile 还能用）
 node tools/gpt-bridge.mjs --check
 
-# 2. 直接发内容（短文本）
+# 2. 直接发内容（短文本，默认开新对话）
 node tools/gpt-bridge.mjs --ask "要问 GPT 的内容"
 
 # 3. 从文件发内容（长文推荐：任务上下文 + 输出落盘后整段发）
 node tools/gpt-bridge.mjs --ask-file tmp/ask-gpt.md
+
+# 4. 列出侧栏已有对话（先看有哪些，再挑 --convo）
+node tools/gpt-bridge.mjs --list-convo
+
+# 5. 去已有的某个对话里续聊（按序号 / 标题片段 / 链接片段选）
+node tools/gpt-bridge.mjs --ask "继续追问" --convo 3
+node tools/gpt-bridge.mjs --ask-file tmp/ask-gpt.md --convo "青禾凤蝶"
+
+# 6. 明确开启新对话（默认也是新对话，可省略 --new）
+node tools/gpt-bridge.mjs --ask "新任务" --new
 ```
+
+**如何选择对话（v1.2 新增）**：
+- `--list-convo`：打印侧栏会话清单（序号 / 标题 / 链接），据此挑目标。
+- `--convo <参数>`：去**已有对话**。参数支持三种写法——纯数字（用列表里的序号）、标题片段、或链接 `/c/...` 片段；按包含匹配取第一个命中。
+- `--new`：点「新对话」按钮，**重新开启新对话**。
+- 不传 `--convo` 时默认开启新对话（与旧版行为一致）。
 
 **回复处理**：
 - 终端直接打印 GPT 回复

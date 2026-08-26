@@ -8,6 +8,7 @@
  *
  * 用法：
  *   node tools/gpt_image_key.mjs set          # 隐藏输入 Key → 加密写入 tools/.env.enc
+ *   node tools/gpt_image_key.mjs set-from-env # 直接把 tools/.env 明文 Key 加密（非交互，供自动化环境用）
  *   node tools/gpt_image_key.mjs check        # 验证能否解密，只显示长度（不显示 Key）
  *   node tools/gpt_image_key.mjs check --show # 额外显示末 3 位，便于你确认是哪个 Key
  *   node tools/gpt_image_key.mjs clear        # 删除 tools/.env.enc
@@ -29,13 +30,13 @@ const PS_EXE = process.env.ComSpec ? 'powershell.exe' : 'powershell';
 // PowerShell 调用（用 -EncodedCommand 避免引号/中文编码问题）
 // ---------------------------------------------------------------------------
 
-function runPowershell(script) {
+function runPowershell(script, extraEnv = {}) {
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
   return new Promise((resPromise, rejPromise) => {
     execFile(
       PS_EXE,
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
-      { env: { ...process.env, KEY_FILE }, windowsHide: true, maxBuffer: 4 * 1024 * 1024, timeout: 30_000 },
+      { env: { ...process.env, KEY_FILE, ...extraEnv }, windowsHide: true, maxBuffer: 4 * 1024 * 1024, timeout: 30_000 },
       (err, stdout, stderr) => {
         if (err) {
           rejPromise(new Error(stderr?.trim() || err.message));
@@ -67,6 +68,17 @@ $enc = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, [Sys
 Write-Output ("OK:len=" + $plain.Length)
 `;
 
+// 非交互加密：从环境变量 KEY_VALUE 读取 Key（避免出现在命令行/进程列表/回显）
+const ENCRYPT_FROM_ENV_SCRIPT = `
+Add-Type -AssemblyName System.Security
+$plain = $env:KEY_VALUE
+if ([string]::IsNullOrEmpty($plain)) { Write-Error 'empty KEY_VALUE'; exit 1 }
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($plain)
+$enc = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+[Convert]::ToBase64String($enc) | Set-Content -LiteralPath $env:KEY_FILE -NoNewline -Encoding ASCII
+Write-Output ("OK:len=" + $plain.Length)
+`;
+
 const DECRYPT_SCRIPT = `
 Add-Type -AssemblyName System.Security
 $b64 = (Get-Content -LiteralPath $env:KEY_FILE -Raw).Trim()
@@ -85,6 +97,34 @@ async function decryptKey() {
 // ---------------------------------------------------------------------------
 // 子命令
 // ---------------------------------------------------------------------------
+
+// 读取 tools/.env 里的 OPENAI_API_KEY 明文（仅内存中取值，不打印）
+function readPlainKeyFromEnv() {
+  const envFile = resolve(process.cwd(), 'tools', '.env');
+  if (!existsSync(envFile)) throw new Error('tools/.env 不存在');
+  for (const line of readFileSync(envFile, 'utf8').split(/\r?\n/)) {
+    const m = /^\s*OPENAI_API_KEY\s*=\s*(.+?)\s*$/.exec(line);
+    if (m && m[1] && !m[1].startsWith('#')) {
+      return m[1].replace(/^['"]|['"]$/g, '').trim();
+    }
+  }
+  throw new Error('tools/.env 里未找到 OPENAI_API_KEY');
+}
+
+// 非交互加密：直接把 tools/.env 明文 Key 加密为 tools/.env.enc
+async function cmdSetFromEnv() {
+  const key = readPlainKeyFromEnv();
+  if (key.length < 20) throw new Error(`Key 长度异常（${key.length} 字符），拒绝加密`);
+  const out = await runPowershell(ENCRYPT_FROM_ENV_SCRIPT, { KEY_VALUE: key });
+  const m = /OK:len=(\d+)/.exec(out);
+  const len = m ? Number(m[1]) : 0;
+  if (len !== key.length) {
+    await cmdClear();
+    throw new Error(`加密校验不一致（${len} != ${key.length}），已清除密文`);
+  }
+  console.log(`✅ 已把 tools/.env 的 Key 加密保存到 tools/.env.enc（Key 长度 ${len}，绑定当前 Windows 用户）`);
+  console.log('   可再运行 node tools/gpt_image_key.mjs check 验证。');
+}
 
 async function cmdSet() {
   if (existsSync(KEY_FILE)) {
@@ -131,6 +171,9 @@ async function main() {
     switch (cmd) {
       case 'set':
         await cmdSet();
+        break;
+      case 'set-from-env':
+        await cmdSetFromEnv();
         break;
       case 'check':
         await cmdCheck(rest.includes('--show'));
