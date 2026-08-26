@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第一章《归园新序》逐句剧本审核</title>
+<style>
+  :root{--border:#d8cbb0;--card:#fffdf6;--bg:#f4efe3;--ink:#3a3428;--accent:#8a6a45;--muted:#8a8478;--hat:#3a2f20}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.75}
+  header{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#3a2f20,#2d2418);color:#f0e6d0;padding:16px 26px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+  header h1{margin:0;font-size:21px}
+  header .sub{margin-top:4px;font-size:12px;color:#cbb}
+  .toolbar{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .toolbar button{border:none;cursor:pointer;border-radius:6px;padding:7px 14px;font-size:13px;color:#fff}
+  .btn-export{background:#8a6a45}.btn-reset{background:#a03a3a}
+  .saveStatus{margin-left:auto;font-size:12px;color:#e0d6bd}
+  nav.filter{display:flex;gap:8px;flex-wrap:wrap;padding:10px 20px;background:#efe7d5;position:sticky;top:118px;z-index:19}
+  nav.filter button{border:1px solid var(--border);background:#fff;color:var(--ink);cursor:pointer;border-radius:14px;padding:4px 12px;font-size:12px}
+  nav.filter button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  main{max-width:1000px;margin:0 auto;padding:20px 18px 60px}
+  .scene{margin:26px 0 6px;font-size:18px;font-weight:700;border-left:5px solid var(--accent);padding-left:12px;color:#4a3a26}
+  .scene .cnt{float:right;font-size:12px;font-weight:400;color:var(--muted)}
+  .line{display:flex;gap:10px;align-items:flex-start;margin:4px 0;padding:4px 8px;border-radius:6px;background:var(--card);border:1px solid var(--border)}
+  .line:hover{background:#fff9ec}
+  .line .no{min-width:22px;color:var(--muted);font-size:12px;text-align:right;padding-top:2px}
+  .line .who{min-width:74px;font-weight:700;font-size:13px;color:var(--accent);white-space:nowrap}
+  .line .who.linche{color:#4c7fb8}.line .who.system{color:#8a8478}.line .who.xiya{color:#3a8a4a}.line .who.elder{color:#b08a3a}
+  .line .tx{flex:1;font-size:14px}
+  .line .tx .stage{color:#8a8478}
+  .line .rev{position:relative}
+  .line .rev .dot{cursor:pointer;color:#b89a6f;font-size:15px;user-select:none}
+  .line .rev .dot.has{color:#a03a3a}
+  .line .rev textarea{display:none;position:absolute;right:0;top:22px;width:300px;min-height:56px;z-index:30;border:1px solid var(--border);border-radius:6px;padding:6px;font:inherit;font-size:12px;background:#fff} 
+  .line .rev.open textarea{display:block}
+  footer{text-align:center;color:var(--muted);font-size:12px;padding:18px}
+  .legend{padding:2px 20px 6px;font-size:12px;color:var(--muted)}
+  #exportOut{white-space:pre-wrap;background:#26241f;color:#e6e0cc;border-radius:8px;padding:14px;font-family:Consolas,monospace;font-size:12px;display:none;margin:0 20px}
+</style>
+</head>
+<body>
+<header>
+  <h1>《归星物语》第一章《归园新序》逐句剧本审核</h1>
+  <div class="sub">每句一行，点句尾「✎」写批改（自动保存）。单击行可展开批注框。</div>
+  <div class="toolbar">
+    <button class="btn-export" onclick="exportReview()">⬇ 导出批改（Markdown）</button>
+    <button class="btn-reset" onclick="resetReview()">↺ 清空全部批改</button>
+    <div class="saveStatus" id="saveStatus">已加载</div>
+  </div>
+</header>
+
+<nav class="filter" id="filterNav">
+  <button data-f="all" class="on">全部</button>
+  <button data-f="rev">只看已批改</button>
+  <button data-f="need">★ 标注待定稿</button>
+</nav>
+<div class="legend">· 「（…）」= 旁白/舞台提示念白；【内心】= 内心独白；【选项】= 玩家选项。数据对应 <b>docs/design/第一章逐句剧本稿-v1.0-2026-08-16.md</b></div>
+
+<main id="main"></main>
+<textarea id="exportOut" style="display:none"></textarea>
+
+<script>
+// ==================== 逐句数据（与剧本稿一致） ====================
+// st: 'sys'旁白 | 'lc'林澈 | 'xy'夏雅 | 'ed'镇长 | 'mg'老张 | 'mm'小梅 | 'ah'阿风 | 'op'系统/旁白
+const SCENES = [
+{ title:"〇 观星夜收尾（第0章→第一章衔接）", lines:[
+  ["sys","（夜幕降临。庄园外，今天的星空格外明亮。）"],
+  ["xy","你爷爷以前每天都会坐在这里。"],
+  ["xy","他走以后，岛上的人还是会偶尔来看这里。"],
+  ["lc","他也喜欢看星星？"],
+  ["xy","嗯。他说，总有一天，会有人回来继续看。"],
+  ["sys","（夏雅看了看林澈，没有继续说下去。）"],
+  ["sys","（夏雅看向石头边。那里压着一封信，被月光晒得发白。）"],
+  ["sys","爷爷的信：如果看到这封信，说明你终于回来了。"],
+  ["sys","爷爷的信：小澈，你小时候总问我，为什么每天都要给花浇水。"],
+  ["sys","爷爷的信：爷爷想了很久。后来发现，人做很多事情，不一定都是为了结果。"],
+  ["sys","爷爷的信：如果有一天机器比我们更聪明，你觉得人还需要留下些什么？"],
+  ["sys","（林澈握着信，抬头看向星空。）"],
+  ["lc","城市里，很久没见过这样的星星了。"],
+  ["sys","（他没有说话。）（远处传来虫鸣。星光落在庄园旧墙上。）",1],
+  ["op","【选项】至少现在，我想留下来看看。／我想先弄清楚爷爷到底在这里经历了什么。／我只是……还没想好怎么回那个城市。",1],
+]},
+{ title:"一 开篇·苏醒独白（章节切换仪式）", lines:[
+  ["sys","（晨光里，林澈站在老屋前。昨晚的星星还留在记忆里。）"],
+  ["lc","……是的。这里，可以是我新的家。",1],
+  ["sys","（新的一天开始了。该去老屋看看，整理一下了。）"],
+]},
+{ title:"二 day2 清晨·岛屿的第一声回应", lines:[
+  ["sys","（清晨。阳光从老屋的窗户透进来，外面传来鸟叫和风吹树叶的声音。）"],
+  ["lc","……天亮了。","内心"],
+  ["sys","（林澈走到门口。夏雅已经站在老屋门口，正看着农田。）"],
+  ["xy","早上好，林澈。"],
+  ["xy","昨晚睡得还好吗？"],
+  ["lc","还行……只是感觉这里安静得有点过头了。"],
+  ["xy","嗯。以前爷爷还在的时候，天不亮就有人起来种田、修路、聊天。"],
+  ["xy","后来人慢慢少了。"],
+  ["xy","不过今天早上，我过来看了看——昨天的苗还立着。"],
+  ["xy","如果愿意的话，可以帮我一起整理一下这里。",1],
+  ["sys","（新目标：让农场重新运转起来——收获成熟作物／种下新的作物／清理农场杂物）"],
+  ["sys","（田里，昨天种下的萝卜苗，有一株已经悄悄长高了一点。）"],
+  ["xy","你看，这株。"],
+  ["xy","昨晚睡觉前我来看过，还只有这么点。"],
+  ["xy","以前爷爷种东西的时候，也喜欢蹲在旁边看半天。"],
+  ["xy","他说，种下去以后，剩下的事情，就交给时间。"],
+]},
+{ title:"三 首次进镇（小镇开场）", lines:[
+  ["sys","（清晨，林澈从老屋出来，沿着土路走了一段，第一次踏上青禾镇的街道。）"],
+  ["lc","这就是青禾镇……爷爷信里提起过的地方。","内心"],
+  ["sys","（街道两旁是低矮的木屋，商店门口已经支起了摊子。一个老人正在清扫门前的台阶。）"],
+  ["sys","（镇长早就听说老屋来了新主人。他放下扫帚，朝林澈招了招手。）"],
+]},
+{ title:"四 老屋整理（★核心）", lines:[
+  ["sys","（床／灯／书桌／收音机 4 交互点，以交互反馈呈现——本节唯一台词为完成句。）"],
+  ["sys","记忆卡：这间屋子，开始是我的了。",1,"待定稿：改成「就先住这了，爷爷在这住了这么多年，我倒是要看看这里到底有啥好的。」（制作人 2026-08-16）"],
+]},
+{ title:"五 镇长·星之碎片委托（第一章主线开启）", lines:[
+  ["ed","你就是小林吧？林爷爷家的孙子。"],
+  ["lc","您好，您是……"],
+  ["ed","我是青禾镇的镇长。你爷爷啊，年轻时候就喜欢晚上坐在那块石头上看天。"],
+  ["lc","……他真的喜欢看星星？"],
+  ["ed","喜欢。他以前也经常往后山跑。"],
+  ["lc","去做什么？"],
+  ["ed","（笑了笑）他说那里有些东西，值得看看。"],
+  ["sys","（镇长看向远处的后山，没有再说下去。）"],
+  ["lc","……那我去看看吧。"],
+  ["sys","主线任务已接受：去爷爷以前常去的后山看看。"],
+]},
+{ title:"六 村长来访·复兴计划邀请", lines:[
+  ["ed","今晚路过，看见你屋里的灯亮着。"],
+  ["lc","……镇长？这么晚了，怎么过来了？"],
+  ["ed","以前镇上的灯，也是这样一点一点亮起来的。"],
+  ["ed","最近有人开始问，集市还能不能重新开起来。"],
+  ["op","【选项】如果能帮上忙，我愿意试试。／我还没想好。",1,"⚠️ ch1ElderChoice 死旗：集市不消费，待拍板"],
+]},
+{ title:"七 集市三摊布置（老张/小梅/夏雅）＋开张", lines:[
+  ["sys","— 工具摊（老张）：（你搬来摊架子，老张站在路边看着。）"],
+  ["mg","工具摊要挨着路边摆，赶集的人放下锄头就能顺路买。"],
+  ["mg","（放错）这个放这儿不合适。工具摊得挨着路边，方便人放下东西就走。"],
+  ["mg","（放对）对，就这儿。镐头、灯油都摆上，赶集的乡亲要用伸手就够得着。"],
+  ["sys","— 小吃摊（小梅）：（小梅在广场中间比划着，眼睛亮晶晶的。）"],
+  ["mm","中间摆个小吃摊吧，香味一飘大家就聚过来，我也好看个热闹。"],
+  ["mm","（放错）中间不放这个啦，得留个聚人气的小吃摊，大家才愿意来。"],
+  ["mm","（放对）好嘞！小吃摊开在这儿，香味一飘，准有人顺着味儿过来。"],
+  ["sys","— 花摊（夏雅）：（夏雅抱着几盆花，在老树边停下来。）"],
+  ["xy","花摊就放老树边上吧，花香飘到歇脚的人那里，正好。"],
+  ["xy","（放错）这个不配呀。花摊要放在老树边上，让经过的人一眼看到花。"],
+  ["xy","（放对）花摆好了。老树底下，又有了颜色。"],
+  ["sys","— 三摊齐·开张演出：（三个摊位都搭好了。灯一盏一盏亮起来，广场另一边传来脚步声。）"],
+  ["ed","灯一亮，人一聚，青禾镇又像从前了。……谢谢你，林澈。",1],
+  ["sys","商店老板：哈，看来我这小店，以后不愁没客人了。"],
+]},
+{ title:"八 春日集（★章末）", lines:[
+  ["sys","记忆卡：集市灯火亮起来，老远就能听见有人说话。"],
+  ["sys","（人群里有笑声，有人在喊价钱，有人蹲在摊子前挑东西。）",1,"P2：'有人'×3，可改「…有喊价钱的，也有蹲在摊子前挑东西的」"],
+  ["ed","上次这么热闹，还是你爷爷在的时候。……你回来得正是时候。"],
+  ["sys","（远处的灯塔方向，海面上好像亮了一下。……很快又暗下去。）",1,"⚠️ 与晒场灯塔回应意象重复，演出需区分（待拍板）"],
+]},
+{ title:"九 夏雅《春深有信·一》 A 开场", lines:[
+  ["sys","（夕阳落在田埂上。）（刚浇过水的土地泛着湿润的光泽。）（远处的风车慢慢转动。）"],
+  ["sys","（夏雅蹲在田边，整理一小片刚种下的花苗。）"],
+  ["lc","你每天都会来这里看看？"],
+  ["xy","嗯。"],
+  ["xy","虽然现在还看不出来什么。"],
+  ["lc","不是已经种下了吗？"],
+  ["xy","种下去和长出来，中间还差一点时间。"],
+  ["lc","听起来像是在等一个很慢的结果。"],
+  ["xy","可能吧。"],
+  ["lc","你以前也是这样种东西？"],
+  ["sys","（夏雅停了一下。）"],
+  ["xy","以前……"],
+  ["xy","比现在更忙一点。"],
+  ["lc","为什么？"],
+  ["xy","因为那时候，总觉得岛上什么都不会消失。"],
+  ["sys","（她停了一会儿。）"],
+  ["lc","后来呢？"],
+  ["sys","（夏雅看向远处。）"],
+  ["xy","后来才发现。"],
+  ["xy","有些东西，如果没人记得，它就真的没有了。"],
+  ["sys","（沉默了一会儿。）"],
+  ["xy","不过现在，好像又开始不一样了。"],
+  ["lc","因为我？"],
+  ["sys","（夏雅笑了一下。）"],
+  ["xy","因为大家。"],
+  ["xy","你只是刚好回来了。"],
+]},
+{ title:"九 夏雅·一 B 整理花苗", lines:[
+  ["sys","（你走近那片花苗，蹲下看了看。）"],
+  ["lc","这些花什么时候会开？"],
+  ["xy","快的话，几天。"],
+  ["lc","慢的话？"],
+  ["xy","可能要等一个季节。"],
+  ["lc","这么久？"],
+  ["xy","嗯。但花又不知道我们觉得它慢。"],
+  ["xy","它只是按照自己的时间长出。",1,"P1 待定稿：建议「它只是按自己的时间，慢慢长。」"],
+]},
+{ title:"九 夏雅·一 C 旧花种记录", lines:[
+  ["sys","（夏雅递来一本翻旧了的册子。）"],
+  ["lc","这是你的记录？"],
+  ["xy","嗯。"],
+  ["lc","写了好多年。"],
+  ["xy","有些花没种出来。"],
+  ["lc","为什么还留着？"],
+  ["xy","因为失败也算种过。"],
+]},
+{ title:"九 夏雅·一 D 收尾（埋小活动伏笔）", lines:[
+  ["lc","你一直都在做这些事情？"],
+  ["xy","差不多。"],
+  ["lc","不觉得累吗？"],
+  ["sys","（夏雅想了一下。）"],
+  ["xy","会啊。"],
+  ["lc","那为什么还继续？"],
+  ["xy","因为总要有人先开始。"],
+  ["xy","以前爷爷也是这么说的。"],
+  ["sys","（风吹过田野。）（远处村子的旧路灯亮起。）（只是普通的晚上。）"],
+  ["xy","对了。"],
+  ["lc","什么？"],
+  ["xy","下周岛上有个小活动。",1,"待定稿：章末已改《秋日晒场》，确认此伏笔＝秋日晒场、章末兑现"],
+  ["lc","什么活动？"],
+  ["sys","（夏雅笑了一下。）"],
+  ["xy","到时候你就知道了。"],
+]},
+];
+
+const LS_KEY = "ch1-dlg-review-v1";
+let notes={}; try{ notes=JSON.parse(localStorage.getItem(LS_KEY)||"{}"); }catch(e){}
+const saveEl=document.getElementById("saveStatus");
+function flash(t){ saveEl.textContent=t; }
+function persist(){ localStorage.setItem(LS_KEY, JSON.stringify(notes)); flash("已保存 "+new Date().toLocaleTimeString()); }
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const WHO={sys:"旁白",lc:"林澈",xy:"夏雅",ed:"镇长",mg:"老张",mm:"小梅",ah:"阿风",op:"选项"};
+const WHO_CLS={lc:"linche",sys:"system",xy:"xiya",ed:"elder"};
+let sid=0;
+const idOf=(s,l)=>s+"__"+l;
+
+function render(filter){
+  main.innerHTML="";
+  SCENES.forEach((sc,si)=>{
+    const visibleLines=sc.lines.filter((_,li)=>{
+      if(filter==="all") return true;
+      const n=notes[idOf(si,li)]||"";
+      if(filter==="rev") return !!n.trim();
+      if(filter==="need") return !!sc.lines[li][3]; // 仅带 ◆ 评审标注的行
+    });
+    if(!visibleLines.length) return;
+    const h=document.createElement("div");
+    h.innerHTML=`<div class="scene">${sc.title}<span class="cnt">${visibleLines.length} 句</span></div>`;
+    main.appendChild(h);
+    visibleLines.forEach((ln,vi)=>{
+      const [st,tx,tag,note]=ln;
+      const who=WHO[st]||st;
+      const id=idOf(si, sc.lines.indexOf(ln));
+      const hasRev=!!(notes[id]||"").trim();
+      const tagBadge=tag?` <span style="color:#a03a3a;font-size:11px">【${tag}】</span>`:"";
+      const noteHint=note?` <span style="color:#8a6a45;font-size:11px" title="${esc(note)}">◆</span>`:"";
+      const div=document.createElement("div");
+      div.className="line";
+      div.innerHTML=`<span class="no"></span><span class="who ${WHO_CLS[st]||""}">${who}</span>`+
+        `<span class="tx">${tagBadge}${noteHint}<span class="${st==='sys'?'stage':''}">${esc(tx)}</span></span>`+
+        `<span class="rev${hasRev?' open':''}"><span class="dot" title="写批改">${hasRev?'●':'✎'}</span>`+
+        `<textarea placeholder="逐句批改（自动保存）">${esc(notes[id]||"")}</textarea></span>`;
+      main.appendChild(div);
+      // 绑定
+      const rev=div.querySelector(".rev");
+      const dot=rev.querySelector(".dot");
+      const ta=rev.querySelector("textarea");
+      dot.addEventListener("click",(e)=>{ e.stopPropagation(); rev.classList.toggle("open"); if(rev.classList.contains("open")) ta.focus(); });
+      ta.addEventListener("input",()=>{ notes[id]=ta.value; persist(); });
+      ta.addEventListener("blur",()=>{ persist(); });
+    });
+  });
+}
+
+document.getElementById("filterNav").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#filterNav button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); render(b.dataset.f);
+});
+
+function collectMd(filter){
+  let out="# 第一章《归园新序》逐句批改（导出）\n\n> 数据对应 docs/design/第一章逐句剧本稿-v1.0\n\n";
+  let any=false;
+  SCENES.forEach((sc,si)=>{
+    const rows=[];
+    sc.lines.forEach((ln,li)=>{
+      const n=(notes[idOf(si,li)]||"").trim();
+      if(!n) return;
+      any=true;
+      const [st,tx]=ln;
+      rows.push(`- ${WHO[st]||st}｜${tx}\n  ↳ 批改：${n}`);
+    });
+    if(rows.length){ out+=`## ${sc.title}\n\n${rows.join("\n\n")}\n\n`; }
+  });
+  if(!any) out+="（暂无批改）\n";
+  return out;
+}
+function download(name,text){ const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([text],{type:"text/markdown"})); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
+function exportReview(){
+  const md=collectMd();
+  const out=document.getElementById("exportOut");
+  out.style.display="block"; out.value=md; out.scrollIntoView({behavior:"smooth"});
+  download("第一章逐句批改.md",md);
+}
+function resetReview(){ if(!confirm("清空全部逐句批注？不可撤销。")) return; notes={}; localStorage.removeItem(LS_KEY); render("all"); flash("已清空"); }
+
+render("all");
+</script>
+</body>
+</html>

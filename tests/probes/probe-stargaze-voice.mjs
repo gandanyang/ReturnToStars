@@ -3,7 +3,8 @@
  *
  * 验证目标（Level 2）：
  *   1. 主线完成 + 夜晚走到观星点按 E → DEMO_ENDING_DIALOGUE 逐行播放
- *   2. 开场 10 条应配音行（ending_01~10）真的发起语音请求
+ *   2. 开场 9 条应配音行（ending_01/02/04/05/06/07/08/09/10）真的发起语音请求
+ *      （ending_03 旧行已按 C1 压缩删除，语音资产留存 voicebank 但不参与运行时）
  *   3. 选择分支 B → 林澈 branchB_01/02 发声
  *   4. FINALE → 夏雅 finale_01/02 发声
  *
@@ -145,11 +146,11 @@ async function run() {
 
     // 资产瘦身（2026-08-07）后运行时请求 voice_normalized/*.ogg；期望集用 ogg 比对
     const all = [...new Set(voiceReqs.map(r => r.file.replace(/\.ogg$/i, '.wav')))];
-    const expect0 = ['xiya/ending_01.wav', 'xiya/ending_02.wav', 'xiya/ending_03.wav', 'linche/ending_04.wav',
+    const expect0 = ['xiya/ending_01.wav', 'xiya/ending_02.wav', 'linche/ending_04.wav',
       'xiya/ending_05.wav', 'grandpa/ending_06.wav', 'grandpa/ending_07.wav', 'grandpa/ending_08.wav',
       'grandpa/ending_09.wav', 'linche/ending_10.wav'];
     const missing0 = expect0.filter(f => !all.includes(f));
-    ok('3. 观星夜开场 10 条语音全部发声', missing0.length === 0,
+    ok('3. 观星夜开场 9 条语音全部发声（C1 压缩后 ending_03 已删）', missing0.length === 0,
       missing0.length ? `缺失: ${missing0.join(',')}` : all.filter(f => f.includes('ending_')).join(', '));
 
     const norm = voiceReqs.filter(r => r.dir === 'voice_normalized').length;
@@ -166,23 +167,34 @@ async function run() {
     console.log(`    [branch] 文本="${branchText.substring(0, 30)}"`);
 
     for (let i = 0; i < 3; i++) await advanceLine(page);
-    const all2 = [...new Set(voiceReqs.map(r => r.file))];
+    const all2 = [...new Set(voiceReqs.map(r => r.file.replace(/\.ogg$/i, '.wav')))];
     ok('5. 分支 B 林澈独白 branchB_01/02 发声',
       all2.includes('linche/branchB_01.wav') && all2.includes('linche/branchB_02.wav'),
       all2.filter(f => f.includes('branchB_')).join(', ') || '<无>');
 
     // ---------- FINALE ----------
     for (let i = 0; i < 5; i++) await advanceLine(page);
-    const all3 = [...new Set(voiceReqs.map(r => r.file))];
+    await sleep(500); // 语音请求异步发出，留捕获余量（"时序不稳"根因）
+    const all3 = [...new Set(voiceReqs.map(r => r.file.replace(/\.ogg$/i, '.wav')))];
     ok('6. FINALE 夏雅 finale_01/02 发声',
       all3.includes('xiya/finale_01.wav') && all3.includes('xiya/finale_02.wav'),
       all3.filter(f => f.includes('finale_')).join(', ') || '<无>');
 
-    await sleep(800);
-    const panel = await page.evaluate(() => {
-      const el = document.getElementById('ending-panel');
-      return { exists: !!el, display: el?.style.display ?? '' };
-    });
+    // 结算面板：FINALE 结束后仍有 3.5s 晨曦 + 1s 拉镜 + ~1s 黑场，状态驱动等待而非固定 sleep
+    let panel = { exists: false, display: '' };
+    for (let i = 0; i < 60; i++) {
+      panel = await page.evaluate(() => {
+        const el = document.getElementById('ending-panel');
+        return { exists: !!el, display: el?.style.display ?? '' };
+      });
+      if (panel.exists && panel.display === 'flex') break;
+      const open = await page.evaluate(() => {
+        const s = window.__game.scene.getScenes(true)[0] || window.__game.scene.getScene('farm');
+        return !!(s?.storyDialogue?.isOpen?.());
+      });
+      if (open) await advanceLine(page);
+      else await sleep(500);
+    }
     ok('7. 结算面板打开', panel.exists && panel.display === 'flex', JSON.stringify(panel));
 
     const non200 = voiceReqs.filter(r => r.status !== 200 && r.status !== 206);

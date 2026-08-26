@@ -83,6 +83,16 @@ async function enterTown(hour = 12) {
     const sc = await page.evaluate(() => window.__game?.scene?.getScenes(true)[0]?.scene?.key ?? 'none');
     if (sc === 'town') break;
   }
+  // 场景激活 ≠ create() 完成：等 this.player 就绪后再驱动状态机，
+  // 否则直调 onFishingSuccess → showDialogueText 会撞上 player 未定义（实测偶发，见 2026-08-17）。
+  for (let i = 0; i < 30; i++) {
+    const ready = await page.evaluate(() => {
+      const s = window.__game?.scene?.getScene('town');
+      return !!(s && s.player && s.mapKey === 'town');
+    });
+    if (ready) break;
+    await sleep(300);
+  }
   await sleep(2000);
 }
 
