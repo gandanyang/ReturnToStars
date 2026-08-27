@@ -97,6 +97,9 @@ export interface GateSnapshot {
   endingPanelOpen: boolean;
   inStargazeCutscene: boolean;
   inArtShowCutscene: boolean;
+  inSpringFairCutscene: boolean;
+  inDryyardCutscene: boolean;
+  firstMorningActive: boolean;
   photoAlbumOpen: boolean;
   discoveryOpen: boolean;
   hudMenuOpen: boolean;
@@ -112,8 +115,8 @@ export type GateResult =
   | { type: 'block'; reason: string }
   // 冻结所有：玩家冻结 + 输入清空（无相交流程）
   | { type: 'freeze_all'; reason: string }
-  // 只允许对话推进：观星夜/艺术展演出期间
-  | { type: 'dialogue_only'; scene: 'stargaze' | 'art_show' }
+  // 只允许对话推进：场景演出期间（cutscene / window lock）
+  | { type: 'dialogue_only'; scene: 'stargaze' | 'art_show' | 'spring_fair' | 'dryyard' | 'morning_window' }
   // 面板打开：冻结 + 可通过对应键关闭
   | { type: 'panel_open'; panel: 'resident' | 'shop' | 'backpack' | 'quest' | 'wait' }
   // 无门控：正常进入交互流程
@@ -152,6 +155,21 @@ export class InteractionRouter {
     // 4. 星光艺术展演出：冻结+对话推进
     if (snapshot.inArtShowCutscene) {
       return { type: 'dialogue_only', scene: 'art_show' };
+    }
+
+    // 5. 春日集演出：冻结+对话推进
+    if (snapshot.inSpringFairCutscene) {
+      return { type: 'dialogue_only', scene: 'spring_fair' };
+    }
+
+    // 6. 秋日晒场演出：冻结+对话推进
+    if (snapshot.inDryyardCutscene) {
+      return { type: 'dialogue_only', scene: 'dryyard' };
+    }
+
+    // 7. 清晨演出窗口：冻结+对话推进（window lock，非 scene cutscene）
+    if (snapshot.firstMorningActive) {
+      return { type: 'dialogue_only', scene: 'morning_window' };
     }
 
     // 5. 归星录·相簿：冻结+清空

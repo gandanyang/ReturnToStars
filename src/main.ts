@@ -31,6 +31,7 @@ import * as AmbienceSystem from './systems/AmbienceSystem';
 import { play as sfxPlay, getSfxLog } from './systems/AudioSystem';
 import { InteractionRouter } from './modules/InteractionRouter';
 import { StorySequenceRunner } from './modules/StorySequenceRunner';
+import { CutsceneGuard } from './modules/CutsceneGuard';
 import { isTouchDevice } from './config';
 
 // 桌面端标记：禁用竖屏提示层（避免开发者工具窄窗口误触发）
@@ -239,7 +240,7 @@ applyAdaptiveLogicalSize();
 //   window.debug.getChapter()        获取当前章节
 //   window.debug.setChapter(c)       设置当前章节（调试/章节切换验证用）
 //   window.debug.setMusicBoxTrack(k) 设置音乐盒"我的歌"（null 清除，恢复地图默认）
-(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; setTimeFull: (d: number, h: number, m: number) => void; consumeMinutes: (n: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; markCh1TownIntroDone: () => void; getChapter: () => number; setChapter: (c: number) => void; getHouseTidyLevel: () => number; isHouseTidyComplete: () => boolean; getObservatoryComplete: () => boolean; getTimeStr: () => string; getStamina: () => number; getFarmXp: () => { level: number; xp: number }; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; getItemCount: (item: string) => number; markRestored: (key: string) => void; getRestoreEntries: () => Record<string, boolean>; nature: { state: () => { id: string; label: string; gatherKinds: string[] }; weather: () => string; weatherLegacy: () => string; phase: () => string; discoveries: () => Record<string, { resourceId: string; firstDiscoverDay: number; firstDiscoverLocation?: string; specialDiscoveries: string[] }>; recordDiscovery: (resourceId: string, day: number, location: string, special?: string) => 'created' | 'special_added' | 'noop' }; npcDaily: (npcId: string, location?: string) => Array<{ speaker: string; color: string; text: string }> | null; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string; getCrop: (col: number, row: number) => { cropType: string; plantDay: number; watered: boolean } | undefined }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; sfxLog: () => string[]; ambience: () => { map: string | null; layers: number }; interactionRouter: { resolveTarget: (candidates: Array<{ id: string; check: () => boolean; data?: () => unknown }>) => { id: string; data?: unknown } | null; describeTarget: (target: { id: string; data?: unknown } | null) => string; checkGate: (snapshot: any) => any; describeGate: (result: any) => string }; events: { triggerOnce: (id: string, fn: () => void) => boolean; triggerOnceIf: (id: string, cond: EventCondition | undefined, fn: () => void) => boolean; evalCondition: (cond?: EventCondition) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData }; storySequenceRunner: { createRunner: () => { isPlaying: boolean; currentId: string | null }; playDialogue: (id: string, lineCount: number) => { result: boolean; isPlaying: boolean; currentId: string | null }; interrupt: () => { isPlaying: boolean; currentId: string | null }; getState: () => { isPlaying: boolean; currentId: string | null; startCalled: boolean; endCalled: boolean; completeCalled: boolean; interrupted: boolean }; getSceneRunnerState: () => { isPlaying: boolean; currentId: string | null } | { error: string } } } }).debug = {
+(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; setTimeFull: (d: number, h: number, m: number) => void; consumeMinutes: (n: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; markCh1TownIntroDone: () => void; getChapter: () => number; setChapter: (c: number) => void; getHouseTidyLevel: () => number; isHouseTidyComplete: () => boolean; getObservatoryComplete: () => boolean; getTimeStr: () => string; getStamina: () => number; getFarmXp: () => { level: number; xp: number }; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; getItemCount: (item: string) => number; markRestored: (key: string) => void; getRestoreEntries: () => Record<string, boolean>; nature: { state: () => { id: string; label: string; gatherKinds: string[] }; weather: () => string; weatherLegacy: () => string; phase: () => string; discoveries: () => Record<string, { resourceId: string; firstDiscoverDay: number; firstDiscoverLocation?: string; specialDiscoveries: string[] }>; recordDiscovery: (resourceId: string, day: number, location: string, special?: string) => 'created' | 'special_added' | 'noop' }; npcDaily: (npcId: string, location?: string) => Array<{ speaker: string; color: string; text: string }> | null; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string; getCrop: (col: number, row: number) => { cropType: string; plantDay: number; watered: boolean } | undefined }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; sfxLog: () => string[]; ambience: () => { map: string | null; layers: number }; interactionRouter: { resolveTarget: (candidates: Array<{ id: string; check: () => boolean; data?: () => unknown }>) => { id: string; data?: unknown } | null; describeTarget: (target: { id: string; data?: unknown } | null) => string; checkGate: (snapshot: any) => any; describeGate: (result: any) => string }; events: { triggerOnce: (id: string, fn: () => void) => boolean; triggerOnceIf: (id: string, cond: EventCondition | undefined, fn: () => void) => boolean; evalCondition: (cond?: EventCondition) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData }; storySequenceRunner: { createRunner: () => { isPlaying: boolean; currentId: string | null }; playDialogue: (id: string, lineCount: number) => { result: boolean; isPlaying: boolean; currentId: string | null }; interrupt: () => { isPlaying: boolean; currentId: string | null }; getState: () => { isPlaying: boolean; currentId: string | null; startCalled: boolean; endCalled: boolean; completeCalled: boolean; interrupted: boolean }; getSceneRunnerState: () => { isPlaying: boolean; currentId: string | null } | { error: string } }; cutsceneGuard: { unit: () => Record<string, boolean>; getSceneState: () => { isAnyActive: boolean; isBlocked: boolean; isWindowLocked: boolean; activeIds: string[]; snapshot: Record<string, boolean> } | { error: string }; testSetterGetter: () => { initVal: boolean; afterSet: boolean; afterClear: boolean; gateSnapshot: Record<string, unknown> | null } | { error: string } } } }).debug = {
   getChapter,
   setChapter,
   getHouseTidyLevel,
@@ -588,6 +589,71 @@ applyAdaptiveLogicalSize();
           isPlayingAfter: s.storySequenceRunner.isPlaying(),
           currentIdAfter: s.storySequenceRunner.getCurrentSequenceId(),
         };
+      },
+    };
+  })(),
+  // P8: CutsceneGuard 场景演出守卫测试钩子
+  cutsceneGuard: (() => {
+    let guard: CutsceneGuard | null = null;
+
+    function ensureGuard() {
+      if (!guard) {
+        guard = new CutsceneGuard();
+      }
+      return guard;
+    }
+
+    return {
+      unit: () => {
+        const g = ensureGuard();
+        const r: Record<string, boolean> = {};
+        r.initiallyNoActive = !g.isAnyActive();
+        r.initiallyNotBlocked = !g.isBlocked();
+        g.begin('stargaze');
+        r.stargazeActive = g.isActive('stargaze');
+        r.anyActiveAfterBegin = g.isAnyActive();
+        g.begin('art_show');
+        r.bothActive = g.getActiveIds().length === 2;
+        g.end('stargaze');
+        r.onlyArtShow = g.isActive('art_show') && !g.isActive('stargaze');
+        g.beginWindow();
+        r.windowLocked = g.isWindowLocked();
+        r.blockedByWindow = g.isBlocked();
+        g.endWindow();
+        r.windowUnlocked = !g.isWindowLocked();
+        g.end('art_show');
+        r.allCleared = !g.isAnyActive() && !g.isBlocked();
+        g.begin('stargaze'); g.beginWindow();
+        const snap = g.getSnapshot();
+        r.snapshotStargaze = snap.inStargazeCutscene === true;
+        r.snapshotFirstMorning = snap.firstMorningActive === true;
+        g.end('stargaze'); g.endWindow();
+        return r;
+      },
+      getSceneState: () => {
+        const scene = game.scene.getScenes(true)[0];
+        if (!scene) return { error: 'no_scene' };
+        const cg = (scene as unknown as { cutsceneGuard?: CutsceneGuard }).cutsceneGuard;
+        if (!cg) return { error: 'no_guard' };
+        return {
+          isAnyActive: cg.isAnyActive(),
+          isBlocked: cg.isBlocked(),
+          isWindowLocked: cg.isWindowLocked(),
+          activeIds: cg.getActiveIds(),
+          snapshot: cg.getSnapshot(),
+        };
+      },
+      testSetterGetter: () => {
+        const scene = game.scene.getScenes(true)[0];
+        if (!scene || !(scene instanceof MapScene)) return { error: 'not_map_scene' };
+        const s = scene as unknown as Record<string, boolean>;
+        const initVal = s['inStargazeCutscene'];
+        s['inStargazeCutscene'] = true;
+        const afterSet = s['inStargazeCutscene'];
+        s['inStargazeCutscene'] = false;
+        const afterClear = s['inStargazeCutscene'];
+        const gs = (scene as unknown as { buildGateSnapshot?: () => Record<string, unknown> }).buildGateSnapshot?.();
+        return { initVal, afterSet, afterClear, gateSnapshot: gs ?? null };
       },
     };
   })(),

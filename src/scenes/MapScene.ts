@@ -147,6 +147,7 @@ import { FishingController, type FishingConfig, type FishKindConfig, type Fishin
 import { FarmController, type FarmHooks } from '../modules/FarmController';
 import { InteractionRouter, type GateSnapshot, type InteractionCandidate, type ResolvedTarget } from '../modules/InteractionRouter';
 import { StorySequenceRunner } from '../modules/StorySequenceRunner';
+import { CutsceneGuard } from '../modules/CutsceneGuard';
 
 /** MapScene 一次性/会话级 flag（需随存档持久化，防止读档后重复触发） */
 export interface MapSceneFlags {
@@ -311,6 +312,8 @@ export class MapScene extends Phaser.Scene {
   private readonly interactionRouter = new InteractionRouter();
   // === P7c-b StorySequenceRunner 注入（对话序列编排）===
   private storySequenceRunner = new StorySequenceRunner();
+  // === P8 CutsceneGuard 注入（场景演出状态守卫）===
+  private readonly cutsceneGuard = new CutsceneGuard();
 
   /**
    * P7c-b 统一对话播放入口
@@ -547,7 +550,9 @@ export class MapScene extends Phaser.Scene {
   private artShowMaterialsDone = false; // 鱼（晚餐食材）已备
   private artShowHeld = false;
   private artShowPerm = false;
-  private inArtShowCutscene = false;
+  // P8: 委托给 CutsceneGuard
+  private set inArtShowCutscene(v: boolean) { v ? this.cutsceneGuard.begin('art_show') : this.cutsceneGuard.end('art_show'); }
+  private get inArtShowCutscene() { return this.cutsceneGuard.isActive('art_show'); }
   private artShowSprites: Phaser.GameObjects.GameObject[] = [];
   private artShowBox: Phaser.GameObjects.Container | null = null; // 素材箱（交付点）
   private artShowXiya: Phaser.GameObjects.Sprite | null = null;   // 筹备期广场夏雅（策划）
@@ -566,7 +571,9 @@ export class MapScene extends Phaser.Scene {
   private dryyardMaterialsDone = false; // 「今年的收成」已摆出
   private dryyardHeld = false;
   private dryyardPerm = false;
-  private inDryyardCutscene = false;
+  // P8: 委托给 CutsceneGuard
+  private set inDryyardCutscene(v: boolean) { v ? this.cutsceneGuard.begin('dryyard') : this.cutsceneGuard.end('dryyard'); }
+  private get inDryyardCutscene() { return this.cutsceneGuard.isActive('dryyard'); }
   private dryyardSprites: Phaser.GameObjects.GameObject[] = [];   // 演出期临时精灵
   private dryyardBox: Phaser.GameObjects.Container | null = null; // 征集筐（交付点）
   private dryyardXiya: Phaser.GameObjects.Sprite | null = null;   // 筹备期晒场夏雅（旧照片）
@@ -747,7 +754,9 @@ export class MapScene extends Phaser.Scene {
   // 第一章 P3 春日集（克制版，2026-08-12）：集市恢复后的夜晚进 town，镇上重新聚起人——
   // 灯火呼吸 + 人群剪影 + 人群低语 + 一句独白 + 第2章钩子（远处灯塔一点动静）。
   // 一次性（ch1_spring_fair），规模 ≤ 观星夜 40%（无镜头切换/无星空/无分支）。
-  private inSpringFairCutscene = false;
+  // P8: 委托给 CutsceneGuard
+  private set inSpringFairCutscene(v: boolean) { v ? this.cutsceneGuard.begin('spring_fair') : this.cutsceneGuard.end('spring_fair'); }
+  private get inSpringFairCutscene() { return this.cutsceneGuard.isActive('spring_fair'); }
   private springFairFX: Phaser.GameObjects.Graphics[] = [];
   // Phase 3 修复态 GameObjects（2026-08-13，青禾镇Phase3美术升级-拍板基线-v1.0.md §六）：
   // 路线 C：不扩 tileset，修复态用独立 sprite（增删切换，不碰 tile）。仅 town 场景。
@@ -791,7 +800,9 @@ export class MapScene extends Phaser.Scene {
   // 2026-08-11：day2 清晨演出（tryFirstMorningSequence）进行中标志。演出窗口内玩家抢先首次收获时，
   // 全屏旁白/对白（showMemoryMoment + FIRST_HARVEST_DIALOGUE）被抑制并延后到演出结束后补播——
   // 否则两个剧情竞争 StoryDialogue 单实例互相覆盖（「剧情乱了」bug）。
-  private firstMorningActive = false;
+  // P8: 语义标注——这是「窗口锁」（window lock），非场景 cutscene。委托给 CutsceneGuard.beginWindow/endWindow。
+  private set firstMorningActive(v: boolean) { v ? this.cutsceneGuard.beginWindow() : this.cutsceneGuard.endWindow(); }
+  private get firstMorningActive() { return this.cutsceneGuard.isWindowLocked(); }
   // 演出窗口内完成的首次收获：演出结束后补播 FIRST_HARVEST_DIALOGUE（内存标志，不进存档）
   private pendingFirstHarvest = false;
   // v1.0 生活仪式感：第一次锄地/播种/浇水（一次性，mapFlags 入档，读档不重复）
@@ -897,7 +908,9 @@ export class MapScene extends Phaser.Scene {
   // v0.10.4 远景小镇灯光（观星夜远景装饰，与星空同显同隐）
   private stargazeTownLights: Phaser.GameObjects.Graphics | null = null;
   // v0.10.4 观星夜演出互斥：镜头演出期间抑制其他自动演出（FIRST_MORNING/阿风），防止抢占观星对白
-  private inStargazeCutscene = false;
+  // P8: 委托给 CutsceneGuard，统一管理 cutscene 旗标
+  private set inStargazeCutscene(v: boolean) { v ? this.cutsceneGuard.begin('stargaze') : this.cutsceneGuard.end('stargaze'); }
+  private get inStargazeCutscene() { return this.cutsceneGuard.isActive('stargaze'); }
   /** 小地图（宽高小于相机视野）居中标记：不跟随、每帧保持居中 */
   private centerSmallMap = false;
   private lastQuestObj: string = '';
@@ -10222,11 +10235,16 @@ this.setupFieldLife();
    * 收集当前所有门控状态，供 InteractionRouter 判定
    */
   private buildGateSnapshot(): GateSnapshot {
+    const cs = this.cutsceneGuard.getSnapshot();
     return {
       createFailed: this.createFailed,
       endingPanelOpen: !!this.endingPanel?.isOpen(),
-      inStargazeCutscene: this.inStargazeCutscene,
-      inArtShowCutscene: this.inArtShowCutscene,
+      // P8: cutscene 旗标统一由 CutsceneGuard 管理
+      inStargazeCutscene: cs.inStargazeCutscene,
+      inArtShowCutscene: cs.inArtShowCutscene,
+      inSpringFairCutscene: cs.inSpringFairCutscene,
+      inDryyardCutscene: cs.inDryyardCutscene,
+      firstMorningActive: cs.firstMorningActive,
       photoAlbumOpen: !!this.photoAlbumPanel?.isOpen(),
       discoveryOpen: isDiscoveryPanelOpen(),
       hudMenuOpen: isHudMenuOpen(),
