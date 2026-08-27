@@ -61,14 +61,14 @@ async function run() {
     const g = window.__game;
     if (!g) return null;
     const s = g.scene.getScenes(true)[0];
-    const ov = s?.farmWarmOverlay;
+    const dbg = s?.farmController?.getWarmDebugState?.();
     return {
       key: s?.scene?.key ?? 'none',
-      warmOverlay: !!ov,
-      overlayAlpha: ov ? Number(ov.alpha.toFixed(2)) : -1,
-      overlayW: ov ? Math.round(ov.displayWidth) : -1,
-      overlayH: ov ? Math.round(ov.displayHeight) : -1,
-      warmParticles: (s?.farmWarmParticles ?? []).length,
+      warmOverlay: dbg?.active ?? false,
+      overlayAlpha: dbg?.alpha ?? -1,
+      overlayW: dbg?.width ?? -1,
+      overlayH: dbg?.height ?? -1,
+      warmParticles: dbg?.particleCount ?? 0,
     };
   });
 

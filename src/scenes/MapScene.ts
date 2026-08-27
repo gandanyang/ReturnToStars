@@ -23,7 +23,7 @@ import {
   getAllCropEntries,
   countGrownTiles,
 } from '../data/FarmState';
-import type { TreeState, CropData, TileState } from '../data/FarmState';
+import type { TreeState, TileState } from '../data/FarmState';
 import {
   getPlotAt,
   getPlotTiles,
@@ -139,6 +139,14 @@ import {
   DEFAULT_ROBOT_RANGE,
   type RobotData,
 } from '../systems/AutomationSystem';
+import { CameraDirector } from '../modules/CameraDirector';
+import { UIBus } from '../modules/UIBus';
+import { WeatherDirector } from '../modules/WeatherDirector';
+import { WorldDecorator } from '../modules/WorldDecorator';
+import { FishingController, type FishingConfig, type FishKindConfig, type FishingSpotData, type FishingHooks } from '../modules/FishingController';
+import { FarmController, type FarmHooks } from '../modules/FarmController';
+import { InteractionRouter, type GateSnapshot, type InteractionCandidate, type ResolvedTarget } from '../modules/InteractionRouter';
+import { StorySequenceRunner } from '../modules/StorySequenceRunner';
 
 /** MapScene 一次性/会话级 flag（需随存档持久化，防止读档后重复触发） */
 export interface MapSceneFlags {
@@ -275,6 +283,53 @@ export class MapScene extends Phaser.Scene {
   private static _visibilityHandler: (() => void) | null = null;
   // 当前活跃实例引用（供 SaveSystem 获取 flag）
   private static _current: MapScene | null = null;
+  
+  // === P6b 调试用：静态 tiles Map，避免 Vite HMR 模块分裂问题 ===
+  // 注意：这是临时调试方案，正式版本应修复 FarmState 模块分裂问题
+  private static _debugTiles: Map<string, TileState> | null = null;
+  
+  /** 获取调试用 tiles Map（懒初始化） */
+  public static get debugTiles(): Map<string, TileState> {
+    if (!MapScene._debugTiles) {
+      MapScene._debugTiles = new Map<string, TileState>();
+    }
+    return MapScene._debugTiles;
+  }
+
+  // === P1 CameraDirector 注入 ===
+  private cameraDirector!: CameraDirector;
+  // === P2 UIBus 注入（面板实例所有权从 MapScene 迁移到 UIBus）===
+  private uiBus!: UIBus;
+  // === P3 WeatherDirector 注入 ===
+  private weatherDirector!: WeatherDirector;
+  // === P4 WorldDecorator 注入 ===
+  private worldDecorator!: WorldDecorator;
+  // === P5a FishingController 注入（纯视觉方法）===
+  private fishingController!: FishingController;
+  // === P6a FarmController 注入（纯视觉方法）===
+  private farmController!: FarmController;
+  private readonly interactionRouter = new InteractionRouter();
+  // === P7c-b StorySequenceRunner 注入（对话序列编排）===
+  private storySequenceRunner = new StorySequenceRunner();
+
+  /**
+   * P7c-b 统一对话播放入口
+   * 所有原 storyDialogue.play(lines, onComplete, onChoice) 调用应迁移到此方法
+   * 内部通过 StorySequenceRunner 编排，支持自动创建 StoryDialogue
+   */
+  public playStory(
+    lines: DialogueLine[],
+    onComplete?: () => void,
+    onChoice?: (index: number) => void,
+    seqId?: string,
+  ): boolean {
+    // 确保 storyDialogue 已创建
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    // 设置到 runner
+    this.storySequenceRunner.setDialogue(this.storyDialogue);
+    // 通过 runner 统一播放
+    return this.storySequenceRunner.playRaw(lines, onComplete, onChoice, seqId);
+  }
 
   private readonly mapKey: string;
   private player!: Player;
@@ -292,10 +347,12 @@ export class MapScene extends Phaser.Scene {
   // 触屏控件（摇杆+交互按钮，DOM 单例，PC 和手机都显示）
   private touchControls!: TouchControls;
   // 商店面板（Phase 0.2，DOM 覆盖层，非独立场景）
-  private shopPanel!: ShopPanel;
+  // P2: 所有权迁移到 UIBus，此为 getter 代理（零调用点修改）
+  // 注：shopPanel 在 createScene 中必定初始化，getter 返回非空
+  private get shopPanel(): ShopPanel { return this.uiBus.shopPanel!; }
   // 背包面板（Phase 0.25，DOM 覆盖层，B 键开启）
-  private backpackPanel!: BackpackPanel;
-  private questPanel!: QuestPanel;
+  private get backpackPanel(): BackpackPanel { return this.uiBus.backpackPanel!; }
+  private get questPanel(): QuestPanel { return this.uiBus.questPanel!; }
   // DOM HUD 元素（替代 Phaser 文本，避免 scrollFactor + zoom 渲染问题）
   private hudDom!: HTMLDivElement;
   private hudTimeDom!: HTMLDivElement;
@@ -402,15 +459,18 @@ export class MapScene extends Phaser.Scene {
   private storyDialogue: StoryDialogue | null = null;
   // FEATURE-038 居民需求板（小镇广场右侧信息板交互物 + DOM 面板）
   private residentBoardMark: Phaser.GameObjects.Container | null = null;
-  private residentBoardPanel: ResidentBoardPanel | null = null;
+  // P2: 所有权迁移到 UIBus（惰性创建，调用处已用 if(!panel) 守卫）
+  private get residentBoardPanel(): ResidentBoardPanel { return this.uiBus.residentBoardPanel!; }
   // P1 家的音乐盒（老屋音乐盒交互物 + DOM 曲目面板，OST 收藏系统）
   private musicBoxMark: Phaser.GameObjects.Container | null = null;
-  private musicBoxPanel: MusicBoxPanel | null = null;
+  // P2: 所有权迁移到 UIBus（惰性创建）
+  private get musicBoxPanel(): MusicBoxPanel { return this.uiBus.musicBoxPanel!; }
   /** 音乐盒首次打开的仪式感（会话级，不入档）：第一次先浮字台词再弹面板 */
   private musicBoxIntroduced = false;
   // P0 爷爷的归星包裹（2026-08-11）：老屋（house）旧木箱交互物 + 包裹面板；一次性 triggerOnce('grandpa_gift_opened')
   private grandpaGiftMark: Phaser.GameObjects.Container | null = null;
-  private grandpaGiftPanel: GiftPanel | null = null;
+  // P2: 所有权迁移到 UIBus（惰性创建）
+  private get grandpaGiftPanel(): GiftPanel { return this.uiBus.grandpaGiftPanel!; }
   /** 爷爷包裹交互基准坐标（house 木箱 L1-4 装饰位置中心） */
   private grandpaGiftPos: { x: number; y: number } = { x: 0, y: 0 };
   // 第一章 P1-1 老屋整理（2026-08-12 垂直切片）：4 个整理交互点（旧床/灯/书桌/收音机）
@@ -430,10 +490,10 @@ export class MapScene extends Phaser.Scene {
   // 状态机：idle → casting → waiting → fakeBite/realBite → success/fail → idle
   // 复用：MapScene.tryInteract 范式 + DOM hint（参照 oldTree）+ Graphics 视觉 + AudioSystem.play
   // 红线：不新建 FishingManager/FishingSaveSystem/FishingInventory/FishingUIManager
-  /** 钓鱼状态机当前状态（idle=未钓鱼，可触发；其余=钓鱼中） */
-  private fishingState: 'idle' | 'casting' | 'waiting' | 'fakeBite' | 'realBite' | 'success' | 'fail' = 'idle';
-  /** 本次钓鱼的鱼种（Phase 3：甩竿时按时段+概率选定，决定行为与收获） */
-  private currentFish: keyof typeof MapScene.FISH_KINDS = 'qinghe_crucian';
+  /** 钓鱼状态机当前状态（代理 FishingController） */
+  private get fishingState(): 'idle' | 'casting' | 'waiting' | 'fakeBite' | 'realBite' | 'success' | 'fail' {
+    return this.fishingController.getState();
+  }
   /** 钓点位置（当前场景当前激活钓点；S6 老河堤长椅 (6,15) 西侧水边） */
   private fishingSpotPos: { x: number; y: number } = { x: 0, y: 0 };
   /** 浮漂位置（水中，钓点西侧水面） */
@@ -452,14 +512,9 @@ export class MapScene extends Phaser.Scene {
    * 范围：town 夜晚 + 阿风烤鱼交换已触发；验收通过后推广为统一视觉语言。
    */
   private static readonly NIGHT_VISUAL_EXPERIMENT = true;
-  /** 钓鱼视觉容器（浮漂/鱼线/水花/鱼跳出，钓鱼中存在，结束清理） */
-  private fishingVisuals: Phaser.GameObjects.Container | null = null;
   /** 钓点水面常驻标识（浮漂/涟漪/光斑；钓鱼开始时隐藏避免与钓鱼浮漂重叠） */
   private fishingSpotWaterMark: Phaser.GameObjects.Container | null = null;
-  /** 钓鱼靠近提示（DOM，会话级） */
-  private fishingInteractHint: HTMLDivElement | null = null;
-  /** 钓鱼中收竿窗口提示（DOM，仅在 realBite 状态显示） */
-  private fishingReelHint: HTMLDivElement | null = null;
+  // P5b: fishingInteractHint / fishingReelHint 已迁移至 FishingController
   // ═══════════ 钓鱼老人 老姜（氛围锚点，2026-08-14 制作人拍板）═══════════
   // 定位：青禾镇最后一个还坚持每天去河边坐一下午的人。不是任务机器。
   // 视觉：程序绘制草帽大叔（零素材，见 setupRiverbankLife ⑬）；场景锚定交互（非 NPCSystem 注册）。
@@ -467,7 +522,7 @@ export class MapScene extends Phaser.Scene {
   // 功能：教学（简单直白）/ 鱼种评价（一次性每种）/ 《钓鱼修行》小事件（三鱼入门 → 旧鱼竿）/ 复兴台词 / 老婆轻吐槽。
   private laoJiangGfx: Phaser.GameObjects.Graphics | null = null;
   private laoJiangLabel: Phaser.GameObjects.Text | null = null;
-  private laoJiangHint: HTMLDivElement | null = null;
+  // P5b: fishingInteractHint / fishingReelHint / laoJiangHint 已迁移至 FishingController
   private readonly laoJiangPos = { x: 84, y: 232 };
   private static readonly LAO_JIANG_RANGE = 30;
   /** 老姜当前显隐状态（避免 update 每帧重复 setVisible） */
@@ -722,16 +777,7 @@ export class MapScene extends Phaser.Scene {
     pos: { x: number; y: number };
   } | null = null;
   // P0-5 农场回暖（2026-08-08 制作人拍板）：星之碎片交付后农场环境回暖反馈。
-  // 视觉 = 全屏暖橙 ADD overlay（提亮整体 + 暗部回暖）+ 暖金光尘粒子（光照感）；
-  // 状态持久化 = FarmRestore.isRestored('farmWarm')（随 worldRestore 入档）；
-  // 过渡只播一次 = EventManager.triggerOnce('farm_warm_intro')（随 gameState 入档）。
-  private farmWarmOverlay: Phaser.GameObjects.Rectangle | null = null;
-  private farmWarmParticles: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
-  // v2 三幕式：第一幕光晕扩散只播一次（本场景实例内）
-  private farmWarmPulsePlayed = false;
-  // v2.1 夕阳感（2026-08-09 制作人拍板）：世界坐标暖橙垂直渐变天光（顶部亮→底部弱），
-  // 模拟"太阳低垂从地图上方斜射"，与全屏罩色叠加出方向层次；depth 4.4 盖地面、不罩 NPC/玩家
-  private farmWarmSkyGlow: Phaser.GameObjects.Graphics | null = null;
+  // P6a: 农场温暖氛围状态已迁移至 FarmController
   // M1-3 夏雅见证：花园恢复完成后，夏雅在花园旁出现，靠近触发 GARDEN_RESTORED_XIYA_DIALOGUE
   private gardenXiya: Phaser.GameObjects.Sprite | null = null;
   private gardenXiyaLabel: Phaser.GameObjects.Text | null = null;
@@ -824,9 +870,11 @@ export class MapScene extends Phaser.Scene {
   private tutorialProgress = 0;
   private readonly TUTORIAL_TARGET = 3;
   // Demo 结尾：结算界面
-  private endingPanel: EndingPanel | null = null;
+  // P2: 所有权迁移到 UIBus（惰性创建）
+  private get endingPanel(): EndingPanel { return this.uiBus.endingPanel!; }
   /** 归星录·相簿面板（FEATURE-040 后新增，v0.1） */
-  private photoAlbumPanel: PhotoAlbumPanel | null = null;
+  // P2: 所有权迁移到 UIBus（惰性创建，但 openPhotoAlbum 内有守卫）
+  private get photoAlbumPanel(): PhotoAlbumPanel { return this.uiBus.photoAlbumPanel!; }
   /** 归星录·相簿解锁反馈（v0.10 记忆卡→相簿闭环）：待展示 toast + 当前 toast */
   private pendingPhotoUnlock: string | null = null;
   private photoUnlockToast: HTMLDivElement | null = null;
@@ -873,9 +921,7 @@ export class MapScene extends Phaser.Scene {
   private oldTreePos: { x: number; y: number } = { x: 0, y: 0 };
   private oldTreeInteractHint: HTMLDivElement | null = null;
   // 天气系统 v0.10-lite：雨天覆盖层+雨粒子
-  private rainOverlay: Phaser.GameObjects.Rectangle | null = null;
-  private rainEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
-  private rainActive = false;
+  // === P3 天气字段已迁移到 WeatherDirector（src/modules/WeatherDirector.ts）===
   // 试玩-11 森林氛围（后山）：夜间萤火虫 + 白天落叶 + 野花装饰（零资源纯代码，不触碰碰撞/存档）
   private forestFireflies: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
   private forestLeaves: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
@@ -1184,6 +1230,244 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
   }
 
   create(): void {
+    // === P1/P2/P3: 在任何 getter 访问之前初始化三大模块 ===
+    // 原因：SHUTDOWN 钩子注册中 stopRain() 等可能间接访问 panel getter；
+    //      station 等场景的 createScene 中 setup* 方法也可能访问 getter。
+    this.cameraDirector = new CameraDirector(this.cameras.main, this.tweens);
+    this.uiBus = new UIBus();
+    this.uiBus.setOpenHandlers({
+      openBackpack: () => {
+        this.inputManager.clearAction();
+        this.hideShortcutHint();
+      },
+      openQuest: () => {
+        this.inputManager.clearAction();
+        this.hideShortcutHint();
+      },
+      openWait: () => {
+        this.inputManager.clearAction();
+        this.tryOpenWait();
+      },
+    });
+    // P3: WeatherDirector — 管理天气视觉效果（雨覆盖层+粒子+环境音）
+    this.weatherDirector = new WeatherDirector(this, AmbienceSystem.RAIN_MAPS);
+    this.weatherDirector.setOnRainStart(() => this.syncWeatherGatherPoints());
+    // P4: WorldDecorator — 管理纯视觉装饰（草簇/花/树/石/灯柱等）
+    this.worldDecorator = new WorldDecorator(this);
+    // P5a/P5b/P5c: FishingController — 管理钓鱼视觉/DOM/状态机
+    // 构建配置对象（从 MapScene static readonly 提取）
+    const fishingConfig: FishingConfig = {
+      biteDelayMin: MapScene.FISHING_CONFIG.biteDelayMin,
+      biteDelayMax: MapScene.FISHING_CONFIG.biteDelayMax,
+      fakeBiteProbability: MapScene.FISHING_CONFIG.fakeBiteProbability,
+      realBiteWindow: MapScene.FISHING_CONFIG.realBiteWindow,
+      successFeedbackDuration: MapScene.FISHING_CONFIG.successFeedbackDuration,
+      castDuration: MapScene.FISHING_CONFIG.castDuration,
+      fakeBiteDuration: MapScene.FISHING_CONFIG.fakeBiteDuration,
+      fakeBiteRecoverDuration: MapScene.FISHING_CONFIG.fakeBiteRecoverDuration,
+      failFeedbackDuration: MapScene.FISHING_CONFIG.failFeedbackDuration,
+      interactRange: MapScene.FISHING_CONFIG.interactRange,
+      fryChance: MapScene.FISHING_CONFIG.fryChance,
+    };
+    const fishKinds: Record<string, FishKindConfig> = {};
+    for (const [k, v] of Object.entries(MapScene.FISH_KINDS)) {
+      fishKinds[k] = {
+        name: v.name,
+        fakeBiteProbability: v.fakeBiteProbability,
+        biteDelayMin: v.biteDelayMin,
+        biteDelayMax: v.biteDelayMax,
+      };
+    }
+    const fishingSpots: Record<string, FishingSpotData> = {};
+    for (const [k, v] of Object.entries(MapScene.FISHING_SPOTS)) {
+      fishingSpots[k] = {
+        pos: { ...v.pos },
+        floatPos: { ...v.floatPos },
+        tier: v.tier,
+      };
+    }
+    const fishingHooks: FishingHooks = {
+      getTimeHour: () => getTime().hour,
+      getTimeDay: () => getTime().day,
+      getMapKey: () => this.mapKey,
+      clearAction: () => this.inputManager.clearAction(),
+      playSfx: (name) => play(name),
+      addItem: (id, count) => addItem(id, count),
+      setItemCount: (id, count) => setItemCount(id, count),
+      getItemCount: (id) => getItemCount(id),
+      showDialogueText: (text) => this.showDialogueText(text),
+      playDialogue: (lines, onComplete, onChoice) => {
+        this.playStory(lines as DialogueLine[], onComplete, onChoice, 'fishing_hook');
+      },
+      updateHUD: () => this.updateHUD(),
+      save: (x, y, scene, facing) => {
+        save({ x, y, scene, facing } as any);
+      },
+      getPlayerPos: () => ({ x: this.player.x, y: this.player.y, facing: this.player.facing }),
+      getFishReleaseDay: () => this.fishReleaseDay,
+      setFishReleaseDay: (day) => { this.fishReleaseDay = day; },
+      isFishShadowsActive: () => this.fishShadowsActive(),
+      presentFryReleaseChoice: () => this.presentFryReleaseChoice(),
+      releaseCurrentFish: () => this.fishingController.releaseCurrentFish(),
+      keepCurrentFry: () => this.fishingController.keepCurrentFry(),
+      onFishingEnded: () => this.fishingSpotWaterMark?.setVisible(true),
+    };
+    this.fishingController = new FishingController(
+      this, fishingConfig, fishKinds, fishingSpots, fishingHooks, isMobileLayout(),
+    );
+    // P6a/P6b: FarmController — 管理农场视觉/装饰 + 交互路由
+    const farmHooks: FarmHooks = {
+      // ── P6a: 视觉钩子 ──
+      getTimeDay: () => getTime().day,
+      getTimeHour: () => getTime().hour,
+      getTileRect: (col, row) => this.tileRects.get(`${col},${row}`),
+      setTileRect: (col, row, visual) => { this.tileRects.set(`${col},${row}`, visual); },
+      getTileState: (col, row) => getTileState(col, row),
+      getCrop: (col, row) => getCrop(col, row),
+      hasTriggered: (key) => hasTriggered(key),
+      triggerOnce: (key, fn) => triggerOnce(key, fn),
+      // ── P6b: 交互路由钩子（决策全部在 MapScene）──
+      canProcessFarmInput: () => {
+        if (this.transitioning) return false;
+        if (this.inStargazeCutscene) return false;
+        if (this.storyDialogue?.isOpen()) return false;
+        if (this.shopPanel.isOpen()) return false;
+        if (this.backpackPanel.isOpen()) return false;
+        if (this.endingPanel?.isOpen()) return false;
+        if (this.photoAlbumPanel?.isOpen()) return false;
+        if (isDiscoveryPanelOpen()) return false;
+        if (isHudMenuOpen()) return false;
+        if (this.seedSelectorEl) return false;
+        if (this.cropPickerEl) return false;
+        return true;
+      },
+      onPlotInteract: (plotId) => {
+        // 决策 + 数据操作（全部在 MapScene）
+        this.interactPlot(plotId);
+        // 触屏点击反馈
+        this.plotFlashId = plotId;
+        this.plotFlashUntil = this.time.now + 500;
+        if (isTouchDevice()) { try { navigator.vibrate(15); } catch {} }
+      },
+      onTileInteract: (col, row) => {
+        const state = getTileState(col, row);
+        // 决策层：可操作性判断
+        if (!this.isTileActionable(col, row)) {
+          this.flashTileError(col, row);
+          const msg = state === 'watered' ? '还需要一点时间' : '没有种子';
+          this.showFloatText(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, msg, '#ff8a80');
+          return;
+        }
+        // 数据操作
+        this.tryFarmInteractAt(col, row);
+        // 触屏点击反馈
+        this.tapFlashKey = `${col},${row}`;
+        this.tapFlashUntil = this.time.now + 500;
+        if (isTouchDevice()) { try { navigator.vibrate(15); } catch {} }
+      },
+      // ── P6c: 生命周期操作钩子（数据操作 + 事务顺序控制）──
+      getItemCount: (itemId) => getItemCount(itemId as ItemType),
+      consumeStamina: (opType) => {
+        const cost = getActionStaminaCost(opType as 'farm_till' | 'farm_plant' | 'farm_water' | 'farm_harvest');
+        return consumeStamina(cost);
+      },
+      setTileState: (col, row, state) => setTileState(col, row, state),
+      setCrop: (col, row, crop) => setCrop(col, row, crop),
+      addItem: (itemId, count) => addItem(itemId as ItemType, count),
+      addXp: (amount, source) => addXp(amount, source as import('../data/FarmProgress').XpSource),
+      consumeMinutes: (opType) => {
+        const cost = getActionTimeCost(opType as 'gathering' | 'dialogue' | 'farm_till' | 'farm_plant' | 'farm_water' | 'farm_harvest');
+        consumeMinutes(cost);
+      },
+      checkTutorialProgress: (type) => this.checkTutorialProgress(type as 'till' | 'sow' | 'water'),
+      setDebugTile: (col, row, state) => { MapScene.debugTiles.set(`${col},${row}`, state); },
+      onFarmOpComplete: (opType, col, row, opts) => {
+        const cropType = (opts?.cropType as CropType | undefined) ?? undefined;
+        const tx = col * TILE_SIZE + TILE_SIZE / 2;
+        const ty = row * TILE_SIZE + TILE_SIZE / 2;
+        switch (opType) {
+          case 'till':
+            this.checkTutorialProgress('till');
+            if (!this.firstHoe) {
+              this.firstHoe = true;
+              triggerTag('first_hoe');
+              this.tileGlowHighlight(tx, ty);
+              showMemoryMoment('原来土地是这样的感觉。');
+            }
+            break;
+          case 'plant':
+            addXp(3, 'plant');
+            if (!this.firstPlant) {
+              this.firstPlant = true;
+              triggerTag('first_plant');
+              this.tileGlowHighlight(tx, ty, 0xa8e6a0);
+              showMemoryMoment('城市里的人已经很久没有亲手种下一颗种子了。');
+              this.showDialogueText('种下了……等它长大，收成能换钱修镇上的旧东西。');
+              if (!isPhotoUnlocked('first_crop')) {
+                unlockPhoto('first_crop');
+                this.notifyPhotoUnlocked('first_crop');
+                save({
+                  x: this.player.x, y: this.player.y,
+                  scene: this.mapKey, facing: this.player.facing,
+                  dailyQuest: getDailyQuestSaveData(),
+                } as any);
+              }
+            }
+            onDQPlant();
+            this.checkTutorialProgress('sow');
+            break;
+          case 'water':
+            addXp(1, 'water');
+            onDQWater();
+            this.checkTutorialProgress('water');
+            if (!this.firstWater) {
+              this.firstWater = true;
+              triggerTag('first_water');
+              showMemoryMoment('水浇下去，能不能活，明天才知道。');
+            }
+            break;
+          case 'harvest_pre_time':
+            addXp(10, 'harvest');
+            onDQHarvest(cropType ?? 'radish');
+            if (cropType === 'corn' && !hasTriggered('crop_corn_first_harvest')) {
+              triggerOnce('crop_corn_first_harvest', () => { /* 仅标记 */ });
+              save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+            }
+            break;
+          case 'harvest':
+            if (!this.firstHarvestShown) {
+              this.firstHarvestShown = true;
+              triggerTag('first_harvest');
+              play('harvest_first');
+              const cropIcon = CROP_DEFS[cropType ?? 'radish']?.icon ?? '🥕';
+              const cropShot = this.add.text(tx, ty, cropIcon, { fontSize: '22px' }).setOrigin(0.5).setDepth(8);
+              this.tweens.add({
+                targets: cropShot,
+                scale: 1.9, y: ty - 16, alpha: 0,
+                duration: 900, ease: 'Sine.out',
+                onComplete: () => cropShot.destroy(),
+              });
+              const baseScale = this.player.scaleX;
+              this.tweens.add({
+                targets: this.player,
+                scaleX: baseScale * 1.08, scaleY: baseScale * 0.92,
+                duration: 130, yoyo: true, ease: 'Sine.out',
+                onComplete: () => this.player.setScale(baseScale, baseScale),
+              });
+              if (this.firstMorningActive) {
+                this.pendingFirstHarvest = true;
+              } else {
+                showMemoryMoment('小时候爷爷告诉我，土地不会辜负认真照料它的人。');
+                this.time.delayedCall(320, () => this.playFirstHarvestDialogue());
+              }
+            }
+            break;
+        }
+      },
+    };
+    this.farmController = new FarmController(this, farmHooks);
+    // 农场清理（shutdown 时销毁温暖状态等）
+    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => this.farmController.cleanup(), this);
     // 场景停止/切换时清理 DOM 残留（提示条/种子选择器等），防止跨场景泄漏
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, this.cleanupSceneDom, this);
     // 场景切换时停止环境音（防止上一场景环境音残留到下一场景——P0 防黑屏/残留）
@@ -1196,7 +1480,8 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
     // E-09 消磨时间：场景切换关闭等待面板（防残留）
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => closeWaitPanel(), this);
     // 天气系统：场景切换时停止雨天效果
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => this.stopRain(), this);
+    // P3: 天气清理（迁移到 WeatherDirector）
+    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => this.weatherDirector.cleanup(), this);
     // 兜底：create 阶段任何未预期的异常（贴图缺失/地图数据异常等）都不允许演变成黑屏，
     // 统一捕获并显示错误遮罩 + 刷新按钮
     try {
@@ -1300,6 +1585,7 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
 
     // 摄像机：跟随 + 限制在地图内 + 放大2倍
     this.cameras.main.setZoom(2);
+    // 注：CameraDirector + UIBus 已在 create() 顶部初始化（L1201-1219）
     // 室内小地图（house/elder_house）宽度或高度小于相机可视区（zoom2 下可视宽 = 逻辑宽/2 ≈ 400~666px）：
     // 若仍 setBounds 会把相机滚动钳制回 0，地图贴在左上角露出背景（安卓反馈：室内地图未居中）。
     // 这里对小于相机视野的地图关闭 bounds+跟随，居中显示。
@@ -1810,7 +2096,7 @@ this.setupFieldLife();
       this.handleFarmTap(pointer);
     });
     // 商店面板（DOM 覆盖层；数据变化时刷新 HUD 金币显示；关店时清理输入残留）
-    this.shopPanel = new ShopPanel(
+    this.uiBus.registerShopPanel(new ShopPanel(
       () => this.updateHUD(),
       () => {
         // 关店清理：丢弃开店期间残留的 E 键，防止下帧立即重开商店
@@ -1833,10 +2119,10 @@ this.setupFieldLife();
         onDQSellShop(count);
         this.updateDailyQuestPanel();
       },
-    );
+    ));
 
     // 背包面板（DOM 覆盖层；关包时清理 B 键残留；使用钥匙回调）
-    this.backpackPanel = new BackpackPanel(
+    this.uiBus.registerBackpackPanel(new BackpackPanel(
       () => {
         this.inputManager.clearAction();
         this.lastFrameTime = performance.now();
@@ -1844,9 +2130,9 @@ this.setupFieldLife();
       () => this.useManorKey(),
       () => this.updateHUD(),
       () => this.deployRobot(),
-    );
+    ));
     // 任务面板（v0.5.3-B 任务入口化；关面板清理 J 键残留）
-    this.questPanel = new QuestPanel(
+    this.uiBus.registerQuestPanel(new QuestPanel(
       () => {
         this.inputManager.clearAction();
         this.lastFrameTime = performance.now();
@@ -1878,7 +2164,7 @@ this.setupFieldLife();
         xiyaBloomAsked: this.xiyaBloomAsked,
         xiyaBloomDone: this.xiyaBloomDone,
       }),
-    );
+    ));
     // E-09 消磨时间：移动端等待按钮 → 打开等待面板
     setWaitHandler(() => this.tryOpenWait());
     // 农场升级通知（升级时显示气泡提示）
@@ -1944,75 +2230,31 @@ this.setupFieldLife();
   }
 
   /**
+   * P1 委托 → CameraDirector.centerOn
    * 将相机中心对准世界坐标 (wx, wy)（zoom 内化）。
-   * Phaser 3.80 的 centerOn 未缩放：scroll = 目标 - 视口宽/2，
-   * zoom=2 下会整体偏移 (宽/4, 高/4)，导致室内小地图贴角（f1 假修复根因）。
-   * 这里按世界坐标手算：scroll = wx - (width/2) / zoom。
    */
   private centerCameraOn(wx: number, wy: number): void {
-    const cam = this.cameras.main;
-    // Phaser preRender: 相机中心世界坐标 midPoint = scroll + width/2（width 为逻辑宽，不除 zoom）。
-    // 要让世界点 (wx,wy) 位于屏幕中心 → scroll = wx - width/2。
-    // 旧公式 wx - width/2/zoom 会多减一个 zoom 因子，相机中心偏到 wx+width/2*(1-1/zoom)，
-    // 室内画面整体偏左上（2026-08-07 修复）。
-    cam.scrollX = wx - cam.width / 2;
-    cam.scrollY = wy - cam.height / 2;
+    this.cameraDirector.centerOn(wx, wy);
   }
 
   /**
-   * 镜头缓推：把相机视口中心对准世界坐标 (wx, wy)。
-   * Phaser 3.80 pan 语义 = 视口中心（midPoint = scroll + width/2）最终落在 (x, y)，
-   * 动画中与结束时均不除 zoom（Pan.js: getScroll/centerOn 均 scroll = 目标 - width/2）。
-   * 无需任何 zoom 补偿——旧补偿公式 px = wx - width/2/zoom + width/2 会把中心
-   * 额外偏移 width/2*(1-1/zoom)（zoom=2, width=1299 时偏 324.75px），
-   * 观星夜演出画面整体偏向右下（#29 反推时的错误前提，2026-08-08 修复）。
-   */
-  /**
+   * P1 委托 → CameraDirector.panTo
    * 相机平滑移动到世界坐标 (wx, wy)（相机中心）。
-   * v0.10.4 重写：改用 tween + 手动 zoom 补偿——原实现 cam.pan 有两个缺陷：
-   * ① Phaser Pan 的 destScroll 换算不含 zoom（zoom2 时 pan(504,232) 实际中心只有 304，#29 说的
-   *    "zoom 补偿"其实从未实现 → 观星点从未真正居中，画面偏左）；
-   * ② 链式 pan（回调里再发新 pan）会被 force=false 吞掉（旧 pan 尚 isRunning 时新 pan 直接 return）
-   *    → 观星夜镜头三段回调链断裂，后段不执行。
-   * 现实现：tween cam.scrollX/Y，目标 = wx - width/(2*zoom)，链式靠 tween onComplete，无 force 问题。
+   * v0.10.4 重写：tween + 手动 zoom 补偿，链式靠 tween onComplete。
    */
   private panCameraTo(wx: number, wy: number, duration: number, onComplete?: () => void): void {
-    const cam = this.cameras.main;
-    const destX = wx - cam.width / (2 * cam.zoom);
-    const destY = wy - cam.height / (2 * cam.zoom);
-    this.tweens.add({
-      targets: cam,
-      scrollX: destX,
-      scrollY: destY,
-      duration,
-      ease: 'Power2',
-      onComplete: () => onComplete?.(),
-    });
+    this.cameraDirector.panTo(wx, wy, duration, onComplete);
   }
 
   /**
-   * v2 观星夜分支独白"拉近"：围绕世界点 (wx,wy) 缩放，保持该点始终在镜头中心。
-   * 不用 Phaser zoomTo（其只改 zoom 不改 scroll，放大围绕左上角，角色会偏出画面）：
-   * tween 一个线性 progress，每帧按 zoom 反算 scroll（scroll = center - size/(2*zoom)），
-   * 保证"世界点钉在屏幕中心"，与 panCameraTo 的 zoom 补偿同一套公式（#29 同源）。
+   * P1 委托 → CameraDirector.zoomAt
+   * 围绕世界点 (wx,wy) 缩放，保持该点始终在镜头中心。
+   * preZoomStart: 停止 stargaze 慢横移 tween，避免 scrollX 双写冲突。
    */
   private zoomCameraAt(wx: number, wy: number, toZoom: number, duration: number, onComplete?: () => void): void {
-    const cam = this.cameras.main;
-    const from = cam.zoom;
-    this.stargazeDriftTween?.stop(); // 先停对话慢横移，避免 scrollX 双写冲突
-    this.stargazeDriftTween = null;
-    this.tweens.add({
-      targets: { p: 0 },
-      p: 1,
-      duration,
-      ease: 'Sine.out',
-      onUpdate: (_t, target: { p: number }) => {
-        const zoom = from + (toZoom - from) * target.p;
-        cam.zoom = zoom;
-        cam.scrollX = wx - cam.width / (2 * zoom);
-        cam.scrollY = wy - cam.height / (2 * zoom);
-      },
-      onComplete: () => onComplete?.(),
+    this.cameraDirector.zoomAt(wx, wy, toZoom, duration, onComplete, () => {
+      this.stargazeDriftTween?.stop();
+      this.stargazeDriftTween = null;
     });
   }
 
@@ -2031,114 +2273,63 @@ this.setupFieldLife();
     // 相簿解锁反馈：对话/闪回结束后再弹出（避免被全屏演出盖住）
     this.maybeShowPhotoUnlockToast();
 
-    // Demo 结算界面打开：冻结移动/交互，等待「继续自由游玩」
-    if (this.endingPanel?.isOpen()) {
-      this.player.setVelocity(0, 0);
-      this.inputManager.clearAction();
-      return;
-    }
+    // ─── P7a: 交互门控检查（InteractionRouter 路由决策） ───
+    // 构建门控快照 → InteractionRouter 判定 → MapScene 执行副作用
+    const gate = this.interactionRouter.checkGate(this.buildGateSnapshot());
 
-    // v0.10.4 观星夜演出期间：冻结玩家移动/交互，避免演出中可移动触发
-    // 场景切换/其他交互把 pan 链打断（段3 onComplete=对话播放 会随场景 tween 销毁
-    // 而永不执行 → 真机表现为"特效出现了、剧情没触发、人物还能动"）。
-    // 只放行观星对白推进（观星对话由段3 onComplete 在 8s 后打开，此期间玩家应不可动）。
-    if (this.inStargazeCutscene) {
-      this.player.setVelocity(0, 0);
-      this.inputManager.clearAction();
-      // 演出期间保留星空闪烁/观星点视觉（观星点此时已 markObservatoryComplete 自动隐藏）
-      this.updateStarField();
-      this.updateStargaze();
-      if (this.storyDialogue?.isOpen()) {
-        this.inputManager.update();
-        if (this.inputManager.consumeAction()) {
-          this.storyDialogue.advance();
+    switch (gate.type) {
+      case 'block':
+        // createFailed 已在上方单独处理
+        return;
+
+      case 'freeze_all':
+        // 完全冻结：Demo 结算/相簿/图鉴/HUD菜单
+        this.player.setVelocity(0, 0);
+        this.inputManager.clearAction();
+        return;
+
+      case 'dialogue_only':
+        // 只放行对话推进（观星夜/星光艺术展演出）
+        this.player.setVelocity(0, 0);
+        this.inputManager.clearAction();
+        if (gate.scene === 'stargaze') {
+          this.updateStarField();
+          this.updateStargaze();
         }
-      }
-      return;
-    }
-
-    // 星光艺术展演出期间：冻结玩家移动/交互，只放行对白推进（同观星夜范式）
-    if (this.inArtShowCutscene) {
-      this.player.setVelocity(0, 0);
-      this.inputManager.clearAction();
-      if (this.storyDialogue?.isOpen()) {
-        this.inputManager.update();
-        if (this.inputManager.consumeAction()) {
-          this.storyDialogue.advance();
+        if (this.storyDialogue?.isOpen()) {
+          this.inputManager.update();
+          if (this.inputManager.consumeAction()) {
+            this.storyDialogue.advance();
+          }
         }
-      }
-      return;
-    }
+        return;
 
-    // 归星录·相簿打开：冻结玩家移动/交互，只响应关闭（Esc 或按钮）
-    if (this.photoAlbumPanel?.isOpen()) {
-      this.player.setVelocity(0, 0);
-      this.inputManager.clearAction();
-      return;
-    }
+      case 'panel_open':
+        // 面板打开：冻结玩家 + 对应键关闭
+        this.player.setVelocity(0, 0);
+        switch (gate.panel) {
+          case 'resident':
+            if (this.inputManager.consumeAction()) this.residentBoardPanel.close();
+            break;
+          case 'shop':
+            if (this.inputManager.consumeAction()) this.shopPanel.close();
+            break;
+          case 'backpack':
+            if (Phaser.Input.Keyboard.JustDown(this.inputManager.keyB)) this.backpackPanel.close();
+            break;
+          case 'quest':
+            if (Phaser.Input.Keyboard.JustDown(this.inputManager.keyJ)) this.questPanel.close();
+            break;
+          case 'wait':
+            if (Phaser.Input.Keyboard.JustDown(this.inputManager.keyT)) closeWaitPanel();
+            break;
+        }
+        return;
 
-    // 自然记录图鉴打开：冻结玩家移动/交互（Esc/关闭按钮关闭）
-    if (isDiscoveryPanelOpen()) {
-      this.player.setVelocity(0, 0);
-      this.inputManager.clearAction();
-      return;
-    }
-
-    // HUD 功能菜单打开：冻结玩家移动/交互（Esc/点空白关闭）
-    if (isHudMenuOpen()) {
-      this.player.setVelocity(0, 0);
-      this.inputManager.clearAction();
-      return;
-    }
-
-    // FEATURE-038 需求板打开：冻结玩家移动/交互，只响应关闭（E 或 Esc）
-    if (this.residentBoardPanel?.isOpen()) {
-      this.player.setVelocity(0, 0);
-      if (this.inputManager.consumeAction()) {
-        this.residentBoardPanel.close();
-      }
-      return;
-    }
-
-    // 商店打开：冻结时间/玩家移动/NPC/交互，只响应关闭
-    // 关闭方式：E/空格/回车（consumeAction）或 Esc（ShopPanel DOM 监听）
-    if (this.shopPanel.isOpen()) {
-      // 冻结玩家物理：防止开店前残留的速度让角色在商店界面背后滑动
-      this.player.setVelocity(0, 0);
-      if (this.inputManager.consumeAction()) {
-        this.shopPanel.close();
-      }
-      return;
-    }
-
-    // 背包打开：冻结时间/玩家移动/NPC/交互，只响应关闭
-    if (this.backpackPanel.isOpen()) {
-      this.player.setVelocity(0, 0);
-      // B 键关闭
-      if (Phaser.Input.Keyboard.JustDown(this.inputManager.keyB)) {
-        this.backpackPanel.close();
-      }
-      return;
-    }
-
-    // 任务面板打开：冻结时间/玩家移动/NPC/交互，只响应关闭
-    if (this.questPanel.isOpen()) {
-      this.player.setVelocity(0, 0);
-      // J 键关闭
-      if (Phaser.Input.Keyboard.JustDown(this.inputManager.keyJ)) {
-        this.questPanel.close();
-      }
-      return;
-    }
-
-    // 等待面板打开（E-09）：冻结时间/玩家移动/NPC/交互，只响应关闭
-    if (isWaitPanelOpen()) {
-      this.player.setVelocity(0, 0);
-      // T 键关闭
-      if (Phaser.Input.Keyboard.JustDown(this.inputManager.keyT)) {
-        closeWaitPanel();
-      }
-      return;
+      case 'none':
+      default:
+        // 无门控：继续正常 update 流程
+        break;
     }
 
     // B 键打开背包（仅在未与其他面板交互时）
@@ -2652,7 +2843,7 @@ this.setupFieldLife();
     if (dx * dx + dy * dy > 48 * 48) return false;
 
     if (!this.musicBoxPanel) {
-      this.musicBoxPanel = new MusicBoxPanel(() => this.resumeHouseBgm());
+      this.uiBus.registerMusicBoxPanel(new MusicBoxPanel(() => this.resumeHouseBgm()));
     }
     this.inputManager.clearAction();
     // v0.11（P0.5）：第一次打开音乐盒加仪式感——先一句浮字台词（"这个音乐盒……还能播放以前的曲子。"），
@@ -2721,7 +2912,7 @@ this.setupFieldLife();
     const dy = this.player.y - this.grandpaGiftPos.y;
     if (dx * dx + dy * dy > 48 * 48) return false;
 
-    if (!this.grandpaGiftPanel) this.grandpaGiftPanel = new GiftPanel();
+    if (!this.grandpaGiftPanel) this.uiBus.registerGrandpaGiftPanel(new GiftPanel());
     this.inputManager.clearAction();
     this.grandpaGiftPanel.open(() => this.grantGrandpaGift());
     return true;
@@ -3269,57 +3460,6 @@ this.setupFieldLife();
    *   普通钓点（town 河堤，tier=common）：青禾鲫 全天 55%｜河虾 08:00-17:00 30%｜黄昏鱼 17:00-20:00 15%
    *   稀有钓点（farm 池塘，tier=rare）：月光鲈 全天 65%｜河虾 08:00-17:00 25%｜青禾鲫 全天 10%（少量低级鱼）
    */
-  private pickCurrentFish(): void {
-    const spot = MapScene.FISHING_SPOTS[this.mapKey];
-    const h = getTime().hour;
-    if (spot?.tier === 'rare') {
-      const r = Math.random();
-      if (r < 0.65) {
-        this.currentFish = 'moon_bass';
-      } else if (h >= 8 && h < 17 && r < 0.90) {
-        this.currentFish = 'river_shrimp';
-      } else {
-        this.currentFish = 'qinghe_crucian';
-      }
-      return;
-    }
-    // 生态分层 v1.3（制作人拍板方向）：普通钓点（town 河流）15% 小鱼苗特殊生态事件，
-    // 其余 85% 普通鱼（青禾鲫/河虾/黄昏鱼）。鱼苗不直接进背包，弹「放回河里/带回去」。
-    // 独立随机：鱼苗判定与物种判定互不影响，保持原物种概率表不变。
-    if (Math.random() < MapScene.FISHING_CONFIG.fryChance) {
-      this.currentFish = 'qinghe_fry';
-      return;
-    }
-    // 普通钓点（town）物种表（v1.3 生态分层 + 普通特殊鱼，制作人 2026-08-15 拍板）：
-    //   鲤鱼：全天低概率 8%（生态常客）
-    //   河鳗：夜间 19:00-23:00 为主（55%）
-    //   大青鱼：黄昏 17:00-19:00（35%）；黄昏鱼 15%；河虾 15%
-    //   白天 8-17：河虾 30%；其余时段青禾鲫兜底
-    const r = Math.random();
-    if (r < 0.08) {
-      this.currentFish = 'common_carp'; // 鲤鱼：全天低概率
-      return;
-    }
-    if (h >= 19 && h < 23) {
-      this.currentFish = r < 0.55 ? 'river_eel' : 'qinghe_crucian';
-      return;
-    }
-    if (h >= 17 && h < 19) {
-      if (r < 0.35) this.currentFish = 'big_blue_fish';
-      else if (r < 0.50) this.currentFish = 'dusk_fish';
-      else if (r < 0.65) this.currentFish = 'river_shrimp';
-      else this.currentFish = 'qinghe_crucian';
-      return;
-    }
-    if (h >= 17 && h < 20 && r < 0.15) {
-      this.currentFish = 'dusk_fish';
-    } else if (h >= 8 && h < 17 && r < 0.30) {
-      this.currentFish = 'river_shrimp';
-    } else {
-      this.currentFish = 'qinghe_crucian';
-    }
-  }
-
   /**
    * 钓鱼 Phase 4：NPC 交换配置（一对一、单跳、每 NPC 一次性；《可流动资源设计》§4.2）。
    * 回报：夏雅=次日河边小场景+相簿；商店=归星记录热汤；小梅=farm 花田旁小饭桌；老张=house 门轴+elder_house 夜灯。
@@ -3362,62 +3502,12 @@ this.setupFieldLife();
     this.fishingSpotPos = { ...spot.pos };
     this.floatPos = { ...spot.floatPos };
 
-    // ═══════════ 钓点视觉（2026-08-14 美术增强：水岸一体，更显眼）═══════════
-    // 岸上：木桩 + 斜插钓竿 + 鱼线垂向水面（"这里可以钓鱼"）
-    const bank = this.add.container(this.fishingSpotPos.x, this.fishingSpotPos.y).setDepth(4);
-    const marker = this.add.graphics();
-    // 木桩（深棕，桩顶高光 + 桩底阴影）
-    marker.fillStyle(0x5b4226, 1); marker.fillRect(-8, -13, 4, 15);
-    marker.fillStyle(0x6e4a2c, 1); marker.fillRect(-7, -13, 3, 2);
-    marker.fillStyle(0x3a2a18, 0.55); marker.fillRect(-7, 0, 3, 3);
-    // 斜插钓竿（竿身向右上斜，鱼线垂下）
-    marker.fillStyle(0x8a6a45, 1); marker.fillRect(-2, -15, 2, 12);
-    marker.fillStyle(0xa8825a, 1); marker.fillRect(0, -16, 2, 2);
-    marker.lineStyle(1, 0xe8e8e8, 0.55); marker.lineBetween(1, -16, 9, -7);
-    marker.fillStyle(0xc8c8c8, 0.95); marker.fillTriangle(8, -6, 6, -8, 10, -8);
-    bank.add(marker);
-    // 岸边草簇（生活感，锚定岸线）
-    const bankGrass = this.add.graphics();
-    bankGrass.fillStyle(0x5a8a4a, 1); bankGrass.fillRect(-13, 3, 2, 5);
-    bankGrass.fillRect(-15, 2, 2, 4); bankGrass.fillRect(-10, 4, 2, 4);
-    bankGrass.fillStyle(0x6a9a56, 0.8); bankGrass.fillRect(-14, 3, 1, 3);
-    bank.add(bankGrass);
-
-    // 水面：常驻红白浮漂 + 涟漪 + 光斑（浮漂落点；钓鱼开始后隐藏，避免与钓鱼浮漂重叠）
-    const water = this.add.container(this.floatPos.x, this.floatPos.y).setDepth(5);
-    this.fishingSpotWaterMark = water;
-    const bob = this.add.container(0, 0);
-    bob.add(this.add.ellipse(0, 0, 6, 6, 0xffffff, 1));
-    bob.add(this.add.ellipse(0, -3, 4, 3, 0xd03020, 1));
-    water.add(bob);
-    this.tweens.add({ targets: bob, y: { from: -1, to: 1 }, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    // 常驻小涟漪
-    const ripple = this.add.ellipse(0, 1, 12, 4, 0x88c8e0, 0.16);
-    water.add(ripple);
-    this.tweens.add({
-      targets: ripple,
-      scaleX: { from: 0.8, to: 1.4 }, scaleY: { from: 0.7, to: 1.1 },
-      alpha: { from: 0.16, to: 0.02 },
-      duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.easeOut',
-    });
-    // 周期性扩散脉冲（"水里有东西"）
-    const pulse = this.add.ellipse(0, 0, 8, 3, 0xa8d8e8, 0.35);
-    pulse.setVisible(false);
-    water.add(pulse);
-    this.time.addEvent({ delay: 2600, loop: true, callback: () => {
-      pulse.setVisible(true).setAlpha(0.35).setScale(0.6, 0.6);
-      this.tweens.add({
-        targets: pulse, scaleX: 3, scaleY: 2.2, alpha: 0,
-        duration: 1200, ease: 'Sine.easeOut', onComplete: () => pulse.setVisible(false),
-      });
-    } });
-    // 水面光斑（间歇闪烁）
-    const glints = this.add.graphics();
-    glints.fillStyle(0xfff4d8, 0.8);
-    glints.fillRect(-7, -5, 1, 1); glints.fillRect(6, 5, 1, 1);
-    glints.fillRect(3, -8, 1, 1); glints.fillRect(-4, 7, 1, 1);
-    water.add(glints);
-    this.tweens.add({ targets: glints, alpha: { from: 0.12, to: 0.85 }, duration: 900, yoyo: true, repeat: -1, delay: 400 });
+    // P5a: 视觉创建委托给 FishingController（条件判断留在 MapScene）
+    const hideWaterMark = this.mapKey === 'town' && hasTriggered('laojiang_practice_done');
+    const { waterMark } = this.fishingController.createFishingSpotVisual(
+      this.fishingSpotPos, this.floatPos, hideWaterMark,
+    );
+    this.fishingSpotWaterMark = waterMark;
   }
 
   /**
@@ -3444,55 +3534,14 @@ this.setupFieldLife();
     }
   }
 
-  /** 显示钓鱼靠近提示（DOM） */
+  /** 显示钓鱼靠近提示（DOM）— P5b 委托给 FishingController */
   private showFishingHint(): void {
-    if (this.fishingInteractHint) return;
-    const hint = document.createElement('div');
-    Object.assign(hint.style, {
-      position: 'fixed', bottom: '180px', left: '50%',
-      transform: 'translateX(-50%)', color: '#ffffff', fontSize: '13px',
-      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
-      zIndex: '400', pointerEvents: 'none',
-      textShadow: '0 0 4px rgba(0,0,0,0.8)',
-    });
-    hint.textContent = isMobileLayout() ? '点击「交互」钓鱼' : '按 [E] 钓鱼';
-    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
-    document.body.appendChild(hint);
-    this.fishingInteractHint = hint;
+    this.fishingController.showFishingInteractHint(isMobileLayout());
   }
 
-  /** 隐藏钓鱼靠近提示 */
+  /** 隐藏钓鱼靠近提示 — P5b 委托给 FishingController */
   private hideFishingHint(): void {
-    if (this.fishingInteractHint) {
-      this.fishingInteractHint.remove();
-      this.fishingInteractHint = null;
-    }
-  }
-
-  /** 显示收竿窗口提示（DOM，仅 realBite 状态） */
-  private showFishingReelHint(): void {
-    if (this.fishingReelHint) return;
-    const hint = document.createElement('div');
-    Object.assign(hint.style, {
-      position: 'fixed', bottom: '180px', left: '50%',
-      transform: 'translateX(-50%)', color: '#ffd98a', fontSize: '15px',
-      background: 'rgba(0,0,0,0.75)', padding: '8px 20px', borderRadius: '6px',
-      zIndex: '401', pointerEvents: 'none',
-      textShadow: '0 0 6px rgba(255,180,80,0.6)',
-      fontWeight: 'bold',
-    });
-    hint.textContent = isMobileLayout() ? '快点击「交互」收竿！' : '快按 [E] 收竿！';
-    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
-    document.body.appendChild(hint);
-    this.fishingReelHint = hint;
-  }
-
-  /** 隐藏收竿窗口提示 */
-  private hideFishingReelHint(): void {
-    if (this.fishingReelHint) {
-      this.fishingReelHint.remove();
-      this.fishingReelHint = null;
-    }
+    this.fishingController.hideFishingInteractHint();
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -3526,29 +3575,14 @@ this.setupFieldLife();
     }
   }
 
-  /** 显示老姜靠近提示（DOM，对齐 fishingInteractHint 范式） */
+  /** 显示老姜靠近提示（DOM）— P5b 委托给 FishingController */
   private showLaoJiangHint(): void {
-    if (this.laoJiangHint) return;
-    const hint = document.createElement('div');
-    Object.assign(hint.style, {
-      position: 'fixed', bottom: '180px', left: '50%',
-      transform: 'translateX(-50%)', color: '#ffd98a', fontSize: '13px',
-      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
-      zIndex: '400', pointerEvents: 'none',
-      textShadow: '0 0 4px rgba(0,0,0,0.8)',
-    });
-    hint.textContent = isMobileLayout() ? '点击「交互」和老姜聊聊' : '按 [E] 和老姜聊聊';
-    hint.classList.add('hint-interact'); // 2026-08-16 兜底清扫标记（hideAllInteractHints 强制移除残留）
-    document.body.appendChild(hint);
-    this.laoJiangHint = hint;
+    this.fishingController.showLaoJiangHint(isMobileLayout());
   }
 
-  /** 隐藏老姜靠近提示 */
+  /** 隐藏老姜靠近提示 — P5b 委托给 FishingController */
   private hideLaoJiangHint(): void {
-    if (this.laoJiangHint) {
-      this.laoJiangHint.remove();
-      this.laoJiangHint = null;
-    }
+    this.fishingController.hideLaoJiangHint();
   }
 
   /**
@@ -3565,11 +3599,9 @@ this.setupFieldLife();
     const lines = this.buildLaoJiangDialogue();
     if (!lines.length) return false;
     this.hideLaoJiangHint();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(lines, () => {
+    return this.playStory(lines, () => {
       this.updateHUD();
-    });
-    return true;
+    }, undefined, 'lao_jiang');
   }
 
   /**
@@ -3637,6 +3669,7 @@ this.setupFieldLife();
     ) {
       triggerOnce('laojiang_practice_done', () => {
         addItem('old_fishing_rod', 1);
+        this.clearFishingSpotWaterMark();
       });
       persist();
       return [
@@ -3706,22 +3739,11 @@ this.setupFieldLife();
   private tryFishingInteract(): boolean {
     if (!MapScene.FISHING_SPOTS[this.mapKey]) return false;
 
-    // 钓鱼中：按 E = 收竿判定
+    // 钓鱼中：按 E = 收竿判定 (委托给 FishingController)
     if (this.fishingState !== 'idle') {
       // 仅 realBite / fakeBite 状态收竿有效（其它状态忽略）
-      if (this.fishingState === 'realBite') {
-        this.inputManager.clearAction();
-        this.onFishingSuccess();
-        return true;
-      }
-      if (this.fishingState === 'fakeBite') {
-        // 试探期间收竿 = 过早（鱼跑掉）
-        this.inputManager.clearAction();
-        this.onFishingFail('early');
-        return true;
-      }
-      // casting / waiting / success / fail 期间按 E 忽略（避免打断动画）
-      return false;
+      // FishingController.tryFishingInteract() 内部已实现此逻辑
+      return this.fishingController.tryFishingInteract();
     }
 
     // idle：检测靠近钓点
@@ -3734,359 +3756,27 @@ this.setupFieldLife();
     if (this.storyDialogue?.isOpen()) return false;
 
     this.inputManager.clearAction();
-    this.startFishing();
+    // 启动钓鱼 (委托给 FishingController)
+    this.fishingController.startFishing();
     return true;
   }
 
   /**
-   * 启动钓鱼循环：idle → casting。
-   * 创建视觉容器 + 播放甩竿音效 + 0.8s 后进入 waiting。
-   */
-  private startFishing(): void {
-    this.fishingState = 'casting';
-    this.hideFishingHint();
-    this.pickCurrentFish();
-    // 钓点常驻水面标识隐藏，避免与钓鱼浮漂重叠（endFishing 恢复）
-    this.fishingSpotWaterMark?.setVisible(false);
-    play('fish_cast');
-
-    // 创建钓鱼视觉容器（浮漂 + 鱼线）
-    const container = this.add.container(this.floatPos.x, this.floatPos.y).setDepth(5);
-    // 浮漂（红白色小圆点）
-    const float = this.add.ellipse(0, 0, 6, 6, 0xffffff, 1);
-    const floatTop = this.add.ellipse(0, -3, 4, 3, 0xd03020, 1);
-    // 浮漂轻微上下浮动（"等待中的轻微变化"——施工规范 §8.1）
-    this.tweens.add({
-      targets: float,
-      y: { from: 0, to: -1 },
-      duration: 1200,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-    container.add([float, floatTop]);
-
-    // 鱼线（从钓点到浮漂的细线）
-    const line = this.add.graphics();
-    line.lineStyle(1, 0xffffff, 0.3);
-    line.lineBetween(
-      this.fishingSpotPos.x - this.floatPos.x,
-      this.fishingSpotPos.y - this.floatPos.y,
-      0, 0,
-    );
-    container.add(line);
-
-    // 水面波纹（浮漂周围，钓鱼中常驻）
-    const ripple = this.add.ellipse(0, 0, 14, 5, 0x88c8e0, 0.15);
-    this.tweens.add({
-      targets: ripple,
-      scaleX: { from: 0.8, to: 1.4 },
-      scaleY: { from: 0.5, to: 0.8 },
-      alpha: { from: 0.15, to: 0.02 },
-      duration: 1500,
-      yoyo: true,
-      repeat: -1,
-    });
-    container.add(ripple);
-
-    this.fishingVisuals = container;
-
-    // 0.8s 后进入等待
-    this.time.delayedCall(MapScene.FISHING_CONFIG.castDuration * 1000, () => {
-      if (this.fishingState === 'casting') this.enterWaiting();
-    });
-  }
-
-  /** 进入等待状态：随机 2~5s 后决定 fakeBite(30%) 或 realBite(70%) */
-  private enterWaiting(): void {
-    this.fishingState = 'waiting';
-    const kind = MapScene.FISH_KINDS[this.currentFish];
-    const delayMs = (kind.biteDelayMin + Math.random() * (kind.biteDelayMax - kind.biteDelayMin)) * 1000;
-    this.time.delayedCall(delayMs, () => {
-      if (this.fishingState !== 'waiting') return; // 状态已被打断（切场景等）
-      if (Math.random() < kind.fakeBiteProbability) {
-        this.enterFakeBite();
-      } else {
-        this.enterRealBite();
-      }
-    });
-  }
-
-  /**
-   * 试探假动作（行为 B）：浮漂轻下沉 0.4s → 恢复 0.3s → 真咬钩。
-   * 期间玩家收竿 = 过早失败（鱼跑了）。
-   */
-  private enterFakeBite(): void {
-    this.fishingState = 'fakeBite';
-    play('fish_fake_bite');
-    // 浮漂轻下沉（动画）
-    const float = this.fishingVisuals?.getAt(0) as Phaser.GameObjects.Ellipse | null;
-    if (float) {
-      this.tweens.add({
-        targets: float,
-        y: 4,
-        duration: MapScene.FISHING_CONFIG.fakeBiteDuration * 1000,
-        ease: 'Sine.easeIn',
-      });
-    }
-    // 0.4s 下沉 + 0.3s 恢复 = 0.7s 后转真咬钩
-    this.time.delayedCall(
-      (MapScene.FISHING_CONFIG.fakeBiteDuration + MapScene.FISHING_CONFIG.fakeBiteRecoverDuration) * 1000,
-      () => {
-        if (this.fishingState !== 'fakeBite') return; // 玩家已收竿（失败）或状态被打断
-        // 浮漂恢复原位
-        if (float) {
-          this.tweens.add({
-            targets: float,
-            y: 0,
-            duration: MapScene.FISHING_CONFIG.fakeBiteRecoverDuration * 1000,
-            ease: 'Sine.easeOut',
-          });
-        }
-        this.enterRealBite();
-      },
-    );
-  }
-
-  /**
-   * 真咬钩：浮漂明显下沉 + 显示收竿提示 + 0.8s 收竿窗口。
-   * - 窗口内玩家收竿 → 成功
-   * - 窗口结束未收 → 失败（鱼跑了）
-   */
-  private enterRealBite(): void {
-    this.fishingState = 'realBite';
-    play('fish_real_bite');
-    // 浮漂明显下沉
-    const float = this.fishingVisuals?.getAt(0) as Phaser.GameObjects.Ellipse | null;
-    if (float) {
-      this.tweens.add({
-        targets: float,
-        y: 8,
-        duration: 200,
-        ease: 'Sine.easeIn',
-      });
-    }
-    // 显示收竿提示
-    this.showFishingReelHint();
-    // 0.8s 收竿窗口
-    this.time.delayedCall(MapScene.FISHING_CONFIG.realBiteWindow * 1000, () => {
-      if (this.fishingState === 'realBite') {
-        // 窗口结束未收竿 = 失败（鱼跑了）
-        this.onFishingFail('timeout');
-      }
-    });
-  }
-
-  /**
-   * 钓鱼成功：普通鱼 Inventory +1 + 0.7s 反馈（水花/鱼跳出/音效） → idle。
-   * 生态分层 v1.3（制作人拍板方向）：小鱼苗（qinghe_fry）不直接进背包——弹「放回河里/带回去」，
-   * 不再每次收竿都做选择（普通鱼直接收下，只有低概率鱼苗事件才暂停）。
-   */
-  private onFishingSuccess(): void {
-    this.fishingState = 'success';
-    this.hideFishingReelHint();
-    play('fish_success');
-
-    // 生态分层 v1.3：鱼苗不直接进背包（走特殊事件）；普通鱼 Inventory +1
-    const isFry = this.currentFish === 'qinghe_fry';
-    if (!isFry) {
-      addItem(this.currentFish, 1);
-    }
-
-    // 视觉反馈：浮漂快速下沉 + 水花扩散 + 鱼跳出
-    const container = this.fishingVisuals;
-    if (container) {
-      const float = container.getAt(0) as Phaser.GameObjects.Ellipse | null;
-      if (float) {
-        this.tweens.add({
-          targets: float,
-          y: 14,
-          duration: 150,
-          ease: 'Sine.easeIn',
-        });
-      }
-      // 水花扩散（两个圆环先后扩散消失）
-      const splash1 = this.add.ellipse(0, 0, 10, 4, 0xa8d8e8, 0.7);
-      container.add(splash1);
-      this.tweens.add({
-        targets: splash1,
-        scaleX: 3, scaleY: 2,
-        alpha: 0,
-        duration: 400,
-        ease: 'Sine.easeOut',
-      });
-      const splash2 = this.add.ellipse(0, 0, 8, 3, 0x88c8e0, 0.5);
-      container.add(splash2);
-      this.tweens.add({
-        targets: splash2,
-        scaleX: 4, scaleY: 2.5,
-        alpha: 0,
-        duration: 500,
-        delay: 100,
-        ease: 'Sine.easeOut',
-      });
-      // 鱼跳出水面（按鱼种配色的鱼形：青禾鲫银灰/河虾橙红/黄昏鱼橙金/月光鲈银白带月晕/河鳗青黑/鲤鱼金红/大青鱼青蓝/鱼苗半透明青白）
-      const FISH_BODY: Record<string, { body: number; stripe?: number }> = {
-        qinghe_crucian: { body: 0xc8c8d0 },
-        river_shrimp: { body: 0xe08a50 },
-        dusk_fish: { body: 0xf0a030 },
-        moon_bass: { body: 0xd8e8f0, stripe: 0x88c8e8 },
-        river_eel: { body: 0x4a5a3a },
-        common_carp: { body: 0xe0a030, stripe: 0xc87820 },
-        big_blue_fish: { body: 0x4a6a8a },
-        qinghe_fry: { body: 0xbfe0e0 },
-      };
-      const fc = FISH_BODY[this.currentFish] ?? { body: 0xc0c0c0 };
-      const fish = this.add.graphics();
-      fish.fillStyle(fc.body, 1);
-      fish.fillEllipse(0, 0, 9, 4);          // 鱼身
-      fish.fillTriangle(-5, -1, -8, 0, -5, 1); // 尾鳍
-      fish.fillStyle(0x202020, 0.9);
-      fish.fillCircle(3.5, -0.5, 0.7);       // 眼睛
-      if (fc.stripe) {
-        fish.fillStyle(fc.stripe, 0.7);
-        fish.fillRect(-3, -1.5, 1.5, 3);     // 月光鲈月晕纹
-      }
-      container.add(fish);
-      this.tweens.add({
-        targets: fish,
-        y: -20,
-        duration: 300,
-        yoyo: true,
-        ease: 'Sine.easeOut',
-        onComplete: () => {
-          fish.destroy();
-        },
-      });
-    }
-
-    if (isFry) {
-      // 小鱼苗特殊事件：不弹"钓到"浮字，0.32s 后弹「放回河里/带回去」（生态分层 v1.3）
-      this.time.delayedCall(320, () => {
-        if (this.fishingState !== 'success') return; // 已被打断（切场景等）
-        this.presentFryReleaseChoice();
-      });
-    } else {
-      // 获得提示浮字（任务卡 §十 P1：小型获得提示）
-      this.showDialogueText(`钓到一条${MapScene.FISH_KINDS[this.currentFish].name}。`);
-    }
-
-    // 0.7s 后回到 idle（可立即重试）
-    this.time.delayedCall(MapScene.FISHING_CONFIG.successFeedbackDuration * 1000, () => {
-      this.endFishing();
-    });
-  }
-
-  /**
-   * 钓鱼失败：reason='early'（试探期间收竿）/ 'timeout'（错过收竿窗口）。
-   * 任务卡 §二.5 + §九 + §十二：失败不扣血/金币/鱼饵/冷却，立即允许重试。
-   */
-  private onFishingFail(reason: 'early' | 'timeout'): void {
-    this.fishingState = 'fail';
-    this.hideFishingReelHint();
-
-    // 失败反馈：浮漂恢复 + 简短水花 + 极轻音效（施工规范 §九 情况 A）
-    // reason 区分：early=试探期间收竿 / timeout=错过窗口（视觉差异化，见下 tween）
-    const container = this.fishingVisuals;
-    if (container) {
-      const float = container.getAt(0) as Phaser.GameObjects.Ellipse | null;
-      if (float) {
-        // early=浮漂快速抖动（玩家太急）/ timeout=浮漂缓慢沉下（鱼游走）——视觉区分失败原因
-        if (reason === 'early') {
-          this.tweens.add({
-            targets: float,
-            y: -3,
-            duration: 80,
-            yoyo: true,
-            repeat: 1,
-            ease: 'Sine.easeOut',
-            onComplete: () => { float.y = 0; },
-          });
-        } else {
-          this.tweens.add({
-            targets: float,
-            y: 0,
-            duration: 200,
-            ease: 'Sine.easeOut',
-          });
-        }
-      }
-      const splash = this.add.ellipse(0, 0, 6, 2, 0x88c8e0, 0.4);
-      container.add(splash);
-      this.tweens.add({
-        targets: splash,
-        scaleX: 2, scaleY: 1.5,
-        alpha: 0,
-        duration: 300,
-        ease: 'Sine.easeOut',
-      });
-    }
-
-    // 0.4s 后回到 idle（立即允许重试）
-    this.time.delayedCall(MapScene.FISHING_CONFIG.failFeedbackDuration * 1000, () => {
-      this.endFishing();
-    });
-  }
-
-  /**
-   * 结束钓鱼循环：清理视觉 + 复位状态机。
-   * 玩家保持原地，可立即再次按 E 钓鱼（任务卡 §二.5：失败立即允许重试；成功亦同）。
-   */
-  private endFishing(): void {
-    // 恢复钓点常驻水面标识
-    this.fishingSpotWaterMark?.setVisible(true);
-    if (this.fishingVisuals) {
-      // 淡出后销毁
-      const v = this.fishingVisuals;
-      this.tweens.add({
-        targets: v,
-        alpha: 0,
-        duration: 200,
-        onComplete: () => v.destroy(),
-      });
-      this.fishingVisuals = null;
-    }
-    this.fishingState = 'idle';
-  }
-
-  /**
-   * 放生当前鱼（钓鱼生态化 v1.3）：仅小鱼苗事件调用——首次放生记天（mapFlags 持久）→ 2 天后河面鱼影 + 老姜台词。
-   * 零奖励、纯氛围——世界记得玩家的行为（《可流动资源设计》放生流向；制作人拍板 v1.2 第 3 项）。
+   * 放生当前鱼：委托给 FishingController
+   * P5d: 物理搬迁至 FishingController
    */
   private releaseCurrentFish(): void {
-    const kind = MapScene.FISH_KINDS[this.currentFish];
-    setItemCount(this.currentFish, Math.max(0, getItemCount(this.currentFish) - 1));
-    if (this.fishReleaseDay < 0) {
-      this.fishReleaseDay = getTime().day; // 首次放生记天（EventSystem 契约：flag 先写，save 在后）
-    }
-    save({
-      x: this.player.x, y: this.player.y,
-      scene: this.mapKey, facing: this.player.facing,
-    } as any);
-    // 放生水花（浮漂位置，小圆扩散）
-    if (this.fishingVisuals) {
-      const ripple = this.add.ellipse(0, 0, 10, 4, 0xa8d8e8, 0.5);
-      this.fishingVisuals.add(ripple);
-      this.tweens.add({ targets: ripple, scaleX: 3, scaleY: 2, alpha: 0, duration: 500, ease: 'Sine.easeOut' });
-    }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(
-      [
-        { speaker: '', color: COLORS.system, text: `（你把${kind.name}放回河里。它摆了一下尾巴，游走了。）` },
-      ],
-      () => this.updateHUD(),
-    );
-    this.updateHUD();
+    this.fishingController.releaseCurrentFish();
   }
 
   /**
-   * 小鱼苗特殊事件（生态分层 v1.3）：钓到还没准备好离开河流的小鱼 → 玩家决定它的去向。
-   * 放回 → 记天（世界记得）；带走 → 收藏/研究（青禾鱼苗进背包，不可售，无惩罚）。
-   * 关键：没有正确答案——两种选择都是"参与了这个世界"。
+   * 小鱼苗特殊事件：委托给 FishingController
+   * P5d: 物理搬迁至 FishingController
    */
   private presentFryReleaseChoice(): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(
+    // 鱼苗选择对话框
+
+    this.playStory(
       [
         { speaker: '', color: COLORS.system, text: '（手里的小鱼还很小，好像还没准备好离开河流。）' },
         { speaker: '', color: COLORS.system, text: '', options: ['放回河里', '带回去'] },
@@ -4102,26 +3792,14 @@ this.setupFieldLife();
     );
   }
 
-  /** 小鱼苗「带回去」：青禾鱼苗进背包（收藏/研究，不可售），不记放生天、无惩罚 */
+  /** 小鱼苗「带回去」：委托给 FishingController */
   private keepCurrentFry(): void {
-    addItem('qinghe_fry', 1);
-    save({
-      x: this.player.x, y: this.player.y,
-      scene: this.mapKey, facing: this.player.facing,
-    } as any);
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(
-      [
-        { speaker: '', color: COLORS.system, text: '（你小心地把小鱼苗放进水罐。它的尾巴轻轻晃了晃。）' },
-      ],
-      () => this.updateHUD(),
-    );
-    this.updateHUD();
+    this.fishingController.keepCurrentFry();
   }
 
-  /** 放生彩蛋生效判定：已放生且满 2 天（河面鱼影 + 老姜台词开启） */
+  /** 放生彩蛋生效判定：委托给 FishingController */
   private fishShadowsActive(): boolean {
-    return this.fishReleaseDay >= 0 && getTime().day - this.fishReleaseDay >= 2;
+    return this.fishingController.isFishShadowsActive();
   }
 
   /**
@@ -4132,49 +3810,33 @@ this.setupFieldLife();
     if (this.mapKey !== 'town') return;
     if (!this.fishShadowsActive()) return;
     if (this.releasedFishGfx) return; // 幂等：同一场景实例内不重复创建
+    // P5a: 视觉创建委托给 FishingController（条件判断留在 MapScene）
     const T = TILE_SIZE;
-    const container = this.add.container(0, 0).setDepth(4);
-    // 河面鱼影位置（S6 老河堤水面，避开浮漂/钓点交互物）
     const spots: Array<{ x: number; y: number; speed: number; phase: number }> = [
       { x: 2.6 * T, y: 13.2 * T, speed: 3400, phase: 0 },
       { x: 3.6 * T, y: 14.0 * T, speed: 4200, phase: 1.2 },
       { x: 2.0 * T, y: 14.6 * T, speed: 3000, phase: 2.1 },
       { x: 4.0 * T, y: 12.6 * T, speed: 3800, phase: 0.6 },
     ];
-    for (const s of spots) {
-      const fish = this.add.graphics();
-      fish.fillStyle(0x2a4a5a, 0.35);
-      fish.fillEllipse(0, 0, 8, 3);            // 鱼身（水影）
-      fish.fillTriangle(-4, -1, -7, 0, -4, 1); // 尾鳍
-      fish.setPosition(s.x, s.y);
-      container.add(fish);
-      // 缓慢左右游动 + 轻微上下（"水里的影子"）
-      this.tweens.add({
-        targets: fish,
-        x: { from: s.x - 5, to: s.x + 5 },
-        y: { from: s.y - 1, to: s.y + 1 },
-        duration: s.speed,
-        yoyo: true,
-        repeat: -1,
-        delay: s.phase * 800,
-        ease: 'Sine.easeInOut',
-      });
-    }
-    this.releasedFishGfx = container;
+    this.releasedFishGfx = this.fishingController.createReleasedFishShadows(spots);
   }
 
   /**
    * 钓鱼资源清理（shutdown 调用）：视觉容器销毁 + DOM hint 移除 + 状态机复位。
-   * 防场景切换残留（与 hideOldTreeHint / hideHouseTidyHint 同范式）。
+   * 委托给 FishingController.forceCancelFishing()
    */
   private cleanupFishing(): void {
-    this.fishingState = 'idle';
-    if (this.fishingVisuals) {
-      this.fishingVisuals.destroy();
-      this.fishingVisuals = null;
-    }
-    this.hideFishingHint();
-    this.hideFishingReelHint();
+    this.fishingController.forceCancelFishing();
+    // 注意：forceCancelFishing 已经处理了：
+    // 1. 状态复位为 idle
+    // 2. 视觉容器销毁
+    // 3. DOM 提示清理
+  }
+
+  /** 移除钓点常驻浮漂（钓鱼修行完成后不再显示引导性特效）。 */
+  private clearFishingSpotWaterMark(): void {
+    this.fishingSpotWaterMark?.destroy();
+    this.fishingSpotWaterMark = null;
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -4362,14 +4024,14 @@ this.setupFieldLife();
     if (hasTriggered(EVENT)) return false;
     if (getItemCount('small_flower') <= 0) return false;
     cleanup();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     save({
       x: this.player.x, y: this.player.y,
       scene: this.mapKey, facing: this.player.facing,
       dailyQuest: getDailyQuestSaveData(),
     } as any);
     const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
-    this.storyDialogue.play(
+    this.playStory(
       [
         narrator('（夏雅接过小野花，捧在手心看了很久。）'),
         { speaker: '夏雅', color: COLORS.xiya, text: '这花……是林间的小野花吧？' },
@@ -4402,13 +4064,13 @@ this.setupFieldLife();
     const fishEx = this.buildFishExchangeDialogue({ id: 'xiya' } as NPC);
     if (!fishEx) return false;
     cleanup();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     save({
       x: this.player.x, y: this.player.y,
       scene: this.mapKey, facing: this.player.facing,
       dailyQuest: getDailyQuestSaveData(),
     } as any);
-    this.storyDialogue.play(fishEx.lines, () => this.updateHUD(), (i: number) => {
+    this.playStory(fishEx.lines, () => this.updateHUD(), (i: number) => {
       if (i === 0) this.doFishExchange('xiya');
       this.updateHUD();
     });
@@ -4428,8 +4090,8 @@ this.setupFieldLife();
     if (dx * dx + dy * dy > 56 * 56) return;
     triggerOnce('fish_xiya_riverside', () => {
       unlockPhoto('xiya_dried_fruit');
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play([
+
+      this.playStory([
         { speaker: '', color: COLORS.system, text: '（第二天。长椅旁，夏雅已经坐在那里了。）' },
         { speaker: '夏雅', color: COLORS.xiya, text: '来了？坐。' },
         { speaker: '林澈', color: COLORS.linche, text: '（坐下来，接过果干咬了一口）嗯，甜。' },
@@ -4445,13 +4107,8 @@ this.setupFieldLife();
   /** 钓鱼 Phase 4：小梅收河虾后，farm 花田旁摆小饭桌（Graphics 程序绘制，零素材） */
   private setupFishTable(): void {
     if (!hasTriggered('fish_exchange_gardener')) return;
-    const T = TILE_SIZE;
-    const x = 31 * T + T / 2, y = 10 * T + T / 2;
-    const g = this.add.graphics().setDepth(3);
-    g.fillStyle(0x8a5a30, 1); g.fillRect(x - 12, y - 2, 24, 3);        // 桌面
-    g.fillStyle(0x6e4624, 1); g.fillRect(x - 11, y - 5, 2, 3); g.fillRect(x + 9, y - 5, 2, 3); // 桌腿
-    g.fillStyle(0xe08040, 1); g.fillRect(x - 8, y - 5, 3, 3); g.fillRect(x - 2, y - 6, 3, 3); g.fillRect(x + 4, y - 5, 3, 3); // 果干
-    g.fillStyle(0x9a6a3a, 1); g.fillRect(x + 17, y - 1, 8, 2);          // 小凳
+    // P5a: 视觉创建委托给 FishingController
+    this.fishingController.createFishTable();
   }
 
   /**
@@ -4686,11 +4343,8 @@ this.setupFieldLife();
   /** 钓鱼 Phase 4：老张收黄昏鱼后，house 老屋门轴修好（门旁暖色木钮 + 微光） */
   private setupFishDoorHinge(): void {
     if (!hasTriggered('fish_exchange_miner')) return;
-    const T = TILE_SIZE;
-    const x = 10 * T + T / 2, y = 13.5 * T;
-    const g = this.add.graphics().setDepth(4);
-    g.fillStyle(0xc8a060, 1); g.fillCircle(x, y, 3);
-    g.fillStyle(0xffe0a0, 0.45); g.fillCircle(x, y, 5);
+    // P5a: 视觉创建委托给 FishingController
+    this.fishingController.createFishDoorHinge();
   }
 
   /** 钓鱼 Phase 4：阿风收黄昏鱼后，晚上河边生火烤鱼（"这次不会糊"；零素材 Graphics，S6 老河堤岸线） */
@@ -4698,17 +4352,8 @@ this.setupFieldLife();
     if (!hasTriggered('fish_exchange_adventurer')) return;
     const h = getTime().hour;
     if (h >= 6 && h < 18) return; // 阿风说"晚上来"——夜晚才出现
-    const T = TILE_SIZE;
-    // S6 老河堤岸线（长椅 (5,15) 附近草地）
-    const x = 7 * T + T / 2, y = 16 * T + T / 2;
-    const g = this.add.graphics().setDepth(3);
-    g.fillStyle(0x4a3626, 1); g.fillRect(x - 7, y + 1, 14, 3);          // 柴堆底
-    g.fillStyle(0x6e4624, 1); g.fillRect(x - 4, y - 2, 2, 4); g.fillRect(x + 2, y - 2, 2, 4); // 立柴
-    g.fillStyle(0xe07030, 1); g.fillCircle(x, y - 3, 3);                // 火苗外圈
-    g.fillStyle(0xffa040, 1); g.fillCircle(x, y - 4, 2);                // 火苗中
-    g.fillStyle(0xffe080, 1); g.fillCircle(x, y - 5, 1);                // 火苗心
-    const glow = this.add.ellipse(x, y - 2, 44, 30, 0xffa050, 0.18).setDepth(2);
-    this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.24 }, duration: 800, yoyo: true, repeat: -1 });
+    // P5a: 视觉创建委托给 FishingController
+    this.fishingController.createAdventurerCampfire();
   }
 
   /**
@@ -4985,35 +4630,8 @@ this.setupFieldLife();
    */
   private setupTownDensityClusters(): void {
     if (this.mapKey !== 'town') return;
-    const T = TILE_SIZE;
-    const clusters: [number, number][] = [
-      [12, 9], [22, 9], [28, 9], [37, 9], [43, 10], [45, 8],
-      [8, 22], [9, 21], [10, 20], [16, 19], [30, 19], [28, 13],
-      [43, 19], [12, 21], [18, 23], [26, 24],
-    ];
-    for (const [cx, cy] of clusters) {
-      const x = cx * T + T / 2, y = cy * T + T / 2;
-      const g = this.add.graphics().setDepth(3);
-      // 草簇（2-3 株，竖线）
-      g.fillStyle(0x5a8a4a, 1);
-      for (let i = 0; i < 3; i++) g.fillRect(x - 6 + i * 4, y - 1, 1, 5 + (i % 2) * 2);
-      const kind = (cx + cy) % 4;
-      if (kind === 0) {
-        // 黄花
-        g.fillStyle(0xe8b040, 1); g.fillRect(x + 3, y - 2, 1, 1); g.fillRect(x + 6, y - 1, 1, 1);
-      } else if (kind === 1) {
-        // 粉花
-        g.fillStyle(0xd860a0, 1); g.fillRect(x - 8, y - 2, 1, 1); g.fillRect(x + 4, y - 3, 1, 1);
-      } else if (kind === 2) {
-        // 小灌木
-        g.fillStyle(0x4a7a38, 1); g.fillCircle(x + 5, y, 3);
-        g.fillStyle(0x639922, 0.9); g.fillCircle(x + 6, y - 1, 2);
-      } else {
-        // 石头
-        g.fillStyle(0x9a9aa2, 1); g.fillCircle(x - 5, y, 2);
-        g.fillStyle(0xb8b8c0, 0.7); g.fillCircle(x - 6, y - 1, 1);
-      }
-    }
+    // P4: 物理搬迁到 WorldDecorator
+    this.worldDecorator.decorateTownDensityClusters();
   }
 
   /**
@@ -5027,64 +4645,12 @@ this.setupFieldLife();
    */
   private setupCentralPlaza(): void {
     if (this.mapKey !== 'town') return;
-    const T = TILE_SIZE;
-    const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
-
-    // ① 西北角石井（世界 344,256：NW 石角，距木匠站位 28px）
-    {
-      const [x, y] = px(21, 15.5);
-      const g = this.add.graphics().setDepth(3);
-      // 井台（石环：外圈灰 + 内孔暗 + 高光）
-      g.fillStyle(0x8a8a92, 1); g.fillEllipse(x, y, 20, 13);
-      g.fillStyle(0x6a6a72, 1); g.fillEllipse(x, y + 1, 16, 10);
-      g.fillStyle(0x26262c, 1); g.fillEllipse(x, y + 1, 10, 6);   // 井口
-      g.fillStyle(0xa8a8b0, 0.8); g.fillEllipse(x - 4, y - 3, 6, 3); // 石沿高光
-      // 绞架（两根立柱 + 横梁 + 绳）
-      g.fillStyle(0x6e4a24, 1); g.fillRect(x - 8, y - 11, 2, 12); g.fillRect(x + 6, y - 11, 2, 12);
-      g.fillStyle(0x7a5a33, 1); g.fillRect(x - 8, y - 13, 16, 3);
-      g.lineStyle(0.8, 0x9a8a6a, 0.9); g.lineBetween(x + 6, y - 12, x + 4, y - 2);
-      g.fillStyle(0x8a6a45, 1); g.fillRect(x + 3, y - 2, 3, 2);    // 吊桶
-      // 井边小草（生活痕迹）
-      g.fillStyle(0x5a8a4a, 1); g.fillRect(x - 12, y + 5, 1, 3); g.fillRect(x + 11, y + 6, 1, 2);
-    }
-
-    // ② 石凳 ×2（东南 456,336 / 西南 328,336：避开花匠/阿风站位）
-    for (const [cx, cy] of [[28, 20.5], [20, 20.5]] as Array<[number, number]>) {
-      const [x, y] = px(cx, cy);
-      const g = this.add.graphics().setDepth(3);
-      g.fillStyle(0x4a4a52, 1); g.fillRect(x - 7, y - 3, 14, 3);   // 凳面
-      g.fillStyle(0x5a5a64, 1); g.fillRect(x - 7, y - 4, 14, 1);   // 面高光
-      g.fillStyle(0x3a3a42, 1); g.fillRect(x - 6, y, 2, 3); g.fillRect(x + 4, y, 2, 3); // 腿
-      g.fillStyle(0x2e2e34, 0.28); g.fillEllipse(x, y + 3, 18, 4);  // 脚底投影
-    }
-
-    // ③ 石板踩踏斑驳 + 落叶（非常克制——"有人走过"，不是污渍）
-    {
-      const g = this.add.graphics().setDepth(2);
-      g.fillStyle(0x3a3a30, 0.08);
-      g.fillEllipse(px(22, 15.8)[0], px(22, 15.8)[1], 14, 6);      // 井边小径
-      g.fillEllipse(px(27.2, 16.5)[0], px(27.2, 16.5)[1], 12, 5);  // 灯柱下
-      g.fillStyle(0xd8a858, 0.8);
-      g.fillRect(px(26.6, 15.4)[0], px(26.6, 15.4)[1], 2, 1);      // 落叶
-      g.fillRect(px(29.3, 15.8)[0], px(29.3, 15.8)[1], 2, 1);
-      g.fillStyle(0x8a9a3a, 0.7);
-      g.fillRect(px(20.4, 16.6)[0], px(20.4, 16.6)[1], 1, 2);
-    }
-
-    // ④ 东北角灯柱（世界 464,256：灯头暖光仅夜晚显示，呼吸）
-    {
-      const [x, y] = px(28.5, 15.5);
-      const g = this.add.graphics().setDepth(3);
-      g.fillStyle(0x3a3a44, 1); g.fillRect(x - 1, y - 14, 2, 15);   // 柱
-      g.fillStyle(0x4a4a56, 1); g.fillRect(x - 2, y - 15, 4, 2);    // 灯头托
-      g.fillStyle(0xffd98a, 1); g.fillRect(x - 2, y - 18, 4, 4);    // 灯头
-      g.fillStyle(0x2e2e34, 0.3); g.fillEllipse(x, y + 2, 10, 3);   // 柱底投影
-      const h = getTime().hour;
-      if (h >= 18 || h < 6) {
-        const glow = this.add.ellipse(x, y - 16, 46, 32, 0xffc878, 0.18).setDepth(3);
-        glow.setBlendMode(Phaser.BlendModes.ADD);
-        this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.24 }, duration: 1600, yoyo: true, repeat: -1 });
-      }
+    // P4: 物理搬迁到 WorldDecorator（石井/石凳/石板/灯柱）
+    this.worldDecorator.decorateCentralPlaza();
+    // 灯柱暖光：夜晚（18:00-06:00）才显示 —— 时间判断保留在 MapScene
+    const h = getTime().hour;
+    if (h >= 18 || h < 6) {
+      this.worldDecorator.startLampGlow();
     }
   }
 
@@ -5175,65 +4741,8 @@ this.setupFieldLife();
    */
   private setupTownSouthLife(): void {
     if (this.mapKey !== 'town') return;
-    const T = TILE_SIZE;
-    const px = (c: number, r: number): [number, number] => [c * T + T / 2, r * T + T / 2];
-
-    // ① 树木（2 棵，程序绘制：绿冠 + 棕干，自然散点）
-    const tree = (c: number, r: number, s = 1): void => {
-      const [x, y] = px(c, r);
-      const g = this.add.graphics().setDepth(3).setScale(s);
-      g.fillStyle(0x5a3f22, 1); g.fillRect(x - 2, y - 10, 4, 10);          // 干
-      g.fillStyle(0x3f6d2a, 1); g.fillCircle(x, y - 16, 7);                // 冠底
-      g.fillStyle(0x528a38, 1); g.fillCircle(x - 3, y - 18, 4);            // 冠侧亮
-      g.fillStyle(0x3f6d2a, 1); g.fillCircle(x + 2, y - 13, 3);            // 冠侧
-      g.fillStyle(0x6da544, 0.8); g.fillCircle(x - 1, y - 17, 2);          // 高光
-      g.fillStyle(0x2e2e34, 0.18); g.fillEllipse(x, y + 2, 16, 3);         // 投影
-    };
-    tree(4, 30, 1);
-    tree(12, 32, 0.95);
-
-    // ② 花丛（3 处，野花 + 茎叶）
-    const flower = (c: number, r: number): void => {
-      const [x, y] = px(c, r);
-      const g = this.add.graphics().setDepth(3);
-      g.fillStyle(0x5a8a3a, 1); g.fillRect(x - 5, y, 1, 4);
-      g.fillRect(x, y + 1, 1, 3);
-      g.fillRect(x + 5, y, 1, 4);
-      g.fillStyle(0x8abc5a, 1); g.fillRect(x - 3, y, 1, 2);
-      g.fillRect(x + 3, y, 1, 2);
-      g.fillStyle(0xff9e80, 1); g.fillCircle(x - 5, y - 2, 1.6);
-      g.fillStyle(0xf4b8d8, 1); g.fillCircle(x, y - 1, 1.4);
-      g.fillStyle(0xffd166, 1); g.fillCircle(x + 5, y - 2, 1.5);
-    };
-    flower(3, 32); flower(8, 30); flower(14, 31);
-
-    // ③ 草簇（3 处，竖线草）
-    const grass = (c: number, r: number): void => {
-      const [x, y] = px(c, r);
-      const g = this.add.graphics().setDepth(3);
-      g.fillStyle(0x5a8a4a, 1);
-      for (let i = 0; i < 3; i++) g.fillRect(x - 6 + i * 4, y - 1, 1, 5 + (i % 2) * 2);
-    };
-    grass(6, 33); grass(10, 31); grass(13, 34);
-
-    // ④ 石头（2 处，圆石 + 高光）
-    const rock = (c: number, r: number): void => {
-      const [x, y] = px(c, r);
-      const g = this.add.graphics().setDepth(3);
-      g.fillStyle(0x9a9aa2, 1); g.fillCircle(x, y, 2.5);
-      g.fillStyle(0xb8b8c0, 0.8); g.fillCircle(x - 1, y - 1, 1.2);
-    };
-    rock(7, 33); rock(11, 33);
-
-    // ⑤ 踩踏小路（从 row 28 石板路向南延伸的草地踏痕）
-    {
-      const g = this.add.graphics().setDepth(2);
-      for (const [c, r] of [[3, 29], [3, 30], [3, 31], [3, 32], [3, 33], [3, 34]] as Array<[number, number]>) {
-        const [x, y] = px(c, r);
-        g.fillStyle(0x3a5a30, 0.16);
-        g.fillEllipse(x, y, 11, 4);
-      }
-    }
+    // P4: 物理搬迁到 WorldDecorator（树/花/草/石/踩踏小路）
+    this.worldDecorator.decorateTownSouthLife();
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -5449,7 +4958,6 @@ this.setupFieldLife();
     if (dx * dx + dy * dy >= 42 * 42) return false;
     this.hideArtShowTravelerHint();
     this.inputManager.clearAction();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
     // 余波台词（方向稿）：第一次回访一句，随后是日常看展句，都克制、具体。
     const once = triggerOnce('artshow_traveler_return', () => { /* 仅标记回访已读过 */ });
@@ -5467,8 +4975,7 @@ this.setupFieldLife();
       narrator('（旅人又来看那幅画了。这一次，他带了个新的小本子。）'),
       { speaker: '旅人', color: '#c8a8e8', text: '这镇子安静，画得下去。' },
     ];
-    this.storyDialogue.play(lines, () => this.updateHUD());
-    return true;
+    return this.playStory(lines, () => this.updateHUD(), undefined, 'artshow_traveler');
   }
 
   /** 旅人回访靠近提示（update 调用，仅在白天/傍晚在此时显示；夜晚隐去） */
@@ -5564,7 +5071,7 @@ this.setupFieldLife();
       narrator('（夏雅坐在艺术角的长椅边上，看着远处。）'),
       { speaker: '夏雅', color: COLORS.xiya, text: '那盏灯晚上亮起来，河边也能看见。' },
     ]);
-    this.storyDialogue.play(lines, () => this.updateHUD());
+    this.playStory(lines, () => this.updateHUD(), undefined, "")
     return true;
   }
 
@@ -5606,10 +5113,9 @@ this.setupFieldLife();
   private hideAllInteractHints(): void {
     this.hideOldTreeHint();
     this.hideHouseTidyHint();
-    this.hideFishingHint();
-    this.hideFishingReelHint();
+    // P5b: 钓鱼相关 3 个提示统一清理
+    this.fishingController.cleanupAllHints();
     this.hideGatherHint();
-    this.hideLaoJiangHint();
     this.hideArtShowHint();
     this.hideArtShowTravelerHint();
     this.hideQinghePierHint();
@@ -5923,8 +5429,8 @@ this.setupFieldLife();
     triggerOnce('artshow_xiya_plan', () => {
       this.artShowXiya?.destroy();
       this.artShowXiya = null;
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play([
+
+      this.playStory([
         { speaker: '夏雅', color: COLORS.xiya, text: '林澈，你觉得……把现在的青禾镇摆出来，大家会看吗？' },
         { speaker: '林澈', color: COLORS.linche, text: '会。' },
         { speaker: '夏雅', color: COLORS.xiya, text: '那我就去设计了。展区那边，交给我。' },
@@ -6011,21 +5517,21 @@ this.setupFieldLife();
 
   /** 当天演出（三段对白链 + 居民入场/星空装置/夜晚/C 艺术家/永久变化） */
   private runArtShow(): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     const C = COLORS.system;
     const narrator = (text: string): DialogueLine => ({ speaker: '', color: C, text });
     this.clearArtShowSprites();
     // 第一段：下午入场，居民各带一点东西
-    this.storyDialogue.play([
+    this.playStory([
       narrator('（傍晚。你走进广场，发现平时空着的位置全都变了。）'),
       narrator('（展台立着，灯光挂着，花艺摆好了——筹备期的活儿，一样都没落下。）'),
       narrator('（老人抱着旧照片慢慢走过来，孩子举着画跑在前面。）'),
       { speaker: '夏雅', color: COLORS.xiya, text: '来了？就等你了。' },
     ], () => {
       this.spawnArtShowResidents();
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
       // 第二段：展示（看画/听故事/星空装置）
-      this.storyDialogue.play([
+      this.playStory([
         narrator('（展台上摆着老周翻出来的旧照片——井边排队打水，树下一排人乘凉。）'),
         { speaker: '老周', color: '#c89860', text: '这张是建井那年拍的。那时候镇上人多。' },
         narrator('（孩子的画挂在一边，歪歪扭扭的，颜色很亮。）'),
@@ -6050,8 +5556,8 @@ this.setupFieldLife();
     glow.setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({ targets: glow, alpha: { from: 0.12, to: 0.28 }, duration: 1600, yoyo: true, repeat: -1 });
     this.artShowSprites.push(glow);
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play([
+
+    this.playStory([
       narrator('（夜色落下来。广场的灯一盏盏亮起来，河面上有了倒影。）'),
       narrator('（远处的灯塔方向，海面上好像亮了一下。）'),
       { speaker: '旅人', color: '#c8a8e8', text: '这幅画留给你们——以后每年这时候，我再回来看看它。' },
@@ -6249,9 +5755,9 @@ this.setupFieldLife();
   private startDryyardIntro(): void {
     this.inDryyardCutscene = true;
     const ok = triggerOnce('dryyard_intro', () => {
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
       const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
-      this.storyDialogue.play([
+      this.playStory([
         narrator('（傍晚。林澈把今年的玉米从地里收回来。镇上有人在议论。）'),
         { speaker: '镇民甲', color: '#b8b8a8', text: '最近这批玉米，长得真不错。' },
         { speaker: '镇民乙', color: '#a8b8b0', text: '今年雨水好，地也养回来了。' },
@@ -6322,9 +5828,9 @@ this.setupFieldLife();
       this.dryyardXiya = null;
       this.dryyardXiyaLabel?.destroy();
       this.dryyardXiyaLabel = null;
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
       const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
-      this.storyDialogue.play([
+      this.playStory([
         narrator('（夏雅抱着一叠旧照片来了。）'),
         { speaker: '夏雅', color: COLORS.xiya, text: '我在柜子底下翻到这些。你看——这是以前的晒场，边上站了一排人。' },
         { speaker: '林澈', color: COLORS.linche, text: '那时候真热闹。' },
@@ -6420,11 +5926,11 @@ this.setupFieldLife();
 
   /** 当天演出（对白链三段：傍晚晒场 → 夜晚长桌 → 灯塔回应；台词定稿 v0.3【当天】段） */
   private runDryyard(): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
     this.clearDryyardSprites();
     // 第一段：傍晚晒场（晒架搭好，众人各忙各的，孩子跑过）
-    this.storyDialogue.play([
+    this.playStory([
       narrator('（晒场搭好了。木架上挂着一串串辣椒，竹席上摊着玉米和萝卜干，鱼干架边晾着几条咸鱼。）'),
       narrator('（老张在理晒架，夏雅把旧照片一张张摆在长凳上，阿风来回搬东西。）'),
       narrator('（一个小孩跑过晒场，差点踩到竹席上的玉米。）'),
@@ -6466,8 +5972,8 @@ this.setupFieldLife();
       this.tweens.add({ targets: lamp, alpha: 0.55, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
       this.dryyardSprites.push(lamp);
     }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play([
+
+    this.playStory([
       narrator('（天暗下来。灯笼一盏一盏挂起来。海风从桌边吹过去，桌上的菜还冒着热气。）'),
       narrator('（大家围着长桌坐下来。夹菜声。碗碰碗。）'),
       { speaker: '老人', color: '#c8b898', text: '（夹了一筷子菜）以前镇里人多的时候，每年都这么坐一桌。' },
@@ -6476,9 +5982,9 @@ this.setupFieldLife();
       narrator('（小孩从桌子底下钻过去，被绊了一下。有人笑。有人喊：慢点吃。）'),
       narrator('（阿风把一盘菜推到老张面前。老张看了一眼，没说话，夹了一筷子。）'),
     ], () => {
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
       // 第三段：高潮——灯塔亮了一下（极克制：不解释，林澈看过去，没有说话）
-      this.storyDialogue.play([
+      this.playStory([
         narrator('（远处，灯塔忽然亮了一下。不是庆典的光，就是亮了一下。）'),
         narrator('（林澈看过去。）'),
         narrator('（没有说话。）'),
@@ -6579,7 +6085,7 @@ this.setupFieldLife();
       narrator('（老张照看着晒场，不时翻一翻晒着的东西。）'),
       { speaker: '老张', color: COLORS.miner, text: '晒个三五天，收进屋里，今年的日子就算全落定了。' },
     ];
-    this.storyDialogue.play(lines, () => this.updateHUD());
+    this.playStory(lines, () => this.updateHUD(), undefined, "")
     return true;
   }
 
@@ -6680,8 +6186,8 @@ this.setupFieldLife();
     cleanup();
     setItemCount('tomato', getItemCount('tomato') - 1);
     triggerOnce('crop_tomato_xiya_seen', () => {
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play([
+
+      this.playStory([
         { speaker: '', color: COLORS.system, text: '（夏雅看见你手里的番茄，愣了一下。）' },
         { speaker: '夏雅', color: COLORS.xiya, text: '这个味道……有点像以前。' },
         { speaker: '林澈', color: COLORS.linche, text: '以前？' },
@@ -6702,8 +6208,8 @@ this.setupFieldLife();
     if (dx * dx + dy * dy > 28 * 28) return false;
     cleanup();
     triggerOnce('crop_field_alive_xiya', () => {
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play([
+
+      this.playStory([
         { speaker: '', color: COLORS.system, text: '（夏雅站在田边，看了好一会儿。）' },
         { speaker: '夏雅', color: COLORS.xiya, text: '感觉这片地又活过来了。' },
       ], () => this.updateHUD());
@@ -6967,7 +6473,7 @@ this.setupFieldLife();
     if (dx * dx + dy * dy > 48 * 48) return false;
 
     if (!this.residentBoardPanel) {
-      this.residentBoardPanel = new ResidentBoardPanel((reqId) => this.onResidentDeliver(reqId));
+      this.uiBus.registerResidentBoardPanel(new ResidentBoardPanel((reqId) => this.onResidentDeliver(reqId)));
     }
     this.inputManager.clearAction();
     // 需求板引导任务：打开一次即完成；首次打开标记 board_quest_done（防后续重复投放）
@@ -6993,121 +6499,35 @@ this.setupFieldLife();
     // 交付成功：关闭需求板，再播反馈对白（面板淡出与对白淡入可并行）
     this.residentBoardPanel?.close();
     triggerTag('help_resident');
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     // 多句反馈（\n 分隔）逐句播放，避免整段堆在一起
     const lines = req.rewardDialogue.split('\n').map((text) => ({
       speaker: req.npcName, color: req.npcColor, text,
     }));
-    this.storyDialogue.play(lines, () => {
+    this.playStory(lines, () => {
       save({
         x: this.player.x, y: this.player.y,
         scene: this.mapKey, facing: this.player.facing,
         dailyQuest: getDailyQuestSaveData(),
       });
-    });
+    }, undefined, 'resident_deliver');
   }
 
   /**
-   * 天气系统 v0.10-lite：设置雨天覆盖层+雨粒子
+   * 天气系统初始化（P3 迁移到 WeatherDirector）
    * 仅在雨天时创建，非雨天不创建任何对象（零开销）
    */
   private setupWeather(): void {
-    if (isCurrentlyRaining()) {
-      this.startRain();
-    }
+    const cur = isCurrentlyRaining();
+    this.weatherDirector.setupIfRaining(cur);
+    if (cur) this.syncWeatherGatherPoints();
   }
 
   /**
-   * 更新天气状态（每小时调用一次）
-   * 检查天气变化并相应地启动/停止雨天效果
+   * 更新天气状态（每小时调用一次，P3 迁移到 WeatherDirector）
    */
   private updateWeatherState(): void {
     const isRaining = isCurrentlyRaining();
-    if (isRaining && !this.rainActive) {
-      this.startRain();
-      // 天气扩面（2026-08-16）：雨开始 → 补建满足条件的采集点（雨日河畔冒河螺）
-      this.syncWeatherGatherPoints();
-    } else if (!isRaining && this.rainActive) {
-      this.stopRain();
-    }
-  }
-
-  /**
-   * 开始下雨效果：半透明覆盖层 + 雨粒子
-   */
-  private startRain(): void {
-    // 仅室外地图下雨（与 AmbienceSystem.RAIN_MAPS 一致：矿洞/屋内/车站有顶不下雨）
-    if (!AmbienceSystem.RAIN_MAPS.includes(this.mapKey)) return;
-    if (this.rainActive) return;
-    this.rainActive = true;
-
-    const map = this.make.tilemap({ key: this.mapKey });
-
-    // 雨天覆盖层：半透明蓝色矩形，覆盖整个屏幕（setScrollFactor(0) 为屏幕空间，
-    // 用相机视口尺寸而非地图尺寸，否则小地图四周会露出蓝色矩形边框，BUG-050）
-    const camW = this.cameras.main.width;
-    const camH = this.cameras.main.height;
-    this.rainOverlay = this.add.rectangle(
-      camW / 2, camH / 2,
-      camW, camH,
-      0x334466, 0.2
-    );
-    this.rainOverlay.setDepth(100);
-    this.rainOverlay.setScrollFactor(0);
-
-    // 创建白色像素纹理用于雨粒子（如果不存在）
-    if (!this.textures.exists('__WHITE')) {
-      const canvas = document.createElement('canvas');
-      canvas.width = 2;
-      canvas.height = 8;
-      const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, 2, 8);
-      this.textures.addCanvas('__WHITE', canvas);
-    }
-
-    // 雨粒子：从天空飘落的白色短线条
-    const particles = this.add.particles(0, 0, '__WHITE', {
-      x: { min: 0, max: map.widthInPixels },
-      y: -10,
-      lifespan: 2000,
-      speedY: { min: 200, max: 350 },
-      speedX: { min: -30, max: -10 },
-      quantity: 2,
-      frequency: 50,
-      blendMode: 'ADD',
-      alpha: { start: 0.4, end: 0.1 },
-      scale: { start: 0.5, end: 0.3 },
-      tint: 0xaaaacc,
-    });
-    particles.setDepth(101);
-    particles.setScrollFactor(0);
-    this.rainEmitter = particles;
-
-    // 雨天环境音：交给 AmbienceSystem 统一叠加（共享已 resume 的 AudioContext，
-    // 受 MAX_SOURCES/MAX_VOL 约束；切场景由 start/stop 可靠清理，不重复造 AudioContext）
-    AmbienceSystem.setRain(true);
-  }
-
-  /**
-   * 停止雨天效果
-   */
-  private stopRain(): void {
-    if (!this.rainActive) return;
-    this.rainActive = false;
-
-    // 雨天环境音：交给 AmbienceSystem 统一停止（rainActive 意图按天气重新派生）
-    AmbienceSystem.setRain(false);
-
-    if (this.rainOverlay) {
-      this.rainOverlay.destroy();
-      this.rainOverlay = null;
-    }
-
-    if (this.rainEmitter) {
-      this.rainEmitter.destroy();
-      this.rainEmitter = null;
-    }
+    this.weatherDirector.updateWeatherState(isRaining);
   }
 
   /**
@@ -7210,14 +6630,14 @@ this.setupFieldLife();
     this.dawnXiya.destroy();
     this.dawnXiya = null;
     if (this.dawnXiyaLabel) { this.dawnXiyaLabel.destroy(); this.dawnXiyaLabel = null; }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     // E1/E9 修复（2026-08-06）：当天已触发标记立即入档，刷新后同一天不再重复触发
     save({
       x: this.player.x, y: this.player.y,
       scene: this.mapKey, facing: this.player.facing,
       dailyQuest: getDailyQuestSaveData(),
     } as any);
-    this.storyDialogue.play(
+    this.playStory(
       this.buildDawnXiyaLines(),
       () => {
         this.updateHUD();
@@ -7433,8 +6853,8 @@ this.setupFieldLife();
     if (this.storyDialogue?.isOpen()) return;
     this.rainHintDone = true;
     triggerOnce('world_hint_rain_mushroom', () => {
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play(RAIN_MUSHROOM_HINT_DIALOGUE, () => {
+
+      this.playStory(RAIN_MUSHROOM_HINT_DIALOGUE, () => {
         this.updateHUD();
         save({
           x: this.player.x, y: this.player.y,
@@ -7495,8 +6915,8 @@ this.setupFieldLife();
       // ③ 演出后自动播对白（不等玩家靠近）
       this.time.delayedCall(2600, () => {
         if (this.inStargazeCutscene) return; // P1 守卫：观星夜演出中不播木匠回归对白（同 first-morning）
-        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        this.storyDialogue.play(CARPENTER_RETURN_DIALOGUE, () => {
+
+        this.playStory(CARPENTER_RETURN_DIALOGUE, () => {
           // ④ 对白结束：木匠成为常驻 NPC → 刷新 HUD → 存档（含 triggerOnce 状态）
           this.updateHUD();
           save({
@@ -7538,8 +6958,8 @@ this.setupFieldLife();
       // 演出后自动播对白（不等玩家靠近）
       this.time.delayedCall(1800, () => {
         if (this.inStargazeCutscene) return; // P1 守卫：观星夜演出中不播阿风欢迎对白（同 first-morning）
-        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        this.storyDialogue.play(ADVENTURER_WELCOME_BACK_DIALOGUE, () => {
+
+        this.playStory(ADVENTURER_WELCOME_BACK_DIALOGUE, () => {
           // 对白结束：阿风离开（移除演出精灵）→ 刷新 HUD → 存档（含 triggerOnce 状态）
           this.adventurerWelcomeSprite?.destroy();
           this.adventurerWelcomeSprite = null;
@@ -7612,14 +7032,14 @@ this.setupFieldLife();
     this.eveningXiya.destroy();
     this.eveningXiya = null;
     if (this.eveningXiyaLabel) { this.eveningXiyaLabel.destroy(); this.eveningXiyaLabel = null; }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     // E1/E9 修复（2026-08-06）：当天已触发标记立即入档，刷新后同一天不再重复触发
     save({
       x: this.player.x, y: this.player.y,
       scene: this.mapKey, facing: this.player.facing,
       dailyQuest: getDailyQuestSaveData(),
     } as any);
-    this.storyDialogue.play(XIYA_EVENING_DIALOGUE, () => {
+    this.playStory(XIYA_EVENING_DIALOGUE, () => {
       // 灯意象彩蛋（L2/L3，制作人拍板 2026-08-05）：首次傍晚对话结束后追加观察台词 + 童年点灯闪回
       if (!this.lampFlashbackDone) {
         this.lampFlashbackDone = true;
@@ -7637,8 +7057,8 @@ this.setupFieldLife();
    * 观察台词为林澈内心独白，闪回复用 MemoryFlashbacks 演出系统。
    */
   private playEveningLampSequence(): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(XIYA_EVENING_OBS_DIALOGUE, () => {
+
+    this.playStory(XIYA_EVENING_OBS_DIALOGUE, () => {
       // 灯意象闪回配剧情插图（xiya_lamp_v1，2026-08-08 AI 生成；文字在插图上、暗角下，不遮挡）
       playMemoryFlashback(XIYA_LAMP_FLASHBACK, () => {
         this.updateHUD();
@@ -7684,13 +7104,13 @@ this.setupFieldLife();
     this.riversideXiya.destroy();
     this.riversideXiya = null;
     if (this.riversideXiyaLabel) { this.riversideXiyaLabel.destroy(); this.riversideXiyaLabel = null; }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     save({
       x: this.player.x, y: this.player.y,
       scene: this.mapKey, facing: this.player.facing,
       dailyQuest: getDailyQuestSaveData(),
     } as any);
-    this.storyDialogue.play(
+    this.playStory(
       // 天气扩面第二刀（2026-08-16）：雨日河畔看水播雨天变体。
       // 判定用「今日为雨日」而非正在下雨——看水窗口 16-18 与雨窗 10-16 无交集，
       // 夏雅看的是"雨后的河"（呼应今天刚爬过浅滩的河螺），雨日傍晚雨停了仍在场。
@@ -8029,8 +7449,8 @@ this.setupFieldLife();
     }
 
     this.hideOldTreeHint();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(lines);
+
+    this.playStory(lines, undefined, undefined, "")
   }
 
   /**
@@ -8227,8 +7647,8 @@ this.setupFieldLife();
     if (!hasTriggered('lighthouse_lit_seen')) {
       triggerOnce('lighthouse_lit_seen', () => {
         this.time.delayedCall(800, () => {
-          if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-          this.storyDialogue.play([
+
+          this.playStory([
             { speaker: '镇长', color: '#c8b898', text: '西边的灯塔……' },
             { speaker: '', color: '#aaaaaa', text: '（远处，海平线上那盏灯，好像亮了一下。）' },
             { speaker: '镇长', color: '#c8b898', text: '我还以为，它再也不会亮了。' },
@@ -8240,48 +7660,11 @@ this.setupFieldLife();
     }
   }
 
+  /**
+   * 农场环境氛围：委托给 FarmController
+   */
   private setupFarmAmbience(): void {
-    const T = TILE_SIZE; // 16
-
-    // 1) 水塘涟漪：Walls 层水塘区 (cols 31-33, rows 19-22)，3 个错落扩散光斑
-    const pond: Array<{ c: number; r: number }> = [
-      { c: 31, r: 20 }, { c: 32, r: 21 }, { c: 33, r: 19 },
-    ];
-    pond.forEach((p, i) => {
-      const ring = this.add.graphics();
-      ring.fillStyle(0x9fd8f5, 0.32);
-      ring.fillCircle(0, 0, 4);
-      ring.setPosition(p.c * T + T / 2, p.r * T + T / 2);
-      ring.setDepth(2);
-      this.tweens.add({
-        targets: ring,
-        scale: { from: 0.3, to: 1.15 },
-        alpha: { from: 0.55, to: 0 },
-        duration: 2200,
-        delay: i * 700,
-        repeat: -1,
-        ease: 'Quad.Out',
-      });
-    });
-
-    // 2) 花草摆动已删除（2026-08-07 制作人反馈：花精灵左右摆动动效违和，
-    //    静态花丛瓦片 gid 8 保留，花园区域不再叠动态花精灵）
-
-    // 3) 暖色光斑：农田上空缓慢漂移（低透明度大圆，模拟日光斑驳）
-    const glow = this.add.graphics();
-    glow.fillStyle(0xffeec8, 0.13);
-    glow.fillCircle(0, 0, 34);
-    glow.setPosition(20 * T, 12 * T);
-    glow.setDepth(2);
-    this.tweens.add({
-      targets: glow,
-      x: { from: 20 * T - 26, to: 20 * T + 26 },
-      y: { from: 12 * T - 14, to: 12 * T + 14 },
-      duration: 6000,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.InOut',
-    });
+    this.farmController.setupFarmAmbience();
   }
 
   /**
@@ -9139,8 +8522,8 @@ this.setupFieldLife();
     if (this.storyDialogue?.isOpen()) return;
     this.lookoutTriggered = true;
     triggerOnce('forest_lookout_first_visit', () => {
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play(FOREST_LOOKOUT_DIALOGUE, () => {
+
+      this.playStory(FOREST_LOOKOUT_DIALOGUE, () => {
         this.updateHUD();
         save({
           x: this.player.x, y: this.player.y,
@@ -10213,9 +9596,8 @@ this.setupFieldLife();
     const event = triggerRandomEvent();
     if (!event) return;
     
-    // 使用 StoryDialogue 播放事件对话
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(event.dialogue);
+    // 使用 playStory 统一播放事件对话
+    this.playStory(event.dialogue, undefined, undefined, 'daily_event');
   }
 
   /**
@@ -10501,7 +9883,7 @@ this.setupFieldLife();
               : lines;
     // 动作时间成本（P0 Action Time）：一次 NPC 对话消耗 n 游戏分钟（可调）
     consumeMinutes(getActionTimeCost('dialogue'));
-    this.storyDialogue.play(finalLines, () => {
+    this.playStory(finalLines, () => {
       // BUG-041：神秘少女对白末尾「消失在林间」→ 对话完成隐藏精灵（演出层，不存档）
       if (npc.id === 'mystery') {
         npc.setVanished();
@@ -10701,76 +10083,18 @@ this.setupFieldLife();
 
   /**
    * 渲染农田可耕区域的格子覆盖层
-   * 状态非 empty 的格子显示深棕色方块（覆盖在 soil 瓦片之上）
-   * 场景切换回来时，从全局 FarmState 恢复已锄地块的显示
+   * P6a: 委托给 FarmController
    */
   private setupFarmTiles(): void {
-    for (let r = FARM_AREA.row0; r <= FARM_AREA.row1; r++) {
-      for (let c = FARM_AREA.col0; c <= FARM_AREA.col1; c++) {
-        const cx = c * TILE_SIZE + TILE_SIZE / 2;
-        const cy = r * TILE_SIZE + TILE_SIZE / 2;
-        // 可种植土地地块贴图（16×16 五态：耕地/播种/浇水/生长/成熟，覆盖在 soil 瓦片上）
-        const plot = this.add.image(cx, cy, 'farm_plot', 0);
-        plot.setDepth(2);
-        // 作物标记（绿色小椭圆，planted/watered/grown 时显示）
-        const crop = this.add.image(cx, cy, 'crops', 0);
-        crop.setScale(0.5);
-        crop.setDepth(3);
-        crop.setVisible(false);
-        const visual: TileVisual = { plot, crop };
-        // 从全局状态恢复显示（场景切换回来时保留已锄/已种地块）
-        this.updateTileVisual(c, r, visual);
-        this.tileRects.set(`${c},${r}`, visual);
-      }
-    }
+    this.farmController.setupFarmTiles();
   }
 
   /**
    * 根据土地状态刷新单格视觉
-   * empty: 全部隐藏
-   * tilled: 深棕土地，无作物
-   * watered: 湿润深棕土地 + 作物（若已种）
-   * planted/grown: 土地 + 作物标记（grown 更大更深）
-   * v1.1 四阶段视觉（2026-08-15）：种子(地块帧1，作物隐藏) → 幼苗(crop帧0) → 成长(crop帧1+地块帧3) → 成熟(crop帧2)
+   * P6a: 委托给 FarmController
    */
   private updateTileVisual(col: number, row: number, visual: TileVisual): void {
-    const state = getTileState(col, row);
-    if (state === 'empty') {
-      visual.plot.setVisible(false);
-      visual.crop.setVisible(false);
-      return;
-    }
-    visual.plot.setVisible(true);
-    if (state === 'tilled') {
-      visual.plot.setFrame(0);
-      visual.crop.setVisible(false);
-      return;
-    }
-    // 四阶段视觉：0=种子 / 1=幼苗 / 2=成长 / 3=成熟
-    const cropData = getCrop(col, row);
-    const stage = this.getCropVisualStage(cropData, state);
-    // 地块帧：种子=1(播种土) / 幼苗=2(湿润土) / 成长=3(更湿) / 成熟=4
-    visual.plot.setFrame(stage >= 3 ? 4 : stage === 2 ? 3 : stage === 1 ? 2 : state === 'watered' ? 2 : 1);
-    // 作物帧：幼苗/成长/成熟 = cropIdx*3 + 0/1/2；种子阶段作物隐藏（地块帧自带种子点）
-    if (stage >= 1) {
-      const cropType = cropData?.cropType ?? 'radish';
-      const cropIdx = CROP_TYPES.indexOf(cropType);
-      visual.crop.setFrame(cropIdx * 3 + (stage - 1));
-      visual.crop.setVisible(true);
-    } else {
-      visual.crop.setVisible(false);
-    }
-  }
-
-  /** 作物视觉阶段：0=种子 / 1=幼苗 / 2=成长 / 3=成熟（按已浇水天数推导，成熟态固定 3） */
-  private getCropVisualStage(crop: CropData | undefined, state: TileState): 0 | 1 | 2 | 3 {
-    if (state === 'grown') return 3;
-    if (!crop) return 0;
-    const def = CROP_DEFS[crop.cropType];
-    const days = crop.grownDays ?? Math.max(0, getTime().day - crop.plantDay - 1);
-    if (days <= 0) return 0;
-    // 每种作物的节奏差异由 growthDays 自然拉开：萝卜(2天)快 / 番茄(3天) / 玉米(4天) / 草莓(5天)
-    return days >= def.growthDays - 1 ? 2 : 1;
+    this.farmController.updateTileVisual(col, row, visual);
   }
 
   /**
@@ -10894,11 +10218,1236 @@ this.setupFieldLife();
   }
 
   /**
-   * 交互入口（动作键触发，consumeAction 消费一次）：
-   *   0. 若玩家靠近 NPC（所有场景）→ 显示对话
-   *   0.5 森林靠近星之碎片（accepted 状态）→ 采集
-   *   1. 若玩家在农场睡觉区域内 → 尝试睡觉（任何时间都可以，不强制到 22:00）
-   *   2. 否则 → 农田交互（锄地/播种/浇水/收获）
+   * P7a: 构建交互门控快照
+   * 收集当前所有门控状态，供 InteractionRouter 判定
+   */
+  private buildGateSnapshot(): GateSnapshot {
+    return {
+      createFailed: this.createFailed,
+      endingPanelOpen: !!this.endingPanel?.isOpen(),
+      inStargazeCutscene: this.inStargazeCutscene,
+      inArtShowCutscene: this.inArtShowCutscene,
+      photoAlbumOpen: !!this.photoAlbumPanel?.isOpen(),
+      discoveryOpen: isDiscoveryPanelOpen(),
+      hudMenuOpen: isHudMenuOpen(),
+      residentBoardOpen: !!this.residentBoardPanel?.isOpen(),
+      shopOpen: this.shopPanel.isOpen(),
+      backpackOpen: this.backpackPanel.isOpen(),
+      questOpen: this.questPanel.isOpen(),
+      waitPanelOpen: isWaitPanelOpen(),
+    };
+  }
+
+  /**
+   * P7b: 构建交互目标候选列表
+   * 按 tryInteract 原 if-return 顺序排列（优先级从高到低）
+   * 每个 check() 为纯函数（无副作用），仅返回是否命中
+   * 
+   * P7b 核心红线：目标解析优先级不可改变
+   */
+  private buildInteractionCandidates(): InteractionCandidate[] {
+    return [
+      // 1. house_tidy: 老屋整理（house 场景）
+      {
+        id: 'house_tidy',
+        check: () => this.mapKey === 'house' && this.canTryHouseTidy(),
+      },
+      // 2. house_old_shadow: 旧日留影相框（house 场景）
+      {
+        id: 'house_old_shadow',
+        check: () => this.mapKey === 'house' && this.canTrySideXiyaOldShadow(),
+      },
+      // 3. bed: 睡觉（house/farm 床铺）
+      {
+        id: 'bed',
+        check: () => this.canTryBed(),
+      },
+      // 4. music_box: 音乐盒（house 场景）
+      {
+        id: 'music_box',
+        check: () => this.mapKey === 'house' && !!this.musicBoxMark && this.canTryMusicBox(),
+      },
+      // 5. grandpa_gift: 归星包裹（house 场景）
+      {
+        id: 'grandpa_gift',
+        check: () => this.mapKey === 'house' && !!this.grandpaGiftMark && this.canTryGrandpaGift(),
+      },
+      // 6. stargaze: 观星点
+      {
+        id: 'stargaze',
+        check: () => this.canTryStargaze(),
+      },
+      // 7. butterfly: 捕虫（farm/town）
+      {
+        id: 'butterfly',
+        check: () => (this.mapKey === 'farm' || this.mapKey === 'town') && this.canTryCatchButterfly(),
+      },
+      // 8. art_show_xiya: 星光艺术展夏雅
+      {
+        id: 'art_show_xiya',
+        check: () => this.canTryArtShowXiya(),
+      },
+      // 9. art_show_box: 艺术展素材箱
+      {
+        id: 'art_show_box',
+        check: () => this.canTryArtShowBox(),
+      },
+      // 10. art_show_traveler: 艺术展旅人
+      {
+        id: 'art_show_traveler',
+        check: () => this.canTryArtShowTraveler(),
+      },
+      // 11. art_show_after_xiya: 艺术展后夏雅
+      {
+        id: 'art_show_after_xiya',
+        check: () => this.canTryArtShowAfterXiya(),
+      },
+      // 12. dryyard_xiya: 秋日晒场夏雅
+      {
+        id: 'dryyard_xiya',
+        check: () => this.canTryDryyardXiya(),
+      },
+      // 13. dryyard_box: 晒场征集筐
+      {
+        id: 'dryyard_box',
+        check: () => this.canTryDryyardBox(),
+      },
+      // 14. dryyard_laozhang: 晒场老张
+      {
+        id: 'dryyard_laozhang',
+        check: () => this.canTryDryyardLaozhang(),
+      },
+      // 15. laojiang: 钓鱼老人
+      {
+        id: 'laojiang',
+        check: () => this.canTryLaoJiang(),
+      },
+      // 16. qinghe_pier: 青禾码头修复
+      {
+        id: 'qinghe_pier',
+        check: () => this.mapKey === 'qinghe_river' && this.canTryQinghePier(),
+      },
+      // 17. qinghe_pavilion: 青禾凉亭
+      {
+        id: 'qinghe_pavilion',
+        check: () => this.mapKey === 'qinghe_river' && this.canTryQinghePavilion(),
+      },
+      // 18. qinghe_chatter: 青禾夜晚聊天
+      {
+        id: 'qinghe_chatter',
+        check: () => this.mapKey === 'qinghe_river' && this.canTryQingheChatter(),
+      },
+      // 19. qinghe_old_man: 青禾老周
+      {
+        id: 'qinghe_old_man',
+        check: () => this.mapKey === 'qinghe_river' && this.canTryQingheOldMan(),
+      },
+      // 20. qinghe_riverside_xiya: 河畔夏雅
+      {
+        id: 'qinghe_riverside_xiya',
+        check: () => this.mapKey === 'qinghe_river' && this.canTryRiversideXiya(),
+      },
+      // 21. fishing: 钓鱼
+      {
+        id: 'fishing',
+        check: () => !!MapScene.FISHING_SPOTS[this.mapKey] && this.canTryFishing(),
+      },
+      // 22. gather: 采集
+      {
+        id: 'gather',
+        check: () => this.gatherNodes.length > 0 && this.canTryGather(),
+      },
+      // 23. lighthouse: 灯塔探索
+      {
+        id: 'lighthouse',
+        check: () => this.mapKey === 'lighthouse' && this.canTryLighthouse(),
+      },
+      // 24. elder_star: 镇长委托
+      {
+        id: 'elder_star',
+        check: () => this.canTrySideElderStar(),
+      },
+      // 25. xiya_gate: 大门夏雅
+      {
+        id: 'xiya_gate',
+        check: () => (this.mapKey === 'gate' || this.mapKey === 'farm') && !!this.xiyaSprite && this.canTryXiya(),
+      },
+      // 26. gate_wall: 大门锁
+      {
+        id: 'gate_wall',
+        check: () => this.mapKey === 'gate' && !!this.gateWall && this.canTryGateWall(),
+      },
+      // 27. dawn_xiya: 清晨夏雅
+      {
+        id: 'dawn_xiya',
+        check: () => this.mapKey === 'farm' && !!this.dawnXiya && this.canTryDawnXiya(),
+      },
+      // 28. elder_hint: 镇长家提示
+      {
+        id: 'elder_hint',
+        check: () => this.mapKey === 'town' && !!this.elderHouseHint && this.canTryElderHouseHint(),
+      },
+      // 29. gardener_plum: 小梅种花
+      {
+        id: 'gardener_plum',
+        check: () => this.mapKey === 'town' && this.canTrySideGardenerPlum(),
+      },
+      // 30. market_square: 集市广场
+      {
+        id: 'market_square',
+        check: () => this.canTryMarketSquare(),
+      },
+      // 31. shop_machine: 自动售货机
+      {
+        id: 'shop_machine',
+        check: () => this.canTryShopMachine(),
+      },
+      // 32. resident_board: 居民需求板
+      {
+        id: 'resident_board',
+        check: () => this.mapKey === 'town' && !!this.residentBoardMark && this.canTryResidentBoard(),
+      },
+      // 33. evening_xiya: 傍晚夏雅
+      {
+        id: 'evening_xiya',
+        check: () => this.mapKey === 'farm' && !!this.eveningXiya && this.canTryEveningXiya(),
+      },
+      // 34. grandpa_note: 爷爷笔记
+      {
+        id: 'grandpa_note',
+        check: () => this.mapKey === 'farm' && !!this.grandpaNote && this.canTryGrandpaNote(),
+      },
+      // 35. garden_restore: 花园恢复
+      {
+        id: 'garden_restore',
+        check: () => this.mapKey === 'farm' && !!this.gardenRestore && this.gardenRestore.stage < 3 && this.canTryGardenRestore(),
+      },
+      // 36. xiya_garden: 院子照顾
+      {
+        id: 'xiya_garden',
+        check: () => this.mapKey === 'farm' && isRestored('garden') && !this.gardenXiya && this.canTrySideXiyaGarden(),
+      },
+      // 37. old_house_restore: 老屋修复
+      {
+        id: 'old_house_restore',
+        check: () => this.mapKey === 'farm' && !!this.oldHouseRestore && !this.oldHouseRestore.restored && this.canTryOldHouseRestore(),
+      },
+      // 38. mailbox: 邮箱
+      {
+        id: 'mailbox',
+        check: () => this.mapKey === 'farm' && this.canTryMailbox(),
+      },
+      // 39. xiya_old_shadow_deliver: 旧照片交付
+      {
+        id: 'xiya_old_shadow_deliver',
+        check: () => this.mapKey === 'farm' && isRestored('oldHouse') && this.sideXiyaOldShadowAsked && !this.sideXiyaOldShadowDone && this.canTryXiyaOldShadowDeliver(),
+      },
+      // 40. xiya_photo: 整理旧照片
+      {
+        id: 'xiya_photo',
+        check: () => this.mapKey === 'farm' && isRestored('oldHouse') && this.canTrySideXiyaPhoto(),
+      },
+      // 41. xiya_letter: 春深有信·一
+      {
+        id: 'xiya_letter',
+        check: () => this.mapKey === 'farm' && isTutorialDone() && this.canTryXiyaLetter(),
+      },
+      // 42. bloom_xiya: 花期未至
+      {
+        id: 'bloom_xiya',
+        check: () => this.mapKey === 'town' && isTutorialDone() && this.canTryBloomXiya(),
+      },
+      // 43. gardener_field: 花田开垦
+      {
+        id: 'gardener_field',
+        check: () => this.mapKey === 'farm' && this.canTrySideGardenerField(),
+      },
+      // 44. forest_road: 山路修复
+      {
+        id: 'forest_road',
+        check: () => this.mapKey === 'forest' && !!this.forestRoadRestore && !this.forestRoadRestore.restored && this.canTryForestRoadRestore(),
+      },
+      // 45. garden_xiya: 花园夏雅
+      {
+        id: 'garden_xiya',
+        check: () => this.mapKey === 'farm' && !!this.gardenXiya && this.canTryGardenXiya(),
+      },
+      // 46. old_robot: 旧农业机器人
+      {
+        id: 'old_robot',
+        check: () => this.mapKey === 'farm' && !!this.oldRobot && this.canTryOldRobot(),
+      },
+      // 47. stall_keeper: 集市摊主
+      {
+        id: 'stall_keeper',
+        check: () => this.mapKey === 'town' && this.marketStallKeepers.length > 0 && this.canTryStallKeeper(),
+      },
+      // 48. npc: 最近 NPC（含小梅观察分支）
+      {
+        id: 'npc',
+        check: () => {
+          const nearest = this.findNearestNPC();
+          if (!nearest) return false;
+          // 小梅观察分支优先
+          if (nearest.id === 'gardener') {
+            if (getItemCount('butterfly_specimen') > 0 && !hasTriggered('ch1_natural_record_1')) return true;
+            if (getItemCount('willow_specimen') > 0 && !hasTriggered('ch1_natural_record_2')) return true;
+            if (getItemCount('moth_specimen') > 0 && !hasTriggered('ch1_natural_record_3')) return true;
+          }
+          return true;
+        },
+        data: () => {
+          const nearest = this.findNearestNPC();
+          return nearest ? { npcId: nearest.id } : null;
+        },
+      },
+      // 49. town_shop: 镇商店门面
+      {
+        id: 'town_shop',
+        check: () => this.canTryTownShop(),
+      },
+      // 50. old_tree: 后山老树
+      {
+        id: 'old_tree',
+        check: () => this.mapKey === 'forest' && !!this.oldTree && this.canTryOldTree(),
+      },
+      // 51. forest_shard: 森林星之碎片
+      {
+        id: 'forest_shard',
+        check: () => this.mapKey === 'forest' && !!this.shardSprite && this.shardSprite.visible && this.canTryForestShard(),
+      },
+      // 52. mine_lamp: 矿灯
+      {
+        id: 'mine_lamp',
+        check: () => this.mapKey === 'mine' && this.canTrySideMinerLamp(),
+      },
+      // 53. mine_ore: 挖矿
+      {
+        id: 'mine_ore',
+        check: () => this.mapKey === 'mine' && this.canTryMineOre(),
+      },
+      // 54. chop_tree: 砍树
+      {
+        id: 'chop_tree',
+        check: () => this.mapKey === 'farm' && this.canTryChopTree(),
+      },
+      // 55. farm_tile: 农田交互（兜底，总是匹配）
+      {
+        id: 'farm_tile',
+        check: () => this.mapKey === 'farm',
+      },
+    ];
+  }
+
+  /**
+   * P7b: 执行已解析的交互目标
+   * 根据 ResolvedTarget.id 分发执行对应交互逻辑
+   * 所有副作用（启动对话、打开面板、执行操作等）在此处执行
+   */
+  private executeInteractionTarget(target: ResolvedTarget): boolean {
+    switch (target.id) {
+      case 'house_tidy':
+        return this.tryHouseTidyInteract();
+      case 'house_old_shadow':
+        return this.trySideXiyaOldShadow();
+      case 'bed':
+        return this.executeBedInteract();
+      case 'music_box':
+        return this.tryMusicBoxInteract();
+      case 'grandpa_gift':
+        return this.tryGrandpaGiftInteract();
+      case 'stargaze':
+        return this.tryStargaze();
+      case 'butterfly':
+        return this.tryCatchNearestButterfly();
+      case 'art_show_xiya':
+        return this.tryArtShowXiyaInteract();
+      case 'art_show_box':
+        this.openTownPlan();
+        return true;
+      case 'art_show_traveler':
+        return this.tryArtShowTravelerInteract();
+      case 'art_show_after_xiya':
+        return this.tryArtShowAfterXiyaInteract();
+      case 'dryyard_xiya':
+        return this.tryDryyardXiyaInteract();
+      case 'dryyard_box':
+        this.openTownPlan();
+        return true;
+      case 'dryyard_laozhang':
+        return this.tryDryyardLaozhangInteract();
+      case 'laojiang':
+        return this.tryLaoJiangInteract();
+      case 'qinghe_pier':
+        return this.tryQinghePierInteract();
+      case 'qinghe_pavilion':
+        return this.tryQinghePavilionInteract();
+      case 'qinghe_chatter':
+        return this.tryQingheChatterInteract();
+      case 'qinghe_old_man':
+        return this.tryQingheOldManInteract();
+      case 'qinghe_riverside_xiya':
+        return this.tryRiversideXiyaInteract();
+      case 'fishing':
+        return this.tryFishingInteract();
+      case 'gather':
+        return this.tryGatherInteract();
+      case 'lighthouse':
+        return this.tryLighthouseInteract();
+      case 'elder_star':
+        return this.trySideElderStar();
+      case 'xiya_gate':
+        return this.tryXiyaInteract();
+      case 'gate_wall':
+        this.executeGateWallInteract();
+        return true;
+      case 'dawn_xiya':
+        return this.tryDawnXiyaInteract();
+      case 'elder_hint':
+        return this.tryElderHouseHintInteract();
+      case 'gardener_plum':
+        return this.trySideGardenerPlum();
+      case 'market_square':
+        return this.executeMarketSquareInteract();
+      case 'shop_machine':
+        this.inputManager.clearAction();
+        this.shopPanel.open('machine');
+        return true;
+      case 'resident_board':
+        return this.tryResidentBoardInteract();
+      case 'evening_xiya':
+        return this.tryEveningXiyaInteract();
+      case 'grandpa_note':
+        return this.tryGrandpaNoteInteract();
+      case 'garden_restore':
+        return this.tryGardenRestoreInteract();
+      case 'xiya_garden':
+        return this.trySideXiyaGarden();
+      case 'old_house_restore':
+        return this.tryOldHouseRestoreInteract();
+      case 'mailbox':
+        return this.tryMailboxInteract();
+      case 'xiya_old_shadow_deliver':
+        return this.tryXiyaOldShadowDeliver();
+      case 'xiya_photo':
+        return this.trySideXiyaPhoto();
+      case 'xiya_letter':
+        return this.tryXiyaLetterInteract();
+      case 'bloom_xiya':
+        return this.tryBloomXiyaInteract();
+      case 'gardener_field':
+        return this.trySideGardenerField();
+      case 'forest_road':
+        return this.tryForestRoadRestoreInteract();
+      case 'garden_xiya':
+        return this.tryGardenXiyaInteract();
+      case 'old_robot':
+        return this.tryOldRobotInteract();
+      case 'stall_keeper':
+        return this.tryStallKeeperInteract();
+      case 'npc':
+        return this.executeNPCInteract(target);
+      case 'town_shop':
+        return this.executeTownShopInteract();
+      case 'old_tree':
+        this.triggerOldTreeInteract();
+        return true;
+      case 'forest_shard':
+        this.executeForestShardInteract();
+        return true;
+      case 'mine_lamp':
+        return this.trySideMinerLamp();
+      case 'mine_ore':
+        this.executeMineOreInteract();
+        return true;
+      case 'chop_tree':
+        return this.tryChopTree();
+      case 'farm_tile':
+        this.tryFarmInteract();
+        return false; // farm_tile 是兜底，不应消费交互
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * P7b: 查找最近的 NPC（纯函数，无副作用）
+   */
+  private findNearestNPC(): NPC | null {
+    let nearest: NPC | null = null;
+    let nearestDist = 24 * 24;
+    for (const npc of this.npcList) {
+      if (!npc.sprite || npc.vanished) continue;
+      const dx = this.player.x - npc.sprite.x;
+      const dy = this.player.y - npc.sprite.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < nearestDist) {
+        nearestDist = d2;
+        nearest = npc;
+      }
+    }
+    return nearest;
+  }
+
+  /**
+   * P7b: 执行床交互（原 tryInteract 内联逻辑）
+   */
+  private executeBedInteract(): boolean {
+    // 防重复睡觉
+    if (this.sleeping) {
+      console.log('[MapScene] 睡觉中，忽略重复触发');
+      return true;
+    }
+    // 教程中：只有 evening_talk 允许睡觉
+    if (!isTutorialDone() && getStoryStep() !== 'evening_talk') {
+      this.showDialogueText('还不到睡觉的时候……先把今天的农活做完吧。');
+      return true;
+    }
+    // 教程：晚间睡觉 → 结束教程
+    if (!isTutorialDone() && this.tryTutorialSleep()) return true;
+    // 自由模式白天：弹睡觉选项
+    if (getTime().hour < 20 && !isObservatoryComplete()) {
+      this.promptSleepChoice();
+      return true;
+    }
+    this.trySleep();
+    return true;
+  }
+
+  /**
+   * P7b: 执行大门墙交互（原 tryInteract 内联逻辑）
+   */
+  private executeGateWallInteract(): void {
+    // 注：距离检查已在 canTryGateWall() 中完成
+    this.showDialogueText(getItemCount('manor_key') > 0
+      ? '大门锁着，打开背包选择庄园钥匙使用吧。'
+      : '大门锁着，好像需要一把钥匙……');
+  }
+
+  /**
+   * P7b: 执行集市广场交互（清理/布置分支）
+   */
+  private executeMarketSquareInteract(): boolean {
+    if (this.marketSquareRestore && !this.marketSquareRestore.restored) {
+      if (this.marketSquareRestore.cleared) {
+        return this.tryMarketSquareArrangeInteract();
+      } else {
+        return this.tryMarketSquareInteract();
+      }
+    }
+    return false;
+  }
+
+  /**
+   * P7b: 执行 NPC 交互（包含小梅观察分支）
+   */
+  private executeNPCInteract(_target: ResolvedTarget): boolean {
+    const nearest = this.findNearestNPC();
+    if (!nearest) return false;
+
+    // 小梅观察分支
+    if (nearest.id === 'gardener') {
+      if (getItemCount('butterfly_specimen') > 0 && !hasTriggered('ch1_natural_record_1')) {
+        this.tryXiaomeiObserve();
+        return true;
+      }
+      if (getItemCount('willow_specimen') > 0 && !hasTriggered('ch1_natural_record_2')) {
+        this.tryXiaomeiObserveWillow();
+        return true;
+      }
+      if (getItemCount('moth_specimen') > 0 && !hasTriggered('ch1_natural_record_3')) {
+        this.tryXiaomeiObserveMoth();
+        return true;
+      }
+    }
+
+    // 通知每日任务
+    onDQTAlkNpc(nearest.id);
+    this.updateDailyQuestPanel();
+
+    // 镇长对话
+    if (nearest.id === 'elder') {
+
+      const elderBusy = isElderBusyDay();
+      this.playStory(getElderDialogue(), () => {
+        this.updateQuestHUD();
+        this.updateHUD();
+        if (elderBusy) {
+          triggerOnce('elder_starter_gift', () => this.grantElderStarterGift());
+        }
+        if (!this.sideElderTeaAsked && !this.sideElderStarDone && isObservatoryComplete()) {
+          this.sideElderTeaAsked = true;
+          this.storyDialogue!.play(ELDER_TEA_QUEST_DIALOGUE, () => this.updateHUD());
+        }
+        if (this.mapKey === 'farm' && isRestored('farmWarm') && !this.farmController.isWarmActive()) {
+          this.setupFarmWarm();
+        }
+        save({
+          x: this.player.x, y: this.player.y,
+          scene: this.mapKey, facing: this.player.facing,
+          dailyQuest: getDailyQuestSaveData(),
+        });
+      });
+    } else if (nearest.id === 'shopkeeper') {
+      this.showDialogue(nearest);
+    } else {
+      this.showDialogue(nearest);
+    }
+    return true;
+  }
+
+  /**
+   * P7b: 执行镇商店交互（老板在场对话 / 不在场自动售货机）
+   */
+  private executeTownShopInteract(): boolean {
+    if (this.mapKey !== 'town' || !this.townShop) return false;
+    const dx = this.player.x - this.townShop.pos.x;
+    const dy = this.player.y - this.townShop.pos.y;
+    if (dx * dx + dy * dy >= 30 * 30) return false;
+    const boss = this.npcList.find((n) => n.id === 'shopkeeper');
+    if (boss && boss.sprite && !boss.vanished) {
+      this.showDialogue(boss);
+    } else {
+      this.inputManager.clearAction();
+      this.shopPanel.open('machine');
+    }
+    return true;
+  }
+
+  /**
+   * P7b: 执行森林碎片交互（首次对话后自动采集）
+   */
+  private executeForestShardInteract(): void {
+    if (!this.shardDialoguePlayed) {
+      this.shardDialoguePlayed = true;
+
+      this.playStory(FOREST_SHARD_DIALOGUE, () => {
+        this.doCollectShard();
+      });
+    }
+  }
+
+  /**
+   * P7b: 执行挖矿交互（引导 + 实际挖矿）
+   */
+  private executeMineOreInteract(): void {
+    const nearOre = this.oreSprites.some((e) => {
+      if (!e.sprite.visible) return false;
+      const dx = this.player.x - e.sprite.x;
+      const dy = this.player.y - e.sprite.y;
+      return dx * dx + dy * dy < 24 * 24;
+    });
+    if (nearOre && !this.mineTipShown) {
+      this.mineTipShown = true;
+
+      this.playStory(MINE_TIP_DIALOGUE, undefined, undefined, "")
+      return;
+    }
+    this.tryMine();
+  }
+
+  /**
+   * P7b 辅助: 纯函数检查方法 —— 每个对应 tryInteract 中的一个 if 条件
+   * 这些方法都是纯函数，不修改任何状态
+   */
+
+  // --- house_tidy ---
+  private canTryHouseTidy(): boolean {
+    if (this.mapKey !== 'house') return false;
+    for (const item of this.houseTidy) {
+      if (!item.mark) {
+        const dx = this.player.x - item.pos.x;
+        const dy = this.player.y - item.pos.y;
+        if (dx * dx + dy * dy < 48 * 48) return true;
+      }
+    }
+    return false;
+  }
+
+  // --- house_old_shadow ---
+  private canTrySideXiyaOldShadow(): boolean {
+    if (this.mapKey !== 'house') return false;
+    if (this.sideXiyaOldShadowDone) return false;
+    if (this.sideXiyaOldShadowAsked) return false;
+    if (!isHouseTidyComplete()) return false;
+    if (!this.xiyaOldShadowMark) return false;
+    const dx = this.player.x - this.xiyaOldShadowMark.x;
+    const dy = this.player.y - this.xiyaOldShadowMark.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- bed ---
+  private canTryBed(): boolean {
+    if (this.mapKey !== 'house' && this.mapKey !== 'farm') return false;
+    const pc = Math.floor(this.player.x / TILE_SIZE);
+    const pr = Math.floor(this.player.y / TILE_SIZE);
+    const onBed = this.bedTiles.has(`${pc},${pr}`);
+    const nearBed = this.mapKey === 'house' && this.isNearBedTile(pc, pr);
+    return onBed || nearBed;
+  }
+
+  // --- music_box ---
+  private canTryMusicBox(): boolean {
+    if (!this.musicBoxMark || !this.musicBoxMark.visible) return false;
+    const dx = this.player.x - this.musicBoxMark.x;
+    const dy = this.player.y - this.musicBoxMark.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- grandpa_gift ---
+  private canTryGrandpaGift(): boolean {
+    if (!this.grandpaGiftMark || !this.grandpaGiftMark.visible) return false;
+    const dx = this.player.x - this.grandpaGiftPos.x;
+    const dy = this.player.y - this.grandpaGiftPos.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- stargaze ---
+  private canTryStargaze(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (getQuestState() !== 'completed' || isObservatoryComplete()) return false;
+    const dx = this.player.x - this.STARGAZE_POS.x;
+    const dy = this.player.y - this.STARGAZE_POS.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- butterfly ---
+  private canTryCatchButterfly(): boolean {
+    for (const b of this.catchableButterflies) {
+      if (b.getData('captured')) continue;
+      if (!b.visible) continue;
+      const dx = this.player.x - b.x;
+      const dy = this.player.y - b.y;
+      if (dx * dx + dy * dy < 24 * 24) return true;
+    }
+    return false;
+  }
+
+  // --- art_show_xiya ---
+  private canTryArtShowXiya(): boolean {
+    if (!this.artShowXiya || !this.artShowXiya.visible) return false;
+    if (hasTriggered('artshow_xiya_plan')) return false;
+    const dx = this.player.x - this.artShowXiya.x;
+    const dy = this.player.y - this.artShowXiya.y;
+    return dx * dx + dy * dy <= 34 * 34;
+  }
+
+  // --- art_show_box ---
+  private canTryArtShowBox(): boolean {
+    if (this.mapKey !== 'town' || !this.artShowBox || this.artShowHeld) return false;
+    const dx = this.player.x - MapScene.ARTSHOW.box.x;
+    const dy = this.player.y - MapScene.ARTSHOW.box.y;
+    return dx * dx + dy * dy < 34 * 34;
+  }
+
+  // --- art_show_traveler ---
+  private canTryArtShowTraveler(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.artShowPerm) return false;
+    if (!this.artShowTravelerGfx?.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const h = getTime().hour;
+    if (h < 8 || h >= 20) return false;
+    const dx = this.player.x - this.artShowTravelerPos.x;
+    const dy = this.player.y - this.artShowTravelerPos.y;
+    return dx * dx + dy * dy < 42 * 42;
+  }
+
+  // --- art_show_after_xiya ---
+  private canTryArtShowAfterXiya(): boolean {
+    if (this.mapKey !== 'town' || !this.artShowPerm) return false;
+    if (!this.artShowAfterXiya?.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const h = getTime().hour;
+    if (h < 8 || h >= 20) return false;
+    const dx = this.player.x - this.artShowAfterXiya.x;
+    const dy = this.player.y - this.artShowAfterXiya.y;
+    return dx * dx + dy * dy < 34 * 34;
+  }
+
+  // --- dryyard_xiya ---
+  private canTryDryyardXiya(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.dryyardXiya || !this.dryyardXiya.visible) return false;
+    if (hasTriggered('dryyard_xiya_photo')) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const dx = this.player.x - this.dryyardXiya.x;
+    const dy = this.player.y - this.dryyardXiya.y;
+    return dx * dx + dy * dy <= 34 * 34;
+  }
+
+  // --- dryyard_box ---
+  private canTryDryyardBox(): boolean {
+    if (this.mapKey !== 'town' || !this.dryyardBox || this.dryyardHeld) return false;
+    const dx = this.player.x - MapScene.DRYYARD.box.x;
+    const dy = this.player.y - MapScene.DRYYARD.box.y;
+    return dx * dx + dy * dy < 34 * 34;
+  }
+
+  // --- dryyard_laozhang ---
+  private canTryDryyardLaozhang(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.dryyardPerm) return false;
+    if (!this.dryyardLaozhang || !this.dryyardLaozhang.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const dx = this.player.x - MapScene.DRYYARD.laozhang.x;
+    const dy = this.player.y - MapScene.DRYYARD.laozhang.y;
+    return dx * dx + dy * dy < 42 * 42;
+  }
+
+  // --- laojiang ---
+  private canTryLaoJiang(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.laoJiangGfx?.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const dx = this.player.x - this.laoJiangPos.x;
+    const dy = this.player.y - this.laoJiangPos.y;
+    if (dx * dx + dy * dy >= MapScene.LAO_JIANG_RANGE * MapScene.LAO_JIANG_RANGE) return false;
+    const lines = this.buildLaoJiangDialogue();
+    return lines.length > 0;
+  }
+
+  // --- qinghe_pier ---
+  private canTryQinghePier(): boolean {
+    const g = this.qinghePierRestore;
+    if (!g || g.restored || this.mapKey !== 'qinghe_river') return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    if (dx * dx + dy * dy > 34 * 34) return false;
+    return !this.storyDialogue?.isOpen();
+  }
+
+  // --- qinghe_pavilion ---
+  private canTryQinghePavilion(): boolean {
+    if (!this.qinghePavilion || this.mapKey !== 'qinghe_river') return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const dx = this.player.x - this.qinghePavilion.pos.x;
+    const dy = this.player.y - this.qinghePavilion.pos.y;
+    return dx * dx + dy * dy <= 42 * 42;
+  }
+
+  // --- qinghe_chatter ---
+  private canTryQingheChatter(): boolean {
+    if (this.mapKey !== 'qinghe_river' || !isRestored('marketSquare')) return false;
+    const h = getTime().hour;
+    if (h < 18 && h >= 6) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const T = TILE_SIZE;
+    const x = 15 * T + T / 2, y = 20 * T + T / 2;
+    const dx = this.player.x - x, dy = this.player.y - y;
+    return dx * dx + dy * dy < 48 * 48;
+  }
+
+  // --- qinghe_old_man ---
+  private canTryQingheOldMan(): boolean {
+    if (this.mapKey !== 'qinghe_river' || !this.qingheOldMan?.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const h = getTime().hour;
+    if (h < 8 || h >= 18) return false;
+    const dx = this.player.x - this.qingheOldMan.x;
+    const dy = this.player.y - this.qingheOldMan.y;
+    return dx * dx + dy * dy < 42 * 42;
+  }
+
+  // --- qinghe_riverside_xiya ---
+  private canTryRiversideXiya(): boolean {
+    if (!this.riversideXiya || !this.riversideXiya.visible) return false;
+    if (getTime().hour < 16 || getTime().hour >= 18) return false;
+    const dx = this.player.x - this.riversideXiya.x;
+    const dy = this.player.y - this.riversideXiya.y;
+    return dx * dx + dy * dy <= 28 * 28;
+  }
+
+  // --- fishing ---
+  private canTryFishing(): boolean {
+    if (!MapScene.FISHING_SPOTS[this.mapKey]) return false;
+    if (this.fishingState !== 'idle') return true; // 钓鱼中可收竿
+    const dx = this.player.x - this.fishingSpotPos.x;
+    const dy = this.player.y - this.fishingSpotPos.y;
+    const range = MapScene.FISHING_CONFIG.interactRange;
+    if (dx * dx + dy * dy > range * range) return false;
+    return !this.storyDialogue?.isOpen();
+  }
+
+  // --- gather ---
+  private canTryGather(): boolean {
+    if (this.nearestGatherIdx < 0) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    const node = this.gatherNodes[this.nearestGatherIdx];
+    if (!node || node.collected) return false;
+    const dx = this.player.x - node.def.x;
+    const dy = this.player.y - node.def.y;
+    return dx * dx + dy * dy <= GATHER_INTERACT_RANGE * GATHER_INTERACT_RANGE;
+  }
+
+  // --- lighthouse ---
+  private canTryLighthouse(): boolean {
+    if (this.mapKey !== 'lighthouse') return false;
+    for (const s of this.lighthouseSpots) {
+      const dx = this.player.x - s.x;
+      const dy = this.player.y - s.y;
+      if (dx * dx + dy * dy <= 32 * 32) return true;
+    }
+    return false;
+  }
+
+  // --- elder_star ---
+  private canTrySideElderStar(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (!this.sideElderTeaAsked || this.sideElderStarDone) return false;
+    const dx = this.player.x - this.STARGAZE_POS.x;
+    const dy = this.player.y - this.STARGAZE_POS.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- xiya_gate ---
+  private canTryXiya(): boolean {
+    if (!this.xiyaSprite || !this.xiyaSprite.visible) return false;
+    if (getStoryStep() !== 'arrive_manor') return false;
+    const dx = this.player.x - this.xiyaSprite.x;
+    const dy = this.player.y - this.xiyaSprite.y;
+    return dx * dx + dy * dy <= 28 * 28;
+  }
+
+  // --- gate_wall ---
+  private canTryGateWall(): boolean {
+    const dx = this.player.x - 15 * TILE_SIZE;
+    const dy = this.player.y - 9 * TILE_SIZE;
+    return dx * dx + dy * dy < 30 * 30;
+  }
+
+  // --- dawn_xiya ---
+  private canTryDawnXiya(): boolean {
+    if (!this.dawnXiya || !this.dawnXiya.visible) return false;
+    if (getTime().hour < 6 || getTime().hour >= 8) return false;
+    const dx = this.player.x - this.dawnXiya.x;
+    const dy = this.player.y - this.dawnXiya.y;
+    return dx * dx + dy * dy <= 28 * 28;
+  }
+
+  // --- elder_hint ---
+  private canTryElderHouseHint(): boolean {
+    if (!this.elderHouseHint || !this.elderHouseHint.sprite.visible) return false;
+    const dx = this.player.x - this.elderHouseHint.sprite.x;
+    const dy = this.player.y - this.elderHouseHint.sprite.y;
+    return dx * dx + dy * dy <= 28 * 28;
+  }
+
+  // --- gardener_plum ---
+  private canTrySideGardenerPlum(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (this.sideGardenerPlumDone) return false;
+    // 让位：玩家贴近任何可见 NPC（<24px）时，小梅花让位给 NPC 对话
+    for (const n of this.npcList) {
+      if (!n.sprite || n.vanished) continue;
+      const ndx = this.player.x - n.sprite.x;
+      const ndy = this.player.y - n.sprite.y;
+      if (ndx * ndx + ndy * ndy < 24 * 24) return false;
+    }
+    const T = TILE_SIZE;
+    const px = 28 * T + T / 2;
+    const py = 16 * T + T / 2;
+    const dx = this.player.x - px;
+    const dy = this.player.y - py;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- market_square ---
+  private canTryMarketSquare(): boolean {
+    if (this.mapKey !== 'town' || !this.marketSquareRestore || this.marketSquareRestore.restored) return false;
+    // 需要实际进入 tryMarketSquareInteract / tryMarketSquareArrangeInteract 的检查逻辑
+    // 这里返回 true 让路由进入 executeMarketSquareInteract 处理
+    return this.canTryMarketSquareInteract() || this.canTryMarketSquareArrangeInteract();
+  }
+
+  // --- shop_machine ---
+  private canTryShopMachine(): boolean {
+    if (this.mapKey !== 'town' || !this.shopMachine) return false;
+    const dx = this.player.x - this.shopMachine.pos.x;
+    const dy = this.player.y - this.shopMachine.pos.y;
+    return dx * dx + dy * dy < 20 * 20;
+  }
+
+  // --- resident_board ---
+  private canTryResidentBoard(): boolean {
+    if (!this.residentBoardMark || !this.residentBoardMark.visible) return false;
+    const dx = this.player.x - this.residentBoardMark.x;
+    const dy = this.player.y - this.residentBoardMark.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- evening_xiya ---
+  private canTryEveningXiya(): boolean {
+    if (!this.eveningXiya || !this.eveningXiya.visible) return false;
+    if (getTime().hour < 18 || getTime().hour >= 20) return false;
+    const dx = this.player.x - this.eveningXiya.x;
+    const dy = this.player.y - this.eveningXiya.y;
+    return dx * dx + dy * dy <= 28 * 28;
+  }
+
+  // --- grandpa_note ---
+  private canTryGrandpaNote(): boolean {
+    if (!this.grandpaNote || !this.grandpaNote.visible) return false;
+    const p = this.grandpaNotePos;
+    const dx = this.player.x - p.x;
+    const dy = this.player.y - p.y;
+    return dx * dx + dy * dy <= 28 * 28;
+  }
+
+  // --- garden_restore ---
+  private canTryGardenRestore(): boolean {
+    const g = this.gardenRestore;
+    if (!g || g.stage >= 3) return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    return dx * dx + dy * dy <= 34 * 34;
+  }
+
+  // --- xiya_garden ---
+  private canTrySideXiyaGarden(): boolean {
+    if (this.sideXiyaGardenDone) return false;
+    const T = TILE_SIZE;
+    const gx = 30 * T + T / 2;
+    const gy = 5 * T + T / 2;
+    const dx = this.player.x - gx;
+    const dy = this.player.y - gy;
+    return dx * dx + dy * dy <= 44 * 44;
+  }
+
+  // --- old_house_restore ---
+  private canTryOldHouseRestore(): boolean {
+    const g = this.oldHouseRestore;
+    if (!g || g.restored) return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    return dx * dx + dy * dy <= 34 * 34;
+  }
+
+  // --- mailbox ---
+  private canTryMailbox(): boolean {
+    if (!this.mailboxGfx || !this.mailUnlocked) return false;
+    if (!this.mailboxGfx.visible) return false;
+    if (this.storyDialogue?.isOpen()) return false;
+    if (isMailboxPanelOpen()) return false;
+    const dx = this.player.x - this.mailboxPos.x;
+    const dy = this.player.y - this.mailboxPos.y;
+    return dx * dx + dy * dy <= 34 * 34;
+  }
+
+  // --- xiya_old_shadow_deliver ---
+  private canTryXiyaOldShadowDeliver(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (this.sideXiyaOldShadowDone) return false;
+    if (!this.sideXiyaOldShadowAsked) return false;
+    if (!isRestored('oldHouse')) return false;
+    const g = this.oldHouseRestore;
+    if (!g) return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- xiya_photo ---
+  private canTrySideXiyaPhoto(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (this.sideXiyaPhotoDone) return false;
+    if (!isRestored('oldHouse')) return false;
+    const g = this.oldHouseRestore;
+    if (!g) return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  // --- xiya_letter ---
+  private canTryXiyaLetter(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (this.xiyaLetterDone) return false;
+    if (!isTutorialDone()) return false;
+    if (!this.letterTimeOk()) return false;
+    const R = 32 * 32;
+    // A 段：初始夏雅（visible 检查）
+    if (!this.xiyaLetterAsked && this.letterXiya?.visible) {
+      const dx = this.player.x - this.letterXiya.x;
+      const dy = this.player.y - this.letterXiya.y;
+      if (dx * dx + dy * dy <= R) return true;
+    }
+    // B/C/D 段检查（简化为 letterXiya 可见性检查）
+    if (this.letterXiya?.visible) {
+      const dx = this.player.x - this.letterXiya.x;
+      const dy = this.player.y - this.letterXiya.y;
+      if (dx * dx + dy * dy <= R) return true;
+    }
+    return false;
+  }
+
+  // --- bloom_xiya ---
+  private canTryBloomXiya(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (this.xiyaBloomDone) return false;
+    if (!isTutorialDone()) return false;
+    return this.bloomPrereqOk();
+  }
+
+  // --- gardener_field ---
+  private canTrySideGardenerField(): boolean {
+    if (this.mapKey !== 'farm') return false;
+    if (this.sideGardenerFieldDone) return false;
+    // 让位：小梅在花田旁时，玩家贴近小梅优先触发 NPC 对话
+    const gardener = this.npcList.find((n) => n.id === 'gardener' && n.sprite && n.sprite.visible);
+    if (gardener && gardener.sprite) {
+      const ndx = this.player.x - gardener.sprite.x;
+      const ndy = this.player.y - gardener.sprite.y;
+      if (ndx * ndx + ndy * ndy < 24 * 24) return false;
+    }
+    const T = TILE_SIZE;
+    const gx = 3 * T + T / 2;
+    const gy = 7 * T + T / 2;
+    const dx = this.player.x - gx;
+    const dy = this.player.y - gy;
+    return dx * dx + dy * dy <= 44 * 44;
+  }
+
+  // --- forest_road ---
+  private canTryForestRoadRestore(): boolean {
+    const g = this.forestRoadRestore;
+    if (!g || g.restored) return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    return dx * dx + dy * dy <= 34 * 34;
+  }
+
+  // --- garden_xiya ---
+  private canTryGardenXiya(): boolean {
+    if (!this.gardenXiya || !this.gardenXiya.visible) return false;
+    const dx = this.player.x - this.gardenXiya.x;
+    const dy = this.player.y - this.gardenXiya.y;
+    return dx * dx + dy * dy <= 28 * 28;
+  }
+
+  // --- old_robot ---
+  private canTryOldRobot(): boolean {
+    if (!this.oldRobot || !this.oldRobot.visible) return false;
+    const dx = this.player.x - this.oldRobotPos.x;
+    const dy = this.player.y - this.oldRobotPos.y;
+    return dx * dx + dy * dy <= 30 * 30;
+  }
+
+  // --- stall_keeper ---
+  private canTryStallKeeper(): boolean {
+    if (this.mapKey !== 'town') return false;
+    if (!this.marketStallKeepers || this.marketStallKeepers.length === 0) return false;
+    let nearest: Phaser.GameObjects.Container | null = null;
+    let best = 40 * 40;
+    for (const c of this.marketStallKeepers) {
+      if (!c.visible) continue;
+      const pos = c.getData('keeperPos') as { x: number; y: number } | undefined;
+      if (!pos) continue;
+      const dx = this.player.x - pos.x;
+      const dy = this.player.y - pos.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < best) {
+        best = d2;
+        nearest = c;
+      }
+    }
+    return nearest !== null;
+  }
+
+  // --- town_shop ---
+  private canTryTownShop(): boolean {
+    if (this.mapKey !== 'town' || !this.townShop) return false;
+    const dx = this.player.x - this.townShop.pos.x;
+    const dy = this.player.y - this.townShop.pos.y;
+    return dx * dx + dy * dy < 30 * 30;
+  }
+
+  // --- old_tree ---
+  private canTryOldTree(): boolean {
+    const dx = this.player.x - this.oldTreePos.x;
+    const dy = this.player.y - this.oldTreePos.y;
+    return dx * dx + dy * dy < 60 * 60;
+  }
+
+  // --- forest_shard ---
+  private canTryForestShard(): boolean {
+    if (!this.shardSprite) return false;
+    const dx = this.player.x - this.shardSprite.x;
+    const dy = this.player.y - this.shardSprite.y;
+    return dx * dx + dy * dy < 24 * 24;
+  }
+
+  // --- mine_lamp ---
+  private canTrySideMinerLamp(): boolean {
+    if (this.mapKey !== 'mine') return false;
+    if (this.sideMinerLampDone) return false;
+    const T = TILE_SIZE;
+    const lx = 12 * T + T / 2;
+    const ly = 8 * T + T / 2;
+    const dx = this.player.x - lx;
+    const dy = this.player.y - ly;
+    return dx * dx + dy * dy <= 44 * 44;
+  }
+
+  // --- mine_ore ---
+  private canTryMineOre(): boolean {
+    const nearOre = this.oreSprites.some((e) => {
+      if (!e.sprite.visible) return false;
+      const dx = this.player.x - e.sprite.x;
+      const dy = this.player.y - e.sprite.y;
+      return dx * dx + dy * dy < 24 * 24;
+    });
+    return nearOre;
+  }
+
+  // --- chop_tree ---
+  private canTryChopTree(): boolean {
+    for (const pos of FARM_TREE_POSITIONS) {
+      const tree = getTree(pos.col, pos.row);
+      if (!tree || tree.isStump) continue;
+      const cx = pos.col * TILE_SIZE + TILE_SIZE / 2;
+      const cy = pos.row * TILE_SIZE + TILE_SIZE / 2;
+      const dx = this.player.x - cx;
+      const dy = this.player.y - cy;
+      if (dx * dx + dy * dy < 24 * 24) return true;
+    }
+    return false;
+  }
+
+  // --- market_square 子检查 ---
+  private canTryMarketSquareInteract(): boolean {
+    const g = this.marketSquareRestore;
+    if (!g || g.restored) return false;
+    const dx = this.player.x - g.pos.x;
+    const dy = this.player.y - g.pos.y;
+    return dx * dx + dy * dy <= 48 * 48;
+  }
+
+  private canTryMarketSquareArrangeInteract(): boolean {
+    const g = this.marketSquareRestore;
+    if (!g || g.restored || !g.cleared) return false;
+    // 找最近一个未摆放的布置点
+    let idx = -1;
+    let best = 40 * 40;
+    g.arrangeSpots.forEach((spot) => {
+      if (spot.mark === null) return;
+      const dx = this.player.x - spot.x;
+      const dy = this.player.y - spot.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < best) { best = d2; idx = g.arrangeSpots.indexOf(spot); }
+    });
+    return idx >= 0;
+  }
+
+  /**
+   * P7b: 交互入口（动作键触发，consumeAction 消费一次）
+   * 使用 InteractionRouter.resolveTarget 解析目标优先级，再分发执行
+   * 
+   * 流程：
+   *   1. 夜晚疲劳提示（前置逻辑）
+   *   2. 构建候选列表（纯函数检查）
+   *   3. 按优先级解析目标
+   *   4. 执行目标交互（副作用）
    */
   private tryInteract(): void {
     // 夜晚疲劳提示（P0 §3.2，最小版）：21:00 起，当夜第一次按 E 时弹一句提示，不强制、不打断。
@@ -10917,420 +11466,15 @@ this.setupFieldLife();
       this.showDialogueText('天色晚了，有些困了……');
     }
 
-    // 0. 第一章 P1-1 老屋整理（house 场景，优先于睡觉判定）：
-    //    bed 整理点 (2.5T,2.5T) 与床铺睡觉格重叠，必须先判断整理（未整理 → 整理；已整理 → 放行睡觉）
-    if (this.mapKey === 'house') {
-      if (this.tryHouseTidyInteract()) return;
-      // P1-3 夏雅《旧日留影》：老屋整理完成后，柜子翻出旧相框（靠近按 E，一次性）
-      if (this.trySideXiyaOldShadow()) return;
+    // P7b: 构建候选列表 → 解析目标 → 执行交互（替代原 if-return 链）
+    const candidates = this.buildInteractionCandidates();
+    const target = this.interactionRouter.resolveTarget(candidates);
+    
+    if (target) {
+      console.log(`[MapScene] P7b target resolved: ${target.id}`);
+      this.executeInteractionTarget(target);
     }
-
-    // 1. 睡觉点检测：
-    //    house → 真实床铺（Ground gid 9）；farm → 木屋地板（Walls gid 6）
-    //    判定：站在床格上，或站在床格相邻 1 格内即可（触屏操作精度宽容，无需精确面向）
-    if (this.mapKey === 'house' || this.mapKey === 'farm') {
-      const pc = Math.floor(this.player.x / TILE_SIZE);
-      const pr = Math.floor(this.player.y / TILE_SIZE);
-      const onBed = this.bedTiles.has(`${pc},${pr}`);
-      // BUG-032 修复：farm 木屋地板整体即睡觉区（6×5=30 格，触屏精度足够），必须站在地板上（onBed）
-      // 才能睡；"相邻 1 格"放宽仅保留给 house 真实床铺（2×2 小区域，且 house 为封闭场景无外扩风险），
-      // 避免判定外扩到石墙外——玩家站在木屋旁（row 18 屋外 / 门口外侧）误触睡觉跨天。
-      const nearBed = this.mapKey === 'house' && this.isNearBedTile(pc, pr);
-      if (onBed || nearBed) {
-        console.log(`[MapScene] 床交互触发 player=(${this.player.x},${this.player.y}) tile=(${pc},${pr}) onBed=${onBed} nearBed=${nearBed} step=${getStoryStep()} sleeping=${this.sleeping}`);
-        // 防重复睡觉（移动端触屏双击发防护）
-        if (this.sleeping) {
-          console.log('[MapScene] 睡觉中，忽略重复触发');
-          return;
-        }
-        // 教程中：只有 evening_talk 允许睡觉；提前睡觉不跨天（防止存档卡死：
-        // 播种后未浇水就睡 → 次日作物已熟/无种子，教程永久无法完成）
-        if (!isTutorialDone() && getStoryStep() !== 'evening_talk') {
-          this.showDialogueText('还不到睡觉的时候……先把今天的农活做完吧。');
-          return;
-        }
-        // 教程：晚间睡觉 → 结束教程
-        if (!isTutorialDone() && this.tryTutorialSleep()) return;
-        // 自由模式白天：弹睡觉选项（睡到天亮 / 休息到傍晚）。
-        // 避免"睡觉跨天 → 回到清晨"导致永远等不到 20:00 观星夜。
-        if (getTime().hour < 20 && !isObservatoryComplete()) {
-          this.promptSleepChoice();
-          return;
-        }
-        this.trySleep();
-        return;
-      }
-    }
-
-    // P1 家的音乐盒（老屋，靠近按 E 打开曲目列表）
-    if (this.mapKey === 'house' && this.musicBoxMark) {
-      if (this.tryMusicBoxInteract()) return;
-    }
-
-    // P0 爷爷的归星包裹（老屋旧木箱，第一次进屋可领取，一次性）
-    if (this.mapKey === 'house' && this.grandpaGiftMark) {
-      if (this.tryGrandpaGiftInteract()) return;
-    }
-
-    // 第一章 P1-1 老屋整理（4 个整理交互点，章节门禁 + triggerOnceIf 链路）
-    // 注：house 场景已在 tryInteract 最前判断（优先于睡觉判定），此处为 farm 兜底不适用——已移除重复调用
-
-    // 1.5 Demo 结尾：观星点（主线完成 + 夜晚 + 靠近观星点按 E）
-    if (this.tryStargaze()) return;
-
-    // 第一章 P2 捕虫玩法 V0.1（2026-08-13）：靠近蝴蝶按 E 捕捉（farm/town）
-    if (this.mapKey === 'farm' || this.mapKey === 'town') {
-      if (this.tryCatchNearestButterfly()) return;
-    }
-
-    // 小镇计划·星光艺术展：广场夏雅（策划，一次性）→ 素材箱（征集箱，打开面板）
-    if (this.tryArtShowXiyaInteract()) return;
-    if (this.mapKey === 'town' && this.artShowBox && !this.artShowHeld) {
-      const bdx = this.player.x - MapScene.ARTSHOW.box.x;
-      const bdy = this.player.y - MapScene.ARTSHOW.box.y;
-      if (bdx * bdx + bdy * bdy < 34 * 34) {
-        this.openTownPlan();
-        return;
-      }
-    }
-    // 星光艺术展余波：旅人回访坐艺术角长椅（展办完后，白天/傍晚可对话）
-    if (this.tryArtShowTravelerInteract()) return;
-    // 星光艺术展余波：庆典后夏雅在艺术角照看展台（白天/傍晚可对话）
-    if (this.tryArtShowAfterXiyaInteract()) return;
-
-    // 小镇计划·秋日晒场：晒场夏雅（旧照片，一次性）→ 征集筐（「今年的收成」，打开面板）→ 永久期老张（收成时令台词）
-    if (this.tryDryyardXiyaInteract()) return;
-    if (this.mapKey === 'town' && this.dryyardBox && !this.dryyardHeld) {
-      const dbdx = this.player.x - MapScene.DRYYARD.box.x;
-      const dbdy = this.player.y - MapScene.DRYYARD.box.y;
-      if (dbdx * dbdx + dbdy * dbdy < 34 * 34) {
-        this.openTownPlan();
-        return;
-      }
-    }
-    if (this.tryDryyardLaozhangInteract()) return;
-
-    // 钓鱼老人老姜（氛围锚点）：人在旁边时先说话；站到水边才钓鱼
-    if (this.tryLaoJiangInteract()) return;
-
-    // 青禾河畔：码头修复（未修复时优先，修复后钓点才开放）→ 凉亭停留
-    if (this.mapKey === 'qinghe_river') {
-      if (this.tryQinghePierInteract()) return;
-      if (this.tryQinghePavilionInteract()) return;
-      // Stage 2：夜晚聊天（长椅旁）
-      if (this.tryQingheChatterInteract()) return;
-      // 果园预埋：老周（断桥旁，第二章钩子）
-      if (this.tryQingheOldManInteract()) return;
-      // NPC 剧情覆盖日程：河畔夏雅（16-18 时看水，18 点后回农场）
-      if (this.tryRiversideXiyaInteract()) return;
-    }
-
-    // 第一章 P2 钓鱼（2026-08-14 扩展：town 河堤 + farm 池塘多钓点）：
-    // 靠近钓点按 E 启动钓鱼循环；钓鱼中按 E = 收竿判定（成功/过早失败）。
-    if (MapScene.FISHING_SPOTS[this.mapKey]) {
-      if (this.tryFishingInteract()) return;
-    }
-
-    // 第一章 P2 生活采集 Phase 1（2026-08-14 设计稿 v0.1）：
-    // farm/town/forest 三场景靠近未采点按 E 采集（一次性，triggerOnce 持久化）
-    if (this.gatherNodes.length > 0) {
-      if (this.tryGatherInteract()) return;
-    }
-
-    // 灯塔轻量版（2026-08-10）：探索交互（靠近旧物件按 E 读文本，一次性记录足迹）
-    if (this.mapKey === 'lighthouse') {
-      if (this.tryLighthouseInteract()) return;
-    }
-
-    // 支线试点：镇长「看星星的地方」（委托后，夜晚到空地触发）
-    if (this.trySideElderStar()) return;
-
-    // 0.3 教程：夏雅交互（大门地图优先于普通 NPC）
-    if ((this.mapKey === 'gate' || this.mapKey === 'farm') && this.xiyaSprite) {
-      if (this.tryXiyaInteract()) return;
-    }
-
-    // 0.35 大门交互：锁着时按 E 明确提示（制作人反馈：功能未解锁应提示，不能无反馈）
-    // 大门未打开时 gateWall 存在（使用钥匙后销毁置 null）；玩家靠近大门按 E 给出引导
-    if (this.mapKey === 'gate' && this.gateWall) {
-      const dx = this.player.x - 15 * TILE_SIZE;
-      const dy = this.player.y - 9 * TILE_SIZE;
-      if (dx * dx + dy * dy < 30 * 30) {
-        this.showDialogueText(getItemCount('manor_key') > 0
-          ? '大门锁着，打开背包选择庄园钥匙使用吧。'
-          : '大门锁着，好像需要一把钥匙……');
-        return;
-      }
-    }
-
-    // v0.5.3 剧情密度 E1：清晨偶遇夏雅（教程完成后，仅清晨 06-08 时）
-    if (this.mapKey === 'farm' && this.dawnXiya) {
-      if (this.tryDawnXiyaInteract()) return;
-    }
-
-    // 镇长家提示物品（镇长不在镇上时显示）
-    if (this.mapKey === 'town' && this.elderHouseHint) {
-      if (this.tryElderHouseHintInteract()) return;
-    }
-
-    // T3 小梅「小梅花」：小镇花圃种花（一次性事件）
-    if (this.mapKey === 'town') {
-      if (this.trySideGardenerPlum()) return;
-    }
-
-    // 第一章 P2-1 集市广场：未清理 → 资源交付清理场地；已清理未开张 → 布置摊位（需求匹配）
-    if (this.mapKey === 'town' && this.marketSquareRestore && !this.marketSquareRestore.restored) {
-      if (this.marketSquareRestore.cleared) {
-        if (this.tryMarketSquareArrangeInteract()) return;
-      } else {
-        if (this.tryMarketSquareInteract()) return;
-      }
-    }
-
-    // 2026-08-11 镇子商店门口自动售货机（制作人拍板：衰落中维持最低限度运转）
-    // 独立交互锚点：全天可用、只卖基础补给；老板在场也不受影响（机器不抢老板存在感）
-    // 必须优先于需求板：售货机实际位置 (352,156)（mx=x-40=352）距需求板 (360,136) 仅 ~21.5px，
-    // 需求板 48px 半径会抢先命中。售货机交互半径取 20px（< 21.5px）：
-    //   玩家站需求板中心 (360,136) 距售货机 21.5px > 20px → 正常打开需求板；
-    //   玩家贴近售货机（<20px）→ 打开售货机（优先级正确，机器不吞需求板）。
-    if (this.mapKey === 'town' && this.shopMachine) {
-      const dx = this.player.x - this.shopMachine.pos.x;
-      const dy = this.player.y - this.shopMachine.pos.y;
-      if (dx * dx + dy * dy < 20 * 20) {
-        this.inputManager.clearAction();
-        this.shopPanel.open('machine');
-        return;
-      }
-    }
-
-    // FEATURE-038 居民需求板（小镇广场右侧信息板，靠近按 E 打开面板）
-    if (this.mapKey === 'town' && this.residentBoardMark) {
-      if (this.tryResidentBoardInteract()) return;
-    }
-
-    // v0.5.3 剧情密度 E9：傍晚关心夏雅（教程完成后，仅傍晚 18-20 时）
-    if (this.mapKey === 'farm' && this.eveningXiya) {
-      if (this.tryEveningXiyaInteract()) return;
-    }
-
-    // v0.5.3 剧情密度 E5：爷爷的笔记（庄园角落可读物件）
-    if (this.mapKey === 'farm' && this.grandpaNote) {
-      if (this.tryGrandpaNoteInteract()) return;
-    }
-
-    // M1-3 爷爷旧花园恢复点（未恢复时靠近按 E 三阶段清理）
-    if (this.mapKey === 'farm' && this.gardenRestore && this.gardenRestore.stage < 3) {
-      if (this.tryGardenRestoreInteract()) return;
-    }
-
-    // 支线试点：夏雅「院子有人照顾」（花园恢复后，花田旧藤架事件；花园见证夏雅在场时让位）
-    if (this.mapKey === 'farm' && isRestored('garden') && !this.gardenXiya) {
-      if (this.trySideXiyaGarden()) return;
-    }
-
-    // FEATURE-037 老屋修复（未恢复时靠近按 E：资源交付一次完成）
-    if (this.mapKey === 'farm' && this.oldHouseRestore && !this.oldHouseRestore.restored) {
-      if (this.tryOldHouseRestoreInteract()) return;
-    }
-
-    // 邮箱系统（收到爷爷的信后解锁）：老屋门口信箱，靠近按 E 读信（首次走爷爷首封演出）
-    if (this.mapKey === 'farm') {
-      if (this.tryMailboxInteract()) return;
-    }
-
-    // P1-3 夏雅《旧日留影》交付：翻出旧相框后，老屋门口找夏雅擦净（§八，需先翻柜子；排在 T3 之前避免冲突）
-    if (this.mapKey === 'farm' && isRestored('oldHouse') && this.sideXiyaOldShadowAsked && !this.sideXiyaOldShadowDone) {
-      if (this.tryXiyaOldShadowDeliver()) return;
-    }
-
-    // T3 夏雅「整理旧照片」（老屋修复后，老屋门口事件）
-    if (this.mapKey === 'farm' && isRestored('oldHouse')) {
-      if (this.trySideXiyaPhoto()) return;
-    }
-
-    // D-011 夏雅《春深有信·一》：剧情专线（花田边，下午/傍晚时段；独立于 E9 傍晚闲聊）
-    if (this.mapKey === 'farm' && isTutorialDone()) {
-      if (this.tryXiyaLetterInteract()) return;
-    }
-
-    // D-011 夏雅《春深有信·二 花期未至》：剧情专线（旧广场，白天 8~20；前置：·一 完成 + 集市恢复）
-    if (this.mapKey === 'town' && isTutorialDone()) {
-      if (this.tryBloomXiyaInteract()) return;
-    }
-
-    // 花田支线：帮小梅开垦花田（farm 左上角花田 (3,7)，交付木材×3 → 盛开 + 记忆卡，一次性入档）
-    if (this.mapKey === 'farm') {
-      if (this.trySideGardenerField()) return;
-    }
-
-    // FEATURE-037 后山道路修复（未恢复时靠近按 E：资源交付一次完成）
-    if (this.mapKey === 'forest' && this.forestRoadRestore && !this.forestRoadRestore.restored) {
-      if (this.tryForestRoadRestoreInteract()) return;
-    }
-
-    // M1-3 夏雅见证（花园恢复后，夏雅在花园旁，靠近按 E 播放生活记忆对白）
-    if (this.mapKey === 'farm' && this.gardenXiya) {
-      if (this.tryGardenXiyaInteract()) return;
-    }
-
-    // FEATURE-036 旧农业机器人（花园恢复后出现，靠近按 E 修复获得，一次性）
-    if (this.mapKey === 'farm' && this.oldRobot) {
-      if (this.tryOldRobotInteract()) return;
-    }
-
-    // 集市摊主对话（2026-08-14）：集市开张后，摊位旁摊主走近按 E 闲聊（服务生活感）
-    if (this.mapKey === 'town' && this.marketStallKeepers.length > 0) {
-      if (this.tryStallKeeperInteract()) return;
-    }
-
-    // 2. 优先检测靠近 NPC（所有场景）：取交互范围内最近的一个
-    // 注意：不能用数组顺序取第一个，否则多个 NPC 靠近时 elder 永远先被触发
-    let nearest: NPC | null = null;
-    let nearestDist = 24 * 24;
-    for (const npc of this.npcList) {
-      if (!npc.sprite || npc.vanished) continue;
-      const dx = this.player.x - npc.sprite.x;
-      const dy = this.player.y - npc.sprite.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < nearestDist) {
-        nearestDist = d2;
-        nearest = npc;
-      }
-    }
-    if (nearest) {
-      console.log(`[DEBUG] tryInteract NPC: ${nearest.id} at (${nearest.sprite?.x},${nearest.sprite?.y})`);
-      // 第一章 P2「自然记录」第三段昆虫观察：靠近小梅且背包有青禾凤蝶标本且未完成观察时，
-      // 优先触发「小梅递放大镜」观察剧情（一次性；不抢其他 NPC 对话）
-      if (nearest.id === 'gardener' && getItemCount('butterfly_specimen') > 0 && !hasTriggered('ch1_natural_record_1')) {
-        this.tryXiaomeiObserve();
-        return;
-      }
-      // 第一章 v0.11 图鉴墙：柳叶蝶标本 → 小梅观察（第二条自然记录，一次性）
-      if (nearest.id === 'gardener' && getItemCount('willow_specimen') > 0 && !hasTriggered('ch1_natural_record_2')) {
-        this.tryXiaomeiObserveWillow();
-        return;
-      }
-      // 第一章 v0.11 图鉴墙：夜光蛾标本 → 小梅观察（第三条自然记录，一次性）
-      if (nearest.id === 'gardener' && getItemCount('moth_specimen') > 0 && !hasTriggered('ch1_natural_record_3')) {
-        this.tryXiaomeiObserveMoth();
-        return;
-      }
-      // 通知每日任务：与 NPC 对话 + 刷新面板
-      onDQTAlkNpc(nearest.id);
-      this.updateDailyQuestPanel();
-      // 镇长对话：根据任务状态播放完整剧情剧本（StoryDialogue 全屏）
-      if (nearest.id === 'elder') {
-        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        // f7：第一天镇长「暂时有事」对话 → 结束后发放启动资源大礼包（一次性，随 triggeredEvents 入档）
-        const elderBusy = isElderBusyDay();
-        this.storyDialogue.play(getElderDialogue(), () => {
-          this.updateQuestHUD();
-          this.updateHUD();
-          if (elderBusy) {
-            triggerOnce('elder_starter_gift', () => this.grantElderStarterGift());
-          }
-          // 支线试点：观星夜完成后，镇长追加「看星星的地方」委托（一次性，随 mapFlags 入档）
-          if (!this.sideElderTeaAsked && !this.sideElderStarDone && isObservatoryComplete()) {
-            this.sideElderTeaAsked = true;
-            this.storyDialogue!.play(ELDER_TEA_QUEST_DIALOGUE, () => this.updateHUD());
-          }
-          // P0-5 农场回暖 v2：交付在 farm 场景内完成时的兜底（镇长实际白天在 town，
-          // 该路径通常走不到；首次回 farm 的光晕由 create 时 farm_warm_intro 首播负责）
-          if (this.mapKey === 'farm' && isRestored('farmWarm') && !this.farmWarmOverlay) {
-            this.setupFarmWarm();
-          }
-          // 里程碑保存（v0.5.2 P0）：主线交付后立即入档
-          save({
-            x: this.player.x, y: this.player.y,
-            scene: this.mapKey, facing: this.player.facing,
-            dailyQuest: getDailyQuestSaveData(),
-          });
-        });
-      } else if (nearest.id === 'shopkeeper') {
-        // 商人：先播放欢迎剧本，对话结束后自动打开商店
-        this.showDialogue(nearest);
-      } else {
-        this.showDialogue(nearest);
-      }
-      return;
-    }
-
-    // 2026-08-11 镇子商店门面（商人回镇）交互锚点：靠近店门按 E
-    // - 老板在场 → 对话老板（完整商店：收购/稀有商品/复兴任务）
-    // - 老板不在场 → 打开自动售货机面板（基础补给，消除"老板下班买不到种子"的挫败）
-    if (this.mapKey === 'town' && this.townShop) {
-      const dx = this.player.x - this.townShop.pos.x;
-      const dy = this.player.y - this.townShop.pos.y;
-      if (dx * dx + dy * dy < 30 * 30) {
-        const boss = this.npcList.find((n) => n.id === 'shopkeeper');
-        if (boss && boss.sprite && !boss.vanished) {
-          this.showDialogue(boss);
-        } else {
-          this.inputManager.clearAction();
-          this.shopPanel.open('machine');
-        }
-        return;
-      }
-    }
-
-    // 0.45 后山老树：靠近按 E 查看
-    if (this.mapKey === 'forest' && this.oldTree) {
-      const dx = this.player.x - this.oldTreePos.x;
-      const dy = this.player.y - this.oldTreePos.y;
-      if (dx * dx + dy * dy < 60 * 60) {
-        this.triggerOldTreeInteract();
-        return;
-      }
-    }
-
-    // 0.5 森林采集点：accepted 状态靠近星之碎片 E 键采集
-    if (this.mapKey === 'forest' && this.shardSprite && this.shardSprite.visible) {
-      const dx = this.player.x - this.shardSprite.x;
-      const dy = this.player.y - this.shardSprite.y;
-      if (dx * dx + dy * dy < 24 * 24) {
-        // 首次交互先播"程序员能力展示"对话，结束后自动采集（无需二次按键）
-        if (!this.shardDialoguePlayed) {
-          this.shardDialoguePlayed = true;
-          if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-          this.storyDialogue.play(FOREST_SHARD_DIALOGUE, () => {
-            this.doCollectShard();
-          });
-        }
-        return;
-      }
-    }
-
-    // T3 老张「矿灯」：矿洞独立点灯点（优先于挖矿，靠近旧矿灯时触发）
-    if (this.mapKey === 'mine') {
-      if (this.trySideMinerLamp()) return;
-    }
-
-    // 0.6 矿洞挖矿：靠近矿脉 E 键开采
-    if (this.mapKey === 'mine') {
-      // 挖矿引导（仅第一次在矿脉旁交互时触发，对话结束后本次不开采，需再按一次）
-      const nearOre = this.oreSprites.some((e) => {
-        if (!e.sprite.visible) return false;
-        const dx = this.player.x - e.sprite.x;
-        const dy = this.player.y - e.sprite.y;
-        return dx * dx + dy * dy < 24 * 24;
-      });
-      if (nearOre && !this.mineTipShown) {
-        this.mineTipShown = true;
-        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        this.storyDialogue.play(MINE_TIP_DIALOGUE);
-        return;
-      }
-      this.tryMine();
-      return;
-    }
-
-    if (this.mapKey !== 'farm') return;
-
-    // 砍树检测（农场树木，靠近按 E 砍伐，优先于农田交互）
-    if (this.tryChopTree()) return;
-
-    // 农田交互：根据面前格子状态自动判断锄地/播种/浇水/收获
-    this.tryFarmInteract();
+    return; // P7b: 提前返回，不再执行原 if-return 链
   }
 
   /**
@@ -11359,8 +11503,8 @@ this.setupFieldLife();
    * 复用 StoryDialogue 选项机制（与观星夜三选项同一组件）
    */
   private promptSleepChoice(): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(
+
+    this.playStory(
       [
         { speaker: '', color: COLORS.system, text: '（林澈躺在床上。天还早——直接睡到明天，还是先休息到傍晚？）' },
         { speaker: '', color: COLORS.system, text: '', options: ['睡到天亮', '休息到傍晚'] },
@@ -11730,8 +11874,8 @@ this.setupFieldLife();
 
   /** 坐等天黑：快进到当晚 20:00 → 触发观星夜（选项行不可跳过，不选则保持现状） */
   private promptWaitForNight(): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(
+
+    this.playStory(
       [
         { speaker: '', color: COLORS.system, text: '（你坐在观星点旁。天色还亮着——要在这里等到天黑吗？）' },
         { speaker: '', color: COLORS.system, text: '', options: ['坐等天黑', '再等等'] },
@@ -11879,7 +12023,7 @@ this.setupFieldLife();
     if (!this.storyDialogue) return;
     // v2 分支独白：镜头拉近（2.0→2.15，1.5s）聚焦角色（以观星点为中心，配合上抬位）
     this.zoomCameraAt(this.STARGAZE_POS.x, this.STARGAZE_POS.y, 2.15, 1500);
-    this.storyDialogue.play(branch, () => {
+    this.playStory(branch, () => {
       this.storyDialogue!.play(DEMO_ENDING_FINALE, () => {
         // v2 分支独白结束后镜头缓缓拉回 2.0（晨曦全景），zoom 复位避免状态残留
         const cam = this.cameras.main;
@@ -11961,7 +12105,7 @@ this.setupFieldLife();
                   // 触发 CH1_AWAKENING_DIALOGUE，建立"新生活开始"信号，承接第0章、引出老屋整理。
                   // onClose 只在首次创建时注入（避免重复绑定）；triggerOnce 保证一次性。
                   if (!this.endingPanel) {
-                    this.endingPanel = new EndingPanel(() => {
+                    this.uiBus.registerEndingPanel(new EndingPanel(() => {
                       this.time.delayedCall(600, () => {
                         if (hasTriggered('ch1_awakening')) return;
                         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
@@ -11971,7 +12115,7 @@ this.setupFieldLife();
                           });
                         });
                       });
-                    });
+                    }));
                   }
                   // 第一章衔接（P0-1，2026-08-12）：观星夜完成 → 进入第一章「复苏」
                   // 必须在本次存档前设置，使 chapter 随档持久化；D-025 时序红线：观星夜之后才进第1章
@@ -12689,8 +12833,8 @@ this.setupFieldLife();
     if (this.storyDialogue?.isOpen()) return false;
     this.hideQinghePierHint();
     if (getItemCount('wood') < 20) {
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play([
+
+      this.playStory([
         { speaker: '', color: COLORS.system, text: '码头塌了大半。要修好，得先准备一些木材……' },
         { speaker: '', color: '#aaaaaa', text: `（还缺木头×${Math.max(0, 20 - getItemCount('wood'))}。）` },
       ], () => this.updateHUD());
@@ -12709,8 +12853,8 @@ this.setupFieldLife();
       vis.fillStyle(0x4a3018, 1); vis.fillRect(g.pos.x - 13, g.pos.y, 2, 5); vis.fillRect(g.pos.x + 11, g.pos.y, 2, 5);
       vis.fillStyle(0x7a5a34, 1); vis.fillRect(g.pos.x - 14, g.pos.y - 8, 2, 4); vis.fillRect(g.pos.x + 12, g.pos.y - 8, 2, 4);
       vis.fillStyle(0x8a6a45, 1); vis.fillRect(g.pos.x - 15, g.pos.y - 9, 30, 1);
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play([
+
+      this.playStory([
         { speaker: '', color: COLORS.system, text: '（你把松动的木板重新钉好，码头又立了起来。）' },
         { speaker: '', color: '#aaaaaa', text: '以后钓鱼，就有个正经地方落脚了。' },
       ], () => this.updateHUD());
@@ -12763,14 +12907,13 @@ this.setupFieldLife();
     if (dx * dx + dy * dy > 42 * 42) return false;
     this.hideQinghePavilionHint();
     this.inputManager.clearAction();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     const night = getTime().hour >= 18 || getTime().hour < 6;
-    this.storyDialogue.play(night ? [
+    const lines: DialogueLine[] = night ? [
       { speaker: '', color: COLORS.system, text: '（你在凉亭坐下。河面倒着星光，水声很轻。）' },
     ] : [
       { speaker: '', color: COLORS.system, text: '（你在凉亭坐下。河风从水面吹过来，带着一点凉。）' },
-    ], () => this.updateHUD());
-    return true;
+    ];
+    return this.playStory(lines, () => this.updateHUD(), undefined, 'qinghe_pavilion');
   }
 
   /** 断桥视觉（东侧河上；未来果园预埋，靠近提示一句） */
@@ -12903,7 +13046,7 @@ this.setupFieldLife();
     if (dx * dx + dy * dy >= 48 * 48) return false;
     this.hideQingheChatterHint();
     this.inputManager.clearAction();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     const once = triggerOnce('qinghe_chatter_seen', () => { /* 仅标记 */ });
     const lines: DialogueLine[] = once ? [
       { speaker: '', color: COLORS.system, text: '（长椅上坐着两个人，声音压得很低。）' },
@@ -12912,8 +13055,7 @@ this.setupFieldLife();
       { speaker: '', color: COLORS.system, text: '（夜风把说话声吹散了一些。）' },
       { speaker: '', color: '#aaaaaa', text: '……"明天还想来钓鱼。"' },
     ];
-    this.storyDialogue.play(lines, () => this.updateHUD());
-    return true;
+    return this.playStory(lines, () => this.updateHUD(), undefined, 'qinghe_chatter');
   }
 
   /** 果园预埋：断桥旁老周（白天出现，一次性台词——"河对岸以前是果园"） */
@@ -12985,7 +13127,6 @@ this.setupFieldLife();
     if (dx * dx + dy * dy >= 42 * 42) return false;
     this.hideQingheOldManHint();
     this.inputManager.clearAction();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     // 台词方向稿：克制、具体、埋第二章（老周=木匠，"河对岸以前是果园"）
     const once = triggerOnce('qinghe_orchard_oldman', () => { /* 仅标记 */ });
     const lines: DialogueLine[] = once ? [
@@ -12998,8 +13139,7 @@ this.setupFieldLife();
     ] : [
       { speaker: '木匠老周', color: '#c89860', text: '这桥……要是能修好，那边的果子，怕是还甜。' },
     ];
-    this.storyDialogue.play(lines, () => this.updateHUD());
-    return true;
+    return this.playStory(lines, () => this.updateHUD(), undefined, 'qinghe_oldman');
   }
 
   /** 河畔 Stage 2 / 果园预埋清理（场景切换时调用，防残留） */
@@ -13325,171 +13465,17 @@ this.setupFieldLife();
   }
 
   /**
-   * P0-5 农场回暖 v2（2026-08-08 制作人拍板；2026-08-09 升级三幕式叙事）
-   * 触发：QuestSystem.deliverQuest() 标记 FarmRestore 'farmWarm'（随 worldRestore 入档），
-   *       本方法在 create 时检测到该标记后调用；交付发生在 farm 场景时由对话结束回调调用。
-   *
-   * 视觉（复用既有能力，零新资源）：三幕式"回暖"叙事——
-   *   第一幕「事件感」：交付瞬间，从交付点（或屏幕中心）一轮暖金光晕扩散，
-   *                     overlay 2s 内快速上冲（不再是"悄悄蒙层"，而是"发生了"）。
-   *   第二幕「苏醒·时间感」：此后 overlay alpha 随时辰缓慢起伏（白天 0.07~0.12 呼吸），
-   *                    "回暖是活的"；光尘粒子密度随时辰微调（正午最密）。
-   *   第三幕「记忆色·黄昏」：18:00-20:00 时段 alpha 加深至 0.22（v2.1 拍板 0.16→0.22），
-   *                    叠加暖橙垂直渐变天光（farmWarmSkyGlow，顶部 0.8 亮→底部弱），
-   *                    呼应"爷爷记忆里的暖光"，给一天的情绪落点。
-   * 首屏（本次会话首次进农场）播 3 秒渐变过渡；此后按当前时辰直接应用。
-   *
-   * @param originX / originY 第一幕光晕扩散中心（世界坐标）；缺省 = 玩家当前位置
+   * P0-5 农场回暖 v2
+   * P6a: 委托给 FarmController
    */
   private setupFarmWarm(originX?: number, originY?: number): void {
-    if (this.mapKey !== 'farm' || !this.groundLayer) return;
-    if (this.farmWarmOverlay) return; // 幂等：同一场景实例内不重复创建
-    // 全屏暖橙 ADD overlay（覆盖地图整体，depth 4.5：盖过地面/装饰(≤4)，NPC(5)/玩家(10) 不被盖）
-    // 注意1：TilemapLayer.width/height 是瓦片数而非像素；必须用 displayWidth/displayHeight 才是实际覆盖尺寸。
-    // 注意2：add.rectangle 的第 6 参是 Shape 的 fillAlpha 而非 GameObject alpha——传 0 会导致填充永不绘制
-    //       （tween/setAlpha 改的是 GameObject alpha，渲染时两者相乘仍为 0）。必须 fillAlpha=1 + setAlpha 控制。
-    const w = this.groundLayer.displayWidth;
-    const h = this.groundLayer.displayHeight;
-    const overlay = this.add.rectangle(0, 0, w, h, 0xffc98a, 1)
-      .setOrigin(0).setDepth(4.5)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setAlpha(0);
-    this.farmWarmOverlay = overlay;
-
-    // 夕阳感 v2.1：世界坐标暖橙垂直渐变天光（顶部亮→底部弱，模拟太阳低垂从画面上方斜射）。
-    // depth 4.4：盖过地面/装饰(≤4)，低于全屏罩色(4.5)、NPC(5)/玩家(10)；ADD 混合 → 越靠上越"浸入夕照"。
-    // 渐变 alpha 烘焙在 fillGradientStyle 的四角（顶部 0.5 → 底部 0.02），整体随 updateFarmWarm 调 setAlpha。
-    // 注意：fillGradientStyle 是 WebGL 专属，canvas 回退时渐变不绘制（仅少一层光，不影响功能）。
-    const skyGlow = this.add.graphics();
-    skyGlow.setDepth(4.4);
-    skyGlow.fillGradientStyle(0xffa050, 0xffa050, 0xffa050, 0xffa050, 0.5, 0.5, 0.02, 0.02);
-    skyGlow.fillRect(0, 0, w, h);
-    skyGlow.setBlendMode(Phaser.BlendModes.ADD);
-    skyGlow.setAlpha(0);
-    this.farmWarmSkyGlow = skyGlow;
-
-    // 暖金光尘粒子：稀疏慢漂（分布农场中部几处，视觉"光照粒子增加"）
-    const spots: Array<[number, number]> = [
-      [8 * TILE_SIZE + 8, 8 * TILE_SIZE + 8],
-      [20 * TILE_SIZE + 8, 12 * TILE_SIZE + 8],
-      [30 * TILE_SIZE + 8, 8 * TILE_SIZE + 8],
-    ];
-    spots.forEach(([x, y]) => {
-      const p = this.add.particles(x, y, '__WHITE', {
-        lifespan: 3000,
-        speedX: { min: -20, max: 20 },
-        speedY: { min: -10, max: 10 },
-        quantity: 1,
-        frequency: 1200,
-        alpha: { start: 0.5, end: 0 },
-        scale: { start: 0.18, end: 0.05 },
-        tint: 0xffd98a,
-        blendMode: 'ADD',
-      });
-      p.setDepth(4.6);
-      this.farmWarmParticles.push(p);
-    });
-
-    // 首屏（交付后首次进 farm）播 3 秒渐变过渡 + 第一幕光晕；此后（重进/读档）按时辰直接应用
-    const baseAlpha = this.farmWarmAlphaForHour(getTime().hour);
-    if (!hasTriggered('farm_warm_intro')) {
-      triggerOnce('farm_warm_intro', () => {
-        this.tweens.add({
-          targets: overlay,
-          alpha: { from: 0, to: baseAlpha },
-          duration: 3000,
-          ease: 'Sine.easeOut',
-        });
-        // 第一幕「事件感」：交付后首次回 farm，暖光从玩家位置扩散（"回暖发生了"）
-        if (originX !== undefined && originY !== undefined) {
-          this.playFarmWarmPulse(originX, originY);
-        }
-      });
-    } else {
-      overlay.setAlpha(baseAlpha);
-    }
+    if (!this.groundLayer) return;
+    this.farmController.setupFarmWarm(this.groundLayer, originX, originY);
   }
 
-  /**
-   * 第一幕「事件感」：一轮暖金光晕从交付点扩散 + overlay 短暂上冲（"回暖发生了"）。
-   * 只播一次（本场景实例内），2.2s 演出，零资源（Graphics 圆环扩散 + 亮度脉冲）。
-   */
-  private playFarmWarmPulse(originX: number, originY: number): void {
-    if (!this.farmWarmOverlay || this.farmWarmPulsePlayed) return;
-    this.farmWarmPulsePlayed = true;
-    const overlay = this.farmWarmOverlay;
-    const g = this.add.graphics();
-    g.setDepth(4.6);
-    // 扩散圆环（世界坐标，随场景滚动）
-    const ring = this.add.graphics();
-    ring.setDepth(4.6);
-    const maxR = Math.max(this.groundLayer?.displayWidth ?? 400, 300);
-    this.tweens.add({
-      targets: { r: 24 },
-      r: maxR,
-      duration: 1800,
-      ease: 'Sine.out',
-      onUpdate: (_t, target: { r: number }) => {
-        ring.clear();
-        ring.lineStyle(6, 0xffe9b8, 0.55);
-        ring.strokeCircle(originX, originY, target.r);
-      },
-      onComplete: () => ring.destroy(),
-    });
-    // 亮度脉冲：overlay 快速冲到 0.28 再回落（"暖色亮起"，必须高于全天最高暖度 0.22 才有上冲感）
-    this.tweens.add({
-      targets: overlay,
-      alpha: { from: overlay.alpha, to: 0.28 },
-      duration: 500,
-      yoyo: true,
-      hold: 300,
-      ease: 'Sine.out',
-      onComplete: () => {
-        // 回落回当前时辰应有的暖度
-        overlay.setAlpha(this.farmWarmAlphaForHour(getTime().hour));
-      },
-    });
-    void g;
-  }
-
-  /**
-   * 第二幕/第三幕：随时辰计算 overlay 目标暖度。
-   *   - 夜晚/清晨（<6 或 >=21）：0.07（微暖底）
-   *   - 白天（6-17）：0.08~0.12 缓呼吸（正午最暖）
-   *   - 黄昏（18-20）：0.22（"记忆色"，全天最暖；v2.1 制作人拍板 0.16→0.22 强化夕阳感）
-   * 每帧由 updateFarmWarm 调用（平滑趋近，避免跳变）。
-   */
-  private farmWarmAlphaForHour(hour: number): number {
-    if (hour >= 18 && hour < 21) return 0.22;
-    if (hour >= 6 && hour < 18) {
-      // 正午（12-14）最暖 0.12，早/晚 0.08 —— 一条倒 V
-      const noon = Math.max(0, 1 - Math.abs(hour - 13) / 6);
-      return 0.08 + 0.04 * noon;
-    }
-    return 0.07;
-  }
-
-  /** 每帧：回暖暖度随时辰平滑趋近（第二幕时间感）+ 夕阳天光同步 */
+  /** 每帧更新农场暖度：委托给 FarmController */
   private updateFarmWarm(): void {
-    if (!this.farmWarmOverlay) return;
-    const hour = getTime().hour;
-    // 全屏罩色：每帧最多走 1/3 差距，避免跨小时跳变
-    const target = this.farmWarmAlphaForHour(hour);
-    const cur = this.farmWarmOverlay.alpha;
-    this.farmWarmOverlay.setAlpha(cur + (target - cur) * 0.33);
-    // 夕阳天光：同样平滑趋近，让"夕照强度"随时辰增减（黄昏最浓）
-    if (this.farmWarmSkyGlow) {
-      const skyTarget = this.farmWarmSkyAlphaForHour(hour);
-      const skyCur = this.farmWarmSkyGlow.alpha;
-      this.farmWarmSkyGlow.setAlpha(skyCur + (skyTarget - skyCur) * 0.33);
-    }
-  }
-
-  /** v2.1 夕阳天光强度（叠加在罩色之上）：黄昏(18-20)最浓，白天微暖，夜晚回落 */
-  private farmWarmSkyAlphaForHour(hour: number): number {
-    if (hour >= 18 && hour < 21) return 0.8;
-    if (hour >= 6 && hour < 18) return 0.35;
-    return 0.12;
+    this.farmController.updateFarmWarm();
   }
 
   /** 与爷爷笔记交互（靠近按 E → 播放当天一条笔记） */
@@ -13499,12 +13485,10 @@ this.setupFieldLife();
     const dx = this.player.x - p.x;
     const dy = this.player.y - p.y;
     if (dx * dx + dy * dy > 28 * 28) return false;
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     const note = getGrandpaNote(getTime().day);
-    this.storyDialogue.play([note], () => {
+    return this.playStory([note], () => {
       this.updateHUD();
-    });
-    return true;
+    }, undefined, 'grandpa_note');
   }
 
   /** 清除爷爷笔记精灵（场景切换/跨天时调用） */
@@ -13761,7 +13745,7 @@ this.setupFieldLife();
   }
 
   private tryXiaomeiObserveKind(kind: 'qinghe' | 'willow' | 'moth'): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     this.xiaomeiObserveKind = kind;
     this.xiaomeiObserveSeen = [false, false, false];
     const intro = kind === 'qinghe'
@@ -13769,15 +13753,15 @@ this.setupFieldLife();
       : kind === 'willow'
         ? XIAOMEI_OBSERVE_WILLOW_INTRO_DIALOGUE
         : XIAOMEI_OBSERVE_MOTH_INTRO_DIALOGUE;
-    this.storyDialogue.play(intro, () => {
+    this.playStory(intro, () => {
       this.playXiaomeiObserveChoices();
     });
   }
 
   /** 选手一个特点后，若三项未集齐则继续进入下一轮选项；集齐则填自然笔记 + 收束 */
   private playXiaomeiObserveChoices(): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(XIAOMEI_OBSERVE_CHOICES_DIALOGUE, () => {
+
+    this.playStory(XIAOMEI_OBSERVE_CHOICES_DIALOGUE, () => {
       this.updateHUD();
     }, (index: number) => {
       if (index >= 0 && index < 3) {
@@ -14371,8 +14355,8 @@ this.setupFieldLife();
       this.showDialogueText(opts.shortfallText);
       return;
     }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(
+
+    this.playStory(
       [
         {
           speaker: '',
@@ -14454,8 +14438,8 @@ this.setupFieldLife();
     } as any);
     this.updateHUD();
     // FEATURE-037 统一对白批次 environment_restore_v010：老屋完成 → 镇长（单次触发）
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(OLD_HOUSE_RESTORED_DIALOGUE, () => {
+
+    this.playStory(OLD_HOUSE_RESTORED_DIALOGUE, () => {
       // L3 重要事件记忆卡（反馈层级 L3）：复兴事件·老屋修复完成——"你改变了什么"
       setTimeout(() => showStoryComplete('老屋复原', '这座岛，开始像家了。'), 1600);
     });
@@ -14753,12 +14737,10 @@ this.setupFieldLife();
     if (!nearest) return false;
     const key = nearest.getData('stallKeeper') as string;
     const name = key.split(':')[1];
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
     this.inputManager.clearAction();
-    this.storyDialogue.play([
+    return this.playStory([
       { speaker: name, color: '#d8d2c8', text: MapScene.STALL_KEEPER_LINES[name] ?? '今天生意不错，大家都来赶集了。' },
-    ], () => this.updateHUD());
-    return true;
+    ], () => this.updateHUD(), undefined, 'stall_keeper');
   }
 
   /** 清理后视觉（Phase 2）：空地 + 3 个布置点标记（等待按居民需求放摊位） */
@@ -14934,8 +14916,8 @@ this.setupFieldLife();
     } as any);
     this.updateHUD();
     // 清理反馈台词（行动型：场地清出来了，等居民来摆摊）
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(
+
+    this.playStory(
       [
         { speaker: '', color: '#aaaaaa', text: '（杂草和残骸清掉了，广场空了出来。老张、小梅、夏雅搬着摊架子走过来。）' },
         { speaker: '老张', color: '#b89878', text: '场地是空了，可摊子摆哪儿，得听各自的。' },
@@ -14967,8 +14949,8 @@ this.setupFieldLife();
 
   /** 布置点 idx：播放居民需求提示 + 摊位选项菜单（放对/放错反馈） */
   private playMarketArrangeChoice(idx: number): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(MARKET_STALL_HINT_DIALOGUES[idx], () => {
+
+    this.playStory(MARKET_STALL_HINT_DIALOGUES[idx], () => {
       this.updateHUD();
     }, (choice) => {
       // 选项下标 0/1/2 = 工具摊/小吃摊/花摊（与 MARKET_STALL_OPTIONS 顺序一致）
@@ -14981,8 +14963,8 @@ this.setupFieldLife();
         triggerOnce(`ch1_market_stall_${idx + 1}`, () => {
           this.placeMarketStall(idx);
           play('repair_complete');
-          if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-          this.storyDialogue.play(MARKET_STALL_PLACED_DIALOGUES[idx], () => {
+
+          this.playStory(MARKET_STALL_PLACED_DIALOGUES[idx], () => {
             this.updateHUD();
             this.saveMarketArrangement();
             this.tryMarketSquareOpen();
@@ -14990,8 +14972,8 @@ this.setupFieldLife();
         });
       } else {
         // 放错：温和纠正，不消耗，可重试
-        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        this.storyDialogue.play(MARKET_STALL_WRONG_DIALOGUES[idx], () => {
+
+        this.playStory(MARKET_STALL_WRONG_DIALOGUES[idx], () => {
           // 纠正后重新给一次选项（同一点再次进入选择）
           this.playMarketArrangeChoice(idx);
         });
@@ -15021,7 +15003,7 @@ this.setupFieldLife();
     play('crowd'); // 人群低语（程序合成）
     triggerTag('restore_market');
     // 开张演出对白 → 记忆时刻
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     // P1-02（2026-08-16）：消费 ch1ElderChoice——玩家当初对村长「愿意帮忙/还没想好」的态度，
     // 在集市开张时得到一句回应（不改变剧情树，只让世界记得玩家说过的话）。
     const elderLead: DialogueLine[] =
@@ -15035,7 +15017,7 @@ this.setupFieldLife();
               { speaker: '镇长', color: COLORS.elder, text: '还没想好也没关系，先来看看。' },
             ]
           : [];
-    this.storyDialogue.play([...elderLead, ...MARKET_OPEN_DIALOGUE], () => {
+    this.playStory([...elderLead, ...MARKET_OPEN_DIALOGUE], () => {
       setTimeout(() => showMemoryMoment('集市重新开起来的那天，青禾镇有了声音。'), 1600);
       this.updateHUD();
     });
@@ -15076,8 +15058,8 @@ this.setupFieldLife();
       this.buildSpringFairFX(); // 灯火呼吸 + 人群剪影
       showMemoryMoment('集市灯火亮起来，老远就能听见有人说话。');
       setTimeout(() => {
-        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        this.storyDialogue.play(
+
+        this.playStory(
           [
             { speaker: '', color: '#aaaaaa', text: '（人群里有笑声，有人在喊价钱，有人蹲在摊子前挑东西。）' },
             { speaker: '镇长', color: '#c8b898', text: '上次这么热闹，还是你爷爷在的时候。……你回来得正是时候。' },
@@ -15599,8 +15581,8 @@ this.setupFieldLife();
     } as any);
     this.updateHUD();
     // FEATURE-037 统一对白批次 environment_restore_v010：道路完成 → 老张（单次触发）
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(FOREST_ROAD_RESTORED_DIALOGUE, () => {
+
+    this.playStory(FOREST_ROAD_RESTORED_DIALOGUE, () => {
       setTimeout(() => showMemoryMoment('这条路重新连通了——后山不再是孤岛。'), 1600);
     });
   }
@@ -15652,8 +15634,8 @@ this.setupFieldLife();
     if (this.xiyaSprite) { this.xiyaSprite.setVisible(true); }
     if (this.letterXiya) { this.letterXiya.setVisible(true); }
     if (this.letterXiyaLabel) { this.letterXiyaLabel.setVisible(true); }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(GARDEN_RESTORED_XIYA_DIALOGUE, () => {
+
+    this.playStory(GARDEN_RESTORED_XIYA_DIALOGUE, () => {
       // T2 改动 2：花园见证后连播夏雅「为什么小事会改变这里」（制作人 2026-08-06 定稿）
       this.storyDialogue!.play(XIYA_SMALL_THINGS_DIALOGUE, () => {
         this.updateHUD();
@@ -15693,10 +15675,10 @@ this.setupFieldLife();
     const dy = this.player.y - gy;
     if (dx * dx + dy * dy > 44 * 44) return false;
 
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     if (!this.sideXiyaGardenAsked) {
       this.sideXiyaGardenAsked = true;
-      this.storyDialogue.play(XIYA_GARDEN_TRELLIS_DIALOGUE, () => this.updateHUD());
+      this.playStory(XIYA_GARDEN_TRELLIS_DIALOGUE, () => this.updateHUD(), undefined, "")
       save({
         x: this.player.x, y: this.player.y,
         scene: this.mapKey, facing: this.player.facing,
@@ -15728,12 +15710,12 @@ this.setupFieldLife();
   private trySideXiyaGardenComplete(): void {
     addItem('wood', -3);
     this.sideXiyaGardenDone = true;
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     if (!isPhotoUnlocked('xiya_garden')) {
       unlockPhoto('xiya_garden');
       this.notifyPhotoUnlocked('xiya_garden');
     }
-    this.storyDialogue.play(XIYA_GARDEN_TRELLIS_DONE_DIALOGUE, () => {
+    this.playStory(XIYA_GARDEN_TRELLIS_DONE_DIALOGUE, () => {
       playMemoryFlashback(XIYA_GARDEN_FLASHBACK, () => {
         showMemoryMoment('花田那边，一直有人打理着。');
         this.updateHUD();
@@ -15768,8 +15750,8 @@ this.setupFieldLife();
       unlockPhoto('elder_star');
       this.notifyPhotoUnlocked('elder_star');
     }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(ELDER_STAR_SITE_DIALOGUE, () => {
+
+    this.playStory(ELDER_STAR_SITE_DIALOGUE, () => {
       playMemoryFlashback(ELDER_STAR_FLASHBACK, () => {
         showMemoryMoment('第二天，镇长听说了，只是点点头。「你爷爷要是知道你还记得那块空地，会高兴的。」');
         this.updateHUD();
@@ -15803,10 +15785,10 @@ this.setupFieldLife();
     const dy = this.player.y - g.pos.y;
     if (dx * dx + dy * dy > 48 * 48) return false;
 
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     if (!this.sideXiyaPhotoAsked) {
       this.sideXiyaPhotoAsked = true;
-      this.storyDialogue.play(XIYA_PHOTO_ENTRY_DIALOGUE, () => this.updateHUD());
+      this.playStory(XIYA_PHOTO_ENTRY_DIALOGUE, () => this.updateHUD(), undefined, "")
       save({
         x: this.player.x, y: this.player.y,
         scene: this.mapKey, facing: this.player.facing,
@@ -15821,7 +15803,7 @@ this.setupFieldLife();
       unlockPhoto('xiya_old_photo');
       this.notifyPhotoUnlocked('xiya_old_photo');
     }
-    this.storyDialogue.play(XIYA_PHOTO_DONE_DIALOGUE, () => {
+    this.playStory(XIYA_PHOTO_DONE_DIALOGUE, () => {
       playMemoryFlashback(XIYA_PHOTO_FLASHBACK, () => {
         showMemoryMoment('那张泛黄的照片，一直有人收着。');
         this.updateHUD();
@@ -15873,8 +15855,8 @@ this.setupFieldLife();
     this.inputManager.clearAction();
     this.sideXiyaOldShadowAsked = true;
     if (this.xiyaOldShadowMark) { this.xiyaOldShadowMark.destroy(); this.xiyaOldShadowMark = null; }
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(XIYA_OLD_SHADOW_ENTRY_DIALOGUE, () => {
+
+    this.playStory(XIYA_OLD_SHADOW_ENTRY_DIALOGUE, () => {
       showMemoryMoment('也许夏雅认识这个。');
       this.updateHUD();
       save({
@@ -15904,8 +15886,8 @@ this.setupFieldLife();
 
     this.inputManager.clearAction();
     this.sideXiyaOldShadowDone = true;
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(XIYA_OLD_SHADOW_DELIVER_DIALOGUE, () => {
+
+    this.playStory(XIYA_OLD_SHADOW_DELIVER_DIALOGUE, () => {
       showMemoryMoment('她留着的不是旧物，是它们还可能被用上的那天。');
       this.updateHUD();
       save({
@@ -16038,7 +16020,7 @@ this.setupFieldLife();
     if (this.xiyaLetterDone) return false;
     if (!isTutorialDone()) return false;
     if (!this.letterTimeOk()) return false;
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     const R = 32 * 32;
 
     // A 段：初始夏雅（开场对白 + 演出「夕阳落在田埂上」）——visible 检查与 E1/E9/见证一致（BUG-071）
@@ -16052,7 +16034,7 @@ this.setupFieldLife();
       this.xiyaLetterAsked = true;
       this.xiyaLetterStage = 1;
       this.saveLetterFlags();
-      this.storyDialogue.play(XIYA_LETTER_OPEN_DIALOGUE, () => {
+      this.playStory(XIYA_LETTER_OPEN_DIALOGUE, () => {
         this.clearLetterXiya();
         this.spawnLetterFlowerMark();
         this.updateHUD();
@@ -16070,7 +16052,7 @@ this.setupFieldLife();
       if (MusicSystem.current() !== 'spring_letter') MusicSystem.playStory('spring_letter');
       this.xiyaLetterStage = 2;
       this.saveLetterFlags();
-      this.storyDialogue.play(XIYA_LETTER_FLOWER_DIALOGUE, () => {
+      this.playStory(XIYA_LETTER_FLOWER_DIALOGUE, () => {
         this.letterFlowerMark?.destroy();
         this.letterFlowerMark = null;
         this.spawnLetterRecordMark();
@@ -16088,7 +16070,7 @@ this.setupFieldLife();
       if (MusicSystem.current() !== 'spring_letter') MusicSystem.playStory('spring_letter');
       this.xiyaLetterStage = 3;
       this.saveLetterFlags();
-      this.storyDialogue.play(XIYA_LETTER_RECORD_DIALOGUE, () => {
+      this.playStory(XIYA_LETTER_RECORD_DIALOGUE, () => {
         this.letterRecordMark?.destroy();
         this.letterRecordMark = null;
         showMemoryMoment('获得「旧花种记录」');
@@ -16107,7 +16089,7 @@ this.setupFieldLife();
       this.xiyaLetterDone = true;
       this.xiyaLetterStage = 4;
       this.saveLetterFlags();
-      this.storyDialogue.play(XIYA_LETTER_FINAL_DIALOGUE, () => {
+      this.playStory(XIYA_LETTER_FINAL_DIALOGUE, () => {
         this.clearLetterXiya();
         // P1 世界反馈（制作人 2026-08-13 拍板）：完成后花田旁出现新花苗——玩家行为 → 世界变化
         this.spawnLetterFlowerbed();
@@ -16356,7 +16338,7 @@ this.setupFieldLife();
       this.xiyaBloomDone = true;
       this.xiyaBloomStage = 9;
       this.saveBloomFlags();
-      this.storyDialogue.play(XIYA_BLOOM_EPILOGUE_DIALOGUE, () => {
+      this.playStory(XIYA_BLOOM_EPILOGUE_DIALOGUE, () => {
         this.clearBloomXiya();
         // P1 世界反馈：完成后春祭记忆小景常驻
         this.spawnBloomPermVignette();
@@ -16389,10 +16371,10 @@ this.setupFieldLife();
     const dy = this.player.y - ly;
     if (dx * dx + dy * dy > 44 * 44) return false;
 
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     if (!this.sideMinerLampAsked) {
       this.sideMinerLampAsked = true;
-      this.storyDialogue.play(MINER_LAMP_ENTRY_DIALOGUE, () => this.updateHUD());
+      this.playStory(MINER_LAMP_ENTRY_DIALOGUE, () => this.updateHUD(), undefined, "")
       save({
         x: this.player.x, y: this.player.y,
         scene: this.mapKey, facing: this.player.facing,
@@ -16403,14 +16385,14 @@ this.setupFieldLife();
 
     const copper = getItemCount('copper');
     if (copper < 2) {
-      this.storyDialogue.play(MINER_LAMP_NEED_DIALOGUE, () => this.updateHUD());
+      this.playStory(MINER_LAMP_NEED_DIALOGUE, () => this.updateHUD(), undefined, "")
       return true;
     }
 
     addItem('copper', -2);
     this.sideMinerLampDone = true;
     this.buildMinerLampLit();
-    this.storyDialogue.play(MINER_LAMP_DONE_DIALOGUE, () => {
+    this.playStory(MINER_LAMP_DONE_DIALOGUE, () => {
       this.updateHUD();
       save({
         x: this.player.x, y: this.player.y,
@@ -16448,10 +16430,10 @@ this.setupFieldLife();
     const dy = this.player.y - py;
     if (dx * dx + dy * dy > 44 * 44) return false;
 
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     if (!this.sideGardenerPlumAsked) {
       this.sideGardenerPlumAsked = true;
-      this.storyDialogue.play(GARDENER_PLUM_ENTRY_DIALOGUE, () => this.updateHUD());
+      this.playStory(GARDENER_PLUM_ENTRY_DIALOGUE, () => this.updateHUD(), undefined, "")
       save({
         x: this.player.x, y: this.player.y,
         scene: this.mapKey, facing: this.player.facing,
@@ -16463,7 +16445,7 @@ this.setupFieldLife();
     this.sideGardenerPlumDone = true;
     if (this.plumMark) { this.plumMark.destroy(); this.plumMark = null; }
     this.buildPlumBlossom();
-    this.storyDialogue.play(GARDENER_PLUM_DONE_DIALOGUE, () => {
+    this.playStory(GARDENER_PLUM_DONE_DIALOGUE, () => {
       playMemoryFlashback(PLUM_BLOOM_FLASHBACK, () => {
         showMemoryMoment('花圃边上，多了一株小梅花。');
         this.updateHUD();
@@ -16669,10 +16651,10 @@ this.setupFieldLife();
     const dy = this.player.y - gy;
     if (dx * dx + dy * dy > 44 * 44) return false;
 
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+
     if (!this.sideGardenerFieldAsked) {
       this.sideGardenerFieldAsked = true;
-      this.storyDialogue.play(GARDENER_FIELD_ENTRY_DIALOGUE, () => this.updateHUD());
+      this.playStory(GARDENER_FIELD_ENTRY_DIALOGUE, () => this.updateHUD(), undefined, "")
       save({
         x: this.player.x, y: this.player.y,
         scene: this.mapKey, facing: this.player.facing,
@@ -16707,8 +16689,8 @@ this.setupFieldLife();
     if (this.gardenerFieldRuin) { this.gardenerFieldRuin.destroy(); this.gardenerFieldRuin = null; }
     if (this.gardenerFieldMark) { this.gardenerFieldMark.destroy(); this.gardenerFieldMark = null; }
     this.buildGardenerFieldBlooming();
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(GARDENER_FIELD_DONE_DIALOGUE, () => {
+
+    this.playStory(GARDENER_FIELD_DONE_DIALOGUE, () => {
       playMemoryFlashback(GARDENER_FIELD_FLASHBACK, () => {
         showMemoryMoment('花田里，开出了第一片花。');
         this.updateHUD();
@@ -16914,8 +16896,8 @@ this.setupFieldLife();
     this.oldRobot = null;
     if (this.oldRobotLabel) { this.oldRobotLabel.destroy(); this.oldRobotLabel = null; }
 
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(OLD_ROBOT_DIALOGUE, () => {
+
+    this.playStory(OLD_ROBOT_DIALOGUE, () => {
       addItem('auto_farmer_robot', 1);
       triggerTag('has_robot');
       play('levelup');
@@ -17483,8 +17465,8 @@ this.setupFieldLife();
     // 砍树引导（仅第一次触发）
     if (!this.woodcutTipShown) {
       this.woodcutTipShown = true;
-      if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-      this.storyDialogue.play(WOODCUT_TIP_DIALOGUE);
+
+      this.playStory(WOODCUT_TIP_DIALOGUE, undefined, undefined, "")
       return true;
     }
 
@@ -17564,99 +17546,37 @@ this.setupFieldLife();
   }
 
   /**
-   * 农田交互（按 Player.facing 决定面前格子）：
-   *   教程内（未 done）→ 单格路径（tryFarmInteractAt），保证教程稳定
-   *   教程后 → Plot 批量路径（interactPlot），整块田一次操作
-   * 单格状态流转：
-   *   empty   → tilled   （锄地）
-   *   tilled  → planted  （播种，消耗一颗萝卜种子，记录 CropData）
-   *   planted → watered  （浇水，标记 watered=true）
-   *   grown   → tilled   （收获，土地保留可重新播种，清除作物，获得萝卜 +1）
-   *   watered → 暂不处理（等待次日成长判定）
+   * 农田交互（按 Player.facing 决定面前格子）
+   * P6b: 路由委托给 FarmController，决策层（interactPlot/tryFarmInteractAt）保留在 MapScene
    */
   private tryFarmInteract(): void {
-    // 玩家所在瓦片坐标
-    const pc = Math.floor(this.player.x / TILE_SIZE);
-    const pr = Math.floor(this.player.y / TILE_SIZE);
-    // 面前一格坐标
-    let tc = pc;
-    let tr = pr;
-    switch (this.player.facing) {
-      case 'up':
-        tr = pr - 1;
-        break;
-      case 'down':
-        tr = pr + 1;
-        break;
-      case 'left':
-        tc = pc - 1;
-        break;
-      case 'right':
-        tc = pc + 1;
-        break;
-    }
-    // 整个 Plot 批量操作（从教程第一天起即可用）
-    const plotId = getPlotAt(tc, tr);
-    if (plotId) {
-      this.interactPlot(plotId);
-      return;
-    }
-    this.tryFarmInteractAt(tc, tr);
+    this.farmController.handleFarmInteract(this.player.x, this.player.y, this.player.facing);
   }
 
   /**
-   * 移动端点击种田：触屏设备在农场点击可操作的农田格子 → 直接执行操作
-   * 面板/对话打开时忽略；非触屏设备忽略（桌面保留 WASD + E 交互）
+   * 移动端点击种田
+   * P6b: 路由委托给 FarmController，决策层（isTileActionable/tryFarmInteractAt）保留在 MapScene
    */
   private handleFarmTap(pointer: Phaser.Input.Pointer): void {
-    if (!isTouchDevice()) return;
-    if (this.mapKey !== 'farm') return;
-    if (this.transitioning) return;
-    // 观星夜演出期间完全忽略点击
-    if (this.inStargazeCutscene) return;
-    // 面板/对话/种子选择器打开时忽略点击
-    if (this.storyDialogue?.isOpen()) return;
-    if (this.shopPanel.isOpen()) return;
-    if (this.backpackPanel.isOpen()) return;
-    if (this.endingPanel?.isOpen()) return;
-    if (this.photoAlbumPanel?.isOpen()) return;
-    if (isDiscoveryPanelOpen()) return;
-    if (isHudMenuOpen()) return;
-    if (this.seedSelectorEl) return;
-    if (this.cropPickerEl) return;
-    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    const col = Math.floor(world.x / TILE_SIZE);
-    const row = Math.floor(world.y / TILE_SIZE);
-    // 非农田区域静默忽略（未来可能加捕虫等玩法，不提示"不能在这里"）
-    if (!isInFarmArea(col, row)) {
-      return;
-    }
-    // 教程完成后 → 点击农田任意位置自动吸附最近 Plot，整个区域批量操作
-    const plotId = getPlotAt(col, row);
-    if (plotId) {
-      this.interactPlot(plotId);
-      this.plotFlashId = plotId;
-      this.plotFlashUntil = this.time.now + 500;
-      if (isTouchDevice()) {
-        try { navigator.vibrate(15); } catch {}
-      }
-      return;
-    }
-    if (!this.isTileActionable(col, row)) {
-      this.flashTileError(col, row);
-      const state = getTileState(col, row);
-      // P2-1 认知区分：已浇水成长中 → "还需要一点时间"；无种子 → "没有种子"
-      const msg = state === 'watered' ? '还需要一点时间' : '没有种子';
-      this.showFloatText(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, msg, '#ff8a80');
-      return;
-    }
-    this.tryFarmInteractAt(col, row);
-    // 点击反馈：目标格短暂高亮 + 触屏振动
-    this.tapFlashKey = `${col},${row}`;
-    this.tapFlashUntil = this.time.now + 500;
-    if (isTouchDevice()) {
-      try { navigator.vibrate(15); } catch {}
-    }
+    this.farmController.handleFarmTap(pointer);
+  }
+
+  /**
+   * 调试接口：获取指定格的土地状态（用于探针验证）
+   * 使用 MapScene.debugTiles，避免 Vite HMR 模块分裂问题
+   */
+  public getTileStateForDebug(col: number, row: number): TileState {
+    const key = `${col},${row}`;
+    // 优先使用 MapScene 内部的 debugTiles（同步自 setTileState 调用）
+    // 如果没有，回退到 FarmState 的 getTileState
+    const state = MapScene.debugTiles.get(key);
+    if (state) return state;
+    return getTileState(col, row);
+  }
+
+  /** 调试接口：获取 debugTiles Map 大小（用于探针验证） */
+  public getDebugTilesSize(): number {
+    return MapScene.debugTiles.size;
   }
 
   /**
@@ -17772,142 +17692,28 @@ this.setupFieldLife();
 
   // ================= 单格核心操作 helper（数据层，无反馈，单格/批量共用） =================
 
-  /** 单格锄地：empty → tilled。返回是否成功（非空地/无锄头返回 false） */
+  /** 单格锄地：empty → tilled。返回是否成功（非空地/无锄头返回 false）
+ * P6c: 核心逻辑已委托给 FarmController.executeTill，MapScene 保留方法签名供调用方复用 */
   private tillTileAt(col: number, row: number): boolean {
-    if (getTileState(col, row) !== 'empty') return false;
-    if (getItemCount('old_hoe') <= 0) return false;
-    if (!consumeStamina(getActionStaminaCost('farm_till'))) return false; // 体力不足→不开始、不扣
-    setTileState(col, row, 'tilled');
-    this.checkTutorialProgress('till');
-    // v1.0 生活仪式感：第一次锄地（一次性，mapFlags 入档；地块柔和高亮 + 极短 inner ≤1s）
-    if (!this.firstHoe) {
-      this.firstHoe = true;
-      triggerTag('first_hoe');
-      this.tileGlowHighlight(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2);
-      showMemoryMoment('原来土地是这样的感觉。');
-    }
-    // 动作成本（P0 种植）：锄地成功 → 扣时间（体力已在开头闸扣）
-    consumeMinutes(getActionTimeCost('farm_till'));
-    return true;
+    return this.farmController.executeTill(col, row);
   }
 
-  /** 单格播种：tilled → planted。返回是否成功（非已锄/无该种子库存返回 false） */
+  /** 单格播种：tilled → planted。返回是否成功（非已锄/无该种子库存返回 false）
+   * P6c: 核心逻辑已委托给 FarmController.executePlant，MapScene 保留方法签名供调用方复用 */
   private plantTileAt(col: number, row: number, cropType: CropType): boolean {
-    if (getTileState(col, row) !== 'tilled') return false;
-    const seedItem = CROP_DEFS[cropType].seedItem as any;
-    if (getItemCount(seedItem) <= 0) return false;
-    if (!consumeStamina(getActionStaminaCost('farm_plant'))) return false; // 体力不足→不播种、不扣
-    addItem(seedItem, -1);
-    setTileState(col, row, 'planted');
-    setCrop(col, row, { cropType, plantDay: getTime().day, watered: false });
-    addXp(3, 'plant');
-    if (!this.firstPlant) {
-      this.firstPlant = true;
-      triggerTag('first_plant');
-      // v1.0 生活仪式感：第一次播种——地块柔和高亮（memoryMoment/提示沿用已有，不新增台词）
-      this.tileGlowHighlight(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2, 0xa8e6a0);
-      showMemoryMoment('城市里的人已经很久没有亲手种下一颗种子了。');
-      // T2-1 Day1 引导链：播种 → 成长 → 出售 → 修复（底部提示条，4 秒自动消失，不打断）
-      this.showDialogueText('种下了……等它长大，收成能换钱修镇上的旧东西。');
-      // 80分灵感① 第一株作物纪念：归星录·相簿解锁《第一株新生命》（幂等，随 album 入档）
-      if (!isPhotoUnlocked('first_crop')) {
-        unlockPhoto('first_crop');
-        this.notifyPhotoUnlocked('first_crop');
-        // 纪念解锁立即入档（日常播种不保存，但"第一次"值得立即持久化，防播种后立刻刷新丢失）
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        } as any);
-      }
-    }
-    onDQPlant();
-    this.checkTutorialProgress('sow');
-    // 动作成本（P0 种植）：播种成功 → 扣时间（体力已在开头闸扣）
-    consumeMinutes(getActionTimeCost('farm_plant'));
-    return true;
+    return this.farmController.executePlant(col, row, cropType);
   }
 
-  /** 单格浇水：planted → watered。返回是否成功（非已种/无水壶返回 false） */
+  /** 单格浇水：planted → watered。返回是否成功（非已种/无水壶返回 false）
+   * P6c: 核心逻辑已委托给 FarmController.executeWater，MapScene 保留方法签名供调用方复用 */
   private waterTileAt(col: number, row: number): boolean {
-    if (getTileState(col, row) !== 'planted') return false;
-    if (getItemCount('old_watering_can') <= 0) return false;
-    if (!consumeStamina(getActionStaminaCost('farm_water'))) return false; // 体力不足→不浇水、不扣
-    setTileState(col, row, 'watered');
-    const crop = getCrop(col, row);
-    if (crop) setCrop(col, row, { ...crop, watered: true });
-    addXp(1, 'water');
-    onDQWater();
-    this.checkTutorialProgress('water');
-    // v1.0 生活仪式感：第一次浇水（一次性，mapFlags 入档；复用已有台词，不新增文本）
-    if (!this.firstWater) {
-      this.firstWater = true;
-      triggerTag('first_water');
-      showMemoryMoment('水浇下去，能不能活，明天才知道。');
-    }
-    // 动作成本（P0 种植）：浇水成功 → 扣时间（体力已在开头闸扣）
-    consumeMinutes(getActionTimeCost('farm_water'));
-    return true;
+    return this.farmController.executeWater(col, row);
   }
 
-  /** 单格收获：grown → tilled，作物入包。返回作物类型；非成熟返回 null */
+  /** 单格收获：grown → tilled，作物入包。返回作物类型；非成熟返回 null
+   * P6c: 核心逻辑已委托给 FarmController.executeHarvest，MapScene 保留方法签名供调用方复用 */
   private harvestTileAt(col: number, row: number): CropType | null {
-    if (getTileState(col, row) !== 'grown') return null;
-    if (!consumeStamina(getActionStaminaCost('farm_harvest'))) return null; // 体力不足→不收获、不扣
-    const crop = getCrop(col, row);
-    const cropType = crop?.cropType ?? 'radish';
-    setTileState(col, row, 'tilled');
-    setCrop(col, row, undefined);
-    addItem(cropType, 1);
-    addXp(10, 'harvest');
-    onDQHarvest(cropType);
-    // 种植升级 v2：首次收获玉米 → 记录（丰收节铺垫；居民台词注入见 buildCropGiftDialogue）
-    if (cropType === 'corn' && !hasTriggered('crop_corn_first_harvest')) {
-      triggerOnce('crop_corn_first_harvest', () => { /* 仅标记 */ });
-      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
-    }
-    // 动作成本（P0 种植）：收获成功 → 扣时间（体力已在开头闸扣）
-    consumeMinutes(getActionTimeCost('farm_harvest'));
-    // v0.5.3 剧情密度 E2：第一次收获反馈（一次性，夏雅口头肯定，不影响收获本身）
-    // v0.10.3：首次收获升级为"情绪瞬间"——轻音效 + 角色停顿表现 + 对白延迟（复用 firstHarvestShown，不新增存档/系统/剧情）
-    // v1.0：+作物镜头（0.9s）——收获物放大→上浮→渐隐，"作物本身成为记忆镜头"（不破坏移动流畅）
-    if (!this.firstHarvestShown) {
-      this.firstHarvestShown = true;
-      triggerTag('first_harvest');
-      // ① 风铃/木叶轻响（区别于普通 harvest 三连音，低音量一次性）
-      play('harvest_first');
-      // ② 作物镜头（0.9s）：收获物在格子上放大上浮渐隐，随后进入背包——"作物本身成为记忆镜头"
-      const cropShotIcon = CROP_DEFS[cropType]?.icon ?? '🥕';
-      const cx = col * TILE_SIZE + TILE_SIZE / 2;
-      const cy = row * TILE_SIZE + TILE_SIZE / 2;
-      const cropShot = this.add.text(cx, cy, cropShotIcon, { fontSize: '22px' }).setOrigin(0.5).setDepth(8);
-      this.tweens.add({
-        targets: cropShot,
-        scale: 1.9, y: cy - 16, alpha: 0,
-        duration: 900, ease: 'Sine.out',
-        onComplete: () => cropShot.destroy(),
-      });
-      // ③ 角色停顿表现（短促 scale 脉冲，body 为固定 24×24 不受影响；不阻塞输入/update）
-      // 注意：玩家原始 scale=0.5，必须基于当前 scale 做相对脉冲，不能写死 1
-      const baseScale = this.player.scaleX;
-      this.tweens.add({
-        targets: this.player,
-        scaleX: baseScale * 1.08, scaleY: baseScale * 0.92,
-        duration: 130, yoyo: true, ease: 'Sine.out',
-        onComplete: () => this.player.setScale(baseScale, baseScale),
-      });
-      if (this.firstMorningActive) {
-        // 2026-08-11：day2 清晨演出窗口内，首次收获的全屏旁白/对白抑制并延后——
-        // 否则与清晨演出（StoryDialogue 单实例 + showMemoryMoment）互相覆盖导致「剧情乱了」。
-        // 收获本身（+1 物品/音效/飘字/作物镜头/停顿表现）不受影响。
-        this.pendingFirstHarvest = true;
-      } else {
-        showMemoryMoment('小时候爷爷告诉我，土地不会辜负认真照料它的人。');
-        // ④ 320ms 轻停顿后再弹夏雅对白（"角色看了看手里的东西"的节奏，不打断玩家操作）
-        this.time.delayedCall(320, () => this.playFirstHarvestDialogue());
-      }
-    }
-    return cropType;
+    return this.farmController.executeHarvest(col, row);
   }
 
   /** v1.1 收获仪式感：作物上浮渐隐（每次收获都有，区别于首次收获的长镜头） */
@@ -17943,8 +17749,8 @@ this.setupFieldLife();
 
   /** 首次收获「情绪瞬间」对白（含 T2-1 引导提示条）。抽出供正常路径与清晨演出后补播共用 */
   private playFirstHarvestDialogue(): void {
-    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-    this.storyDialogue.play(FIRST_HARVEST_DIALOGUE, () => {
+
+    this.playStory(FIRST_HARVEST_DIALOGUE, () => {
       // T2-1 Day1 引导链：收获 → 出售 → 修复（底部提示条，3 秒自动消失，不打断）
       this.showDialogueText(this.hintText(
         '收获的作物可以拿到青禾镇的商店卖掉换金币！这些收成，是镇上老房子的建材费。',
@@ -18093,7 +17899,9 @@ this.setupFieldLife();
     for (let i = job.idx; i < to; i++) {
       const { col, row } = job.tiles[i];
       const visual = this.tileRects.get(`${col},${row}`);
-      if (visual) this.updateTileVisual(col, row, visual);
+      if (visual) {
+        this.updateTileVisual(col, row, visual);
+      }
       const cx = col * TILE_SIZE + TILE_SIZE / 2;
       const cy = row * TILE_SIZE + TILE_SIZE / 2;
       if (job.type === 'harvest') this.harvestPuff(cx, cy);
@@ -18177,11 +17985,11 @@ this.setupFieldLife();
   private openPhotoAlbum(): void {
     if (this.photoAlbumPanel?.isOpen()) return;
     if (!this.photoAlbumPanel) {
-      this.photoAlbumPanel = new PhotoAlbumPanel();
+      this.uiBus.registerPhotoAlbumPanel(new PhotoAlbumPanel());
     }
     this.inputManager.clearAction();
     this.hideShortcutHint();
-    this.photoAlbumPanel.open();
+    this.photoAlbumPanel?.open();
   }
 
   /** 打开自然记录图鉴（只读信息展示层） */

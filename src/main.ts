@@ -5,13 +5,14 @@ import { TitleScene } from './scenes/TitleScene';
 import { MapScene } from './scenes/MapScene';
 import { StationScene } from './scenes/StationScene';
 import { getTime, nextDay as timeNextDay, setTime as setGameTime, setTimeFull as setGameTimeFull, consumeMinutes as consumeGameMinutes, formatTime } from './data/TimeSystem';
+import { getLevel, getXp } from './data/FarmProgress';
 import { getCurrentState as natureState, getWeatherToday as natureWeather, getTimePhase as naturePhase } from './systems/NatureSystem';
 import { isCurrentlyRaining } from './systems/WeatherSystem';
 import { getAllDiscoveries, recordDiscovery } from './systems/DiscoveryManager';
 import { refreshSchedule, getDailyNpcLine } from './systems/NPCSystem';
 import { refreshDailyQuests as refreshDQ, getDailyQuestSaveData, onWoodcut as dqOnWoodcut, getDailyQuests } from './systems/DailyQuestSystem';
 import { getQuestState, setQuestState } from './systems/QuestSystem';
-import { resetStamina } from './data/Stamina';
+import { resetStamina, getStamina } from './data/Stamina';
 import { resetOres } from './data/MineState';
 import { save, getPlayerData } from './systems/SaveSystem';
 import { markRestored, getRestoreEntries } from './data/FarmRestore';
@@ -19,7 +20,7 @@ import { advanceStory, getStoryStep, setStoryStep, isObservatoryComplete, markCh
 import { initAndroidBackHandler, initPcEscapeHandler } from './systems/AndroidBackHandler';
 import { addItem, getItemCount } from './data/Inventory';
 import { getRobotCount, runDailyAutomation } from './systems/AutomationSystem';
-import { setTileState as farmSetTile, setCrop as farmSetCrop, getTileState as farmGetTile } from './data/FarmState';
+import { setTileState as farmSetTile, setCrop as farmSetCrop, getTileState as farmGetTile, getCrop as farmGetCrop } from './data/FarmState';
 import { unlockPhoto as albumUnlock, PHOTO_DATABASE } from './data/PhotoAlbum';
 import { triggerOnce, triggerOnceIf, evalCondition, hasTriggered, markTriggered, getGameEventSaveData, type GameEventSaveData, type EventCondition } from './systems/EventManager';
 import { getChapter, setChapter } from './systems/ChapterSystem';
@@ -28,6 +29,8 @@ import { getTriggeredTags } from './systems/GuiXingRecordSystem';
 import { MusicSystem } from './audio/MusicSystem';
 import * as AmbienceSystem from './systems/AmbienceSystem';
 import { play as sfxPlay, getSfxLog } from './systems/AudioSystem';
+import { InteractionRouter } from './modules/InteractionRouter';
+import { StorySequenceRunner } from './modules/StorySequenceRunner';
 import { isTouchDevice } from './config';
 
 // 桌面端标记：禁用竖屏提示层（避免开发者工具窄窗口误触发）
@@ -236,7 +239,7 @@ applyAdaptiveLogicalSize();
 //   window.debug.getChapter()        获取当前章节
 //   window.debug.setChapter(c)       设置当前章节（调试/章节切换验证用）
 //   window.debug.setMusicBoxTrack(k) 设置音乐盒"我的歌"（null 清除，恢复地图默认）
-(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; setTimeFull: (d: number, h: number, m: number) => void; consumeMinutes: (n: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; markCh1TownIntroDone: () => void; getChapter: () => number; setChapter: (c: number) => void; getHouseTidyLevel: () => number; isHouseTidyComplete: () => boolean; getObservatoryComplete: () => boolean; getTimeStr: () => string; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; getItemCount: (item: string) => number; markRestored: (key: string) => void; getRestoreEntries: () => Record<string, boolean>; nature: { state: () => { id: string; label: string; gatherKinds: string[] }; weather: () => string; weatherLegacy: () => string; phase: () => string; discoveries: () => Record<string, { resourceId: string; firstDiscoverDay: number; firstDiscoverLocation?: string; specialDiscoveries: string[] }>; recordDiscovery: (resourceId: string, day: number, location: string, special?: string) => 'created' | 'special_added' | 'noop' }; npcDaily: (npcId: string, location?: string) => Array<{ speaker: string; color: string; text: string }> | null; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; sfxLog: () => string[]; ambience: () => { map: string | null; layers: number }; events: { triggerOnce: (id: string, fn: () => void) => boolean; triggerOnceIf: (id: string, cond: EventCondition | undefined, fn: () => void) => boolean; evalCondition: (cond?: EventCondition) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData } } }).debug = {
+(window as unknown as { debug: { nextDay: () => number; setTime: (h: number, m: number) => void; setTimeFull: (d: number, h: number, m: number) => void; consumeMinutes: (n: number) => void; advanceStory: () => void; setStoryStep: (s: string) => void; getStoryStep: () => string; getQuestState: () => string; setQuestState: (s: string) => void; markCh1TownIntroDone: () => void; getChapter: () => number; setChapter: (c: number) => void; getHouseTidyLevel: () => number; isHouseTidyComplete: () => boolean; getObservatoryComplete: () => boolean; getTimeStr: () => string; getStamina: () => number; getFarmXp: () => { level: number; xp: number }; giveRobot: (n?: number) => void; robotCount: () => number; giveItem: (item: string, count: number) => void; getItemCount: (item: string) => number; markRestored: (key: string) => void; getRestoreEntries: () => Record<string, boolean>; nature: { state: () => { id: string; label: string; gatherKinds: string[] }; weather: () => string; weatherLegacy: () => string; phase: () => string; discoveries: () => Record<string, { resourceId: string; firstDiscoverDay: number; firstDiscoverLocation?: string; specialDiscoveries: string[] }>; recordDiscovery: (resourceId: string, day: number, location: string, special?: string) => 'created' | 'special_added' | 'noop' }; npcDaily: (npcId: string, location?: string) => Array<{ speaker: string; color: string; text: string }> | null; farm: { setTileState: (col: number, row: number, state: string) => void; setCrop: (col: number, row: number, crop: { cropType: string; plantDay: number; watered: boolean } | undefined) => void; getTileState: (col: number, row: number) => string; getCrop: (col: number, row: number) => { cropType: string; plantDay: number; watered: boolean } | undefined }; unlockPhoto: (id: string) => void; getPhotoTotal: () => number; guixingTags: () => string[]; musicCurrent: () => string | null; setMusicBoxTrack: (k: string | null) => void; sfx: (name: string) => void; sfxLog: () => string[]; ambience: () => { map: string | null; layers: number }; interactionRouter: { resolveTarget: (candidates: Array<{ id: string; check: () => boolean; data?: () => unknown }>) => { id: string; data?: unknown } | null; describeTarget: (target: { id: string; data?: unknown } | null) => string; checkGate: (snapshot: any) => any; describeGate: (result: any) => string }; events: { triggerOnce: (id: string, fn: () => void) => boolean; triggerOnceIf: (id: string, cond: EventCondition | undefined, fn: () => void) => boolean; evalCondition: (cond?: EventCondition) => boolean; hasTriggered: (id: string) => boolean; markTriggered: (id: string) => void; getSaveData: () => GameEventSaveData }; storySequenceRunner: { createRunner: () => { isPlaying: boolean; currentId: string | null }; playDialogue: (id: string, lineCount: number) => { result: boolean; isPlaying: boolean; currentId: string | null }; interrupt: () => { isPlaying: boolean; currentId: string | null }; getState: () => { isPlaying: boolean; currentId: string | null; startCalled: boolean; endCalled: boolean; completeCalled: boolean; interrupted: boolean }; getSceneRunnerState: () => { isPlaying: boolean; currentId: string | null } | { error: string } } } }).debug = {
   getChapter,
   setChapter,
   getHouseTidyLevel,
@@ -359,6 +362,12 @@ applyAdaptiveLogicalSize();
   getTimeStr: () => {
     return formatTime();
   },
+  getStamina: () => {
+    return getStamina();
+  },
+  getFarmXp: () => {
+    return { level: getLevel(), xp: getXp() };
+  },
   giveRobot: (n = 1) => {
     addItem('auto_farmer_robot', n);
     console.log(`[debug] giveRobot → +${n} auto_farmer_robot`);
@@ -386,6 +395,9 @@ applyAdaptiveLogicalSize();
     getTileState: (col, row) => {
       return farmGetTile(col, row);
     },
+    getCrop: (col, row) => {
+      return farmGetCrop(col, row);
+    },
   },
   // 相簿 debug 挂钩（指向游戏真实实例，供探针/测试驱动解锁，绕过 dev 双模块问题——同 dailyQuest 模式）
   unlockPhoto: (id: string) => albumUnlock(id),
@@ -406,6 +418,179 @@ applyAdaptiveLogicalSize();
   sfxLog: () => getSfxLog(),
   // 声音补全 v1.0（2026-08-09）：环境音状态钩子（探针断言地图环境音组合已创建）
   ambience: () => ({ map: AmbienceSystem.getActiveMap(), layers: AmbienceSystem.getSourceCount() }),
+  // P7b: InteractionRouter 交互目标解析测试钩子（探针验证优先级与纯函数行为）
+  interactionRouter: (() => {
+    const router = new InteractionRouter();
+    return {
+      // 解析目标（纯函数，仅在浏览器中测试用）
+      resolveTarget: (candidates: Array<{ id: string; check: () => boolean; data?: () => unknown }>) => {
+        return router.resolveTarget(candidates);
+      },
+      // 调试信息
+      describeTarget: (target: { id: string; data?: unknown } | null) => {
+        return router.describeTarget(target as any);
+      },
+      // 门控调试（复用 P7a 探针）
+      checkGate: (snapshot: any) => {
+        return router.checkGate(snapshot);
+      },
+      describeGate: (result: any) => {
+        return router.describeGate(result);
+      },
+    };
+  })(),
+  // P7c-b: StorySequenceRunner 剧情序列编排测试钩子
+  storySequenceRunner: (() => {
+    let runner: StorySequenceRunner | null = null;
+    let mockDialogue: { play: (lines: any[], onComplete?: () => void, onChoice?: (index: number) => void) => void; reset: () => void; isOpen: () => boolean } | null = null;
+    let state = { isPlaying: false, currentId: null as string | null, startCalled: false, endCalled: false, completeCalled: false, interrupted: false };
+
+    function ensureRunner() {
+      if (!runner) {
+        mockDialogue = {
+          play: (_lines, onComplete) => {
+            state.isPlaying = true;
+            setTimeout(() => {
+              state.isPlaying = false;
+              if (onComplete) onComplete();
+            }, 50);
+          },
+          reset: () => { state.isPlaying = false; },
+          isOpen: () => state.isPlaying,
+        };
+        runner = new StorySequenceRunner(mockDialogue as any, {
+          onDialogueStart: () => { state.startCalled = true; },
+          onDialogueEnd: () => { state.endCalled = true; },
+        });
+      }
+      return runner;
+    }
+
+    function resetState() {
+      state = { isPlaying: false, currentId: null, startCalled: false, endCalled: false, completeCalled: false, interrupted: false };
+    }
+
+    return {
+      createRunner: () => {
+        resetState();
+        const r = ensureRunner();
+        r.setHooks({
+          onDialogueStart: () => { state.startCalled = true; },
+          onDialogueEnd: () => { state.endCalled = true; },
+          updateHUD: () => {},
+        });
+        return { isPlaying: r.isPlaying(), currentId: r.getCurrentSequenceId() };
+      },
+      playDialogue: (id: string, lineCount: number) => {
+        const r = ensureRunner();
+        resetState();
+        const lines = Array.from({ length: lineCount }, (_, i) => ({
+          speaker: `测试${i}`,
+          color: '#ffffff',
+          text: `对话行 ${i + 1}`,
+        }));
+        state.completeCalled = false;
+        const result = r.playDialogue(id, lines, () => { state.completeCalled = true; });
+        return { result, isPlaying: r.isPlaying(), currentId: r.getCurrentSequenceId() };
+      },
+      interrupt: () => {
+        const r = ensureRunner();
+        r.interrupt();
+        state.interrupted = true;
+        return { isPlaying: r.isPlaying(), currentId: r.getCurrentSequenceId() };
+      },
+      getState: () => {
+        const r = ensureRunner();
+        const { isPlaying: _ip, currentId: _cid, ...restState } = state;
+        return {
+          isPlaying: r.isPlaying(),
+          currentId: r.getCurrentSequenceId(),
+          ...restState,
+        };
+      },
+      // 测试：获取当前 MapScene 的 runner 状态（集成测试）
+      getSceneRunnerState: () => {
+        const scene = game.scene.getScenes(true)[0];
+        if (!scene) return { error: 'no_scene' };
+        // 调试：输出场景类型和可用属性
+        const sceneProto = Object.getPrototypeOf(scene);
+        const sceneType = sceneProto?.constructor?.name || typeof scene;
+        const hasRunner = 'storySequenceRunner' in scene;
+        const sr = (scene as unknown as { storySequenceRunner?: StorySequenceRunner }).storySequenceRunner;
+        if (!sr) return { error: 'no_runner', sceneType, hasRunner };
+        return {
+          isPlaying: sr.isPlaying(),
+          currentId: sr.getCurrentSequenceId(),
+        };
+      },
+      // 测试：MapScene.playStory 实际调用验证
+      testPlayStory: (id: string, lineCount: number, options: { withOnComplete?: boolean } = {}) => {
+        const scene = game.scene.getScenes(true)[0];
+        if (!scene) return { error: 'no_scene' };
+        if (!(scene instanceof MapScene)) return { error: 'not_map_scene', sceneType: scene.constructor.name };
+        
+        const lines = Array.from({ length: lineCount }, (_, i) => ({
+          speaker: `测试${i}`,
+          color: '#ffffff',
+          text: `对话行 ${i + 1}`,
+        }));
+        
+        let completeCalled = false;
+        const result = (scene as MapScene).playStory(
+          lines,
+          options.withOnComplete ? () => { completeCalled = true; } : undefined,
+          undefined,
+          id,
+        );
+        
+        const sr = (scene as unknown as { storySequenceRunner?: StorySequenceRunner }).storySequenceRunner;
+        return {
+          result,
+          isPlaying: sr?.isPlaying() ?? false,
+          currentId: sr?.getCurrentSequenceId() ?? null,
+          completeCalled,
+          hasDialogue: !!(scene as unknown as { storyDialogue?: unknown }).storyDialogue,
+        };
+      },
+      // 测试：验证 dialogueFactory 自动创建
+      testDialogueAutoCreate: () => {
+        const scene = game.scene.getScenes(true)[0];
+        if (!scene) return { error: 'no_scene' };
+        if (!(scene instanceof MapScene)) return { error: 'not_map_scene', sceneType: scene.constructor.name };
+        
+        const s = scene as unknown as {
+          storyDialogue?: { isOpen: () => boolean } | null;
+          storySequenceRunner: StorySequenceRunner;
+        };
+        
+        // 记录初始状态
+        const hadDialogue = !!s.storyDialogue;
+        const wasPlaying = s.storySequenceRunner.isPlaying();
+        
+        // 如果已有对话，先重置
+        if (s.storyDialogue?.isOpen()) {
+          s.storySequenceRunner.interrupt();
+        }
+        
+        // 调用 playStory，它应该自动创建 dialogue
+        const result = (scene as MapScene).playStory(
+          [{ speaker: '', color: '#ffffff', text: '自动创建测试' }],
+          undefined,
+          undefined,
+          'auto_create_test',
+        );
+        
+        return {
+          hadDialogueBefore: hadDialogue,
+          wasPlayingBefore: wasPlaying,
+          playResult: result,
+          hasDialogueAfter: !!s.storyDialogue,
+          isPlayingAfter: s.storySequenceRunner.isPlaying(),
+          currentIdAfter: s.storySequenceRunner.getCurrentSequenceId(),
+        };
+      },
+    };
+  })(),
 };
 
 // 每日任务 debug 挂载（指向游戏真实实例，供自动化测试驱动红点生命周期，绕过 dev 双模块问题）

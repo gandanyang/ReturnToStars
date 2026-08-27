@@ -91,6 +91,7 @@ async function run() {
 
   const stateInfo = async () => page.evaluate(() => {
     const s = window.__game?.scene.getScenes(true)[0];
+    const dbg = s?.farmController?.getWarmDebugState?.();
     // 画布中心采样（截图前 overlay 应生效，暖色下 R/B 应提升）
     const canvas = document.querySelector('canvas');
     let sample = 'n/a';
@@ -102,9 +103,9 @@ async function run() {
       } catch (e) { sample = 'read-failed'; }
     }
     return {
-      warmOverlay: !!s?.farmWarmOverlay,
-      overlayAlpha: s?.farmWarmOverlay ? Number(s.farmWarmOverlay.alpha.toFixed(2)) : -1,
-      warmParticles: (s?.farmWarmParticles ?? []).length,
+      warmOverlay: dbg?.active ?? false,
+      overlayAlpha: dbg?.alpha ?? -1,
+      warmParticles: dbg?.particleCount ?? 0,
       centerSample: sample,
     };
   });

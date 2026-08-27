@@ -303,9 +303,11 @@ try {
   await sleep(1000);
 
   info = await fishInfo();
-  const hintLeak = await domIncludes('按 [E] 钓鱼') || await domIncludes('收竿');
+  // 回到 town 时玩家仍站在钓点附近，正常逻辑会重新显示靠近提示；
+  // 这里只检查钓鱼中提示是否残留，避免把合法的 idle hint 判为泄漏。
+  const hintLeak = await domIncludes('收竿');
   check(
-    'E7 场景切换后状态复位 idle + visuals 销毁 + 无 hint 残留',
+    'E7 场景切换后状态复位 idle + visuals 销毁 + 无收竿 hint 残留',
     info.state === 'idle' && info.hasVisuals === false && hintLeak === false,
     `state=${info.state} visuals=${info.hasVisuals} hintLeak=${hintLeak}`,
   );
@@ -313,27 +315,32 @@ try {
   // ============ E8 连续 5 次成功累计：青禾鲫 +5 ============
   await cleanup();
   await moveTo(SPOT.x, SPOT.y + 5);
-  // 记录起始值（不强制清零，避免依赖 setItemCount debug API）
-  const before5 = await page.evaluate(() => window.debug.getItemCount('qinghe_crucian'));
+  // 记录所有普通鱼的总数。生产代码会按时段/概率选择多鱼种，不能再假设每竿都是青禾鲫。
+  const fishKinds = ['qinghe_crucian', 'river_shrimp', 'dusk_fish', 'moon_bass', 'river_eel', 'common_carp', 'big_blue_fish'];
+  const readRegularFishTotal = () => page.evaluate((kinds) =>
+    kinds.reduce((total, kind) => total + (window.debug.getItemCount(kind) || 0), 0), fishKinds);
+  const before5 = await readRegularFishTotal();
 
   for (let i = 1; i <= 5; i++) {
+    // 固定为基准鱼，专门验证连续成功的状态清理，不把物种随机/鱼苗选择混入本用例。
+    await page.evaluate(() => { window.__game.scene.getScene('town').currentFish = 'qinghe_crucian'; });
     await page.evaluate(() => window.__game.scene.getScene('town').startFishing());
     await sleep(900); // casting → waiting
     await page.evaluate(() => window.__game.scene.getScene('town').enterRealBite());
     await sleep(150);
     await tryFish(); // 收竿成功
     await sleep(900); // 等成功反馈结束回 idle
-    const count = await page.evaluate(() => window.debug.getItemCount('qinghe_crucian'));
+    const count = await readRegularFishTotal();
     check(
-      `E8 第 ${i} 次钓鱼后青禾鲫 = ${before5 + i}`,
+      `E8 第 ${i} 次普通鱼收获后总数 = ${before5 + i}`,
       count === before5 + i,
       `count=${count}（期望 ${before5 + i}）`,
     );
   }
 
-  const finalCount = await page.evaluate(() => window.debug.getItemCount('qinghe_crucian'));
+  const finalCount = await readRegularFishTotal();
   check(
-    'E8 连续 5 次后累计 +5（无状态残留）',
+    'E8 连续 5 次普通鱼收获累计 +5（无状态残留）',
     finalCount === before5 + 5,
     `before=${before5} after=${finalCount}（期望 ${before5 + 5}）`,
   );

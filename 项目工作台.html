@@ -197,12 +197,12 @@
   <h1>归星物语<span class="dim">项目工作台</span></h1>
   <div class="sub">像素风农场生活 RPG · Phaser + TypeScript + Vite · 多 AI 协作开发</div>
   <div class="badges">
-    <span class="badge version">v0.7 · 第一章「复苏」 · Vertical Slice</span>
-    <span class="badge phase">生活循环已闭合 ✓</span>
-    <span class="badge">第0章 Demo 冻结</span>
-    <span class="badge">数据快照 2026-08-26 07:51</span>
+    <span class="badge version">v0.7 · 第一章「复苏」 · 架构冻结</span>
+    <span class="badge phase">MapScene 重构 P0~P7 ✓</span>
+    <span class="badge">8 模块抽离 · playStory 统一入口</span>
+    <span class="badge">数据快照 2026-08-27</span>
   </div>
-  <div class="sub" style="margin-top:10px;font-size:12px">第0章 Demo 已冻结（D-021）· 2026-08-12 解冻进入第一章</div>
+  <div class="sub" style="margin-top:10px;font-size:12px">架构基线冻结 · 后续进入第一章「复苏」内容开发</div>
 </header>
 
 <nav><div class="nav-in">
@@ -222,23 +222,23 @@
   <div class="status-strip">
     <div class="st-card">
       <div class="st-label">最近提交</div>
-      <div class="st-value"><code>dc707b9 fix(save): 存档系统 P0 卫生改造</code></div>
-      <div class="st-note">2026-08-18 · 共 122 次提交</div>
+      <div class="st-value"><code>P0~P7 重构归档（待提交）</code></div>
+      <div class="st-note">2026-08-27 · 8 模块抽离 · 104/104 探针通过</div>
     </div>
     <div class="st-card c-gold">
       <div class="st-label">当前焦点</div>
-      <div class="st-value">钓鱼手感收口 · 待实机试玩</div>
-      <div class="st-note">Phase 1 状态机已落地 · 探针 34/34</div>
+      <div class="st-value">架构冻结 · 第一章内容开发</div>
+      <div class="st-note">不再主动推进 P8 · 由实际痛点驱动</div>
     </div>
     <div class="st-card c-cyan">
-      <div class="st-label">下一里程碑</div>
-      <div class="st-value">《秋日晒场》</div>
-      <div class="st-note">第一章章末收束 · 复用 EventPlan · 约 8 人日</div>
+      <div class="st-label">架构基线</div>
+      <div class="st-value">MapScene Architecture Baseline</div>
+      <div class="st-note">8 模块 · playStory 80 处 · InteractionRouter 49 目标</div>
     </div>
     <div class="st-card c-green">
       <div class="st-label">在线试玩</div>
-      <div class="st-value"><a href="https://65957d6122464b4ab53c6e20a06a527a.app.workbuddy.link" target="_blank">CloudStudio 部署 ↗</a></div>
-      <div class="st-note">08-15 重建 · dist/ 全量刷新</div>
+      <div class="st-value"><a href="#" target="_blank">CloudStudio 部署 ↗</a></div>
+      <div class="st-note">架构冻结后首次部署待重建</div>
     </div>
   </div>
 
@@ -261,42 +261,24 @@
   <div class="sec-head"><h2>当前施工</h2><span class="hint">同步自 docs/CURRENT_TASK.md · 由 gen_workbench.py 维护</span></div>
   <div class="cols">
     <div class="panel">
-      <div style="font-size:13px;font-weight:600;color:var(--star2);margin-bottom:12px;letter-spacing:1px">进行中 / 待办</div>
-      
-        <div class="focus-item st-live">
+      <div style="font-size:13px;font-weight:600;color:var(--star2);margin-bottom:12px;letter-spacing:1px">架构基线（已冻结）</div>
+        
+        <div class="focus-item st-done">
           <div class="focus-head">
-            <span class="focus-icon">🎣</span>
-            <span class="focus-name">钓鱼手感收口</span>
-            <span class="badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">进行中</span>
+            <span class="focus-icon">🏗️</span>
+            <span class="focus-name">MapScene 重构 P0~P7</span>
+            <span class="badge" style="background:#6b728022;color:#6b7280;border:1px solid #6b728044">已归档</span>
           </div>
-          <div class="focus-note">Phase 1 已实现待制作人实机试玩（S6 老河堤）· 探针 34/34</div>
-        </div>
-
-        <div class="focus-item st-next">
-          <div class="focus-head">
-            <span class="focus-icon">🌾</span>
-            <span class="focus-name">《秋日晒场》</span>
-            <span class="badge" style="background:#a78bfa22;color:#a78bfa;border:1px solid #a78bfa44">待开工</span>
-          </div>
-          <div class="focus-note">第一章章末收束 · 台词已定稿（08-19）· 按优先级最后做 · 约 8 人日</div>
-        </div>
-
-        <div class="focus-item st-wait">
-          <div class="focus-head">
-            <span class="focus-icon">⏱️</span>
-            <span class="focus-name">昼夜 ActionTime</span>
-            <span class="badge" style="background:#fbbf2422;color:#fbbf24;border:1px solid #fbbf2444">待试玩</span>
-          </div>
-          <div class="focus-note">验收通过 · 待实机试玩定「10 分钟/次」最终值 · 试玩清单 v1.1 已就绪</div>
+          <div class="focus-note">8 模块抽离（2,596 行迁出）· playStory 统一 80 处对白入口 · InteractionRouter 49 目标 + 43 canTry 纯函数 · StorySequenceRunner 剧情编排 · 104/104 探针全通过</div>
         </div>
 
         <div class="focus-item st-done">
           <div class="focus-head">
-            <span class="focus-icon">💕</span>
-            <span class="focus-name">心语·一收尾</span>
+            <span class="focus-icon">🎣</span>
+            <span class="focus-name">钓鱼手感收口</span>
             <span class="badge" style="background:#6b728022;color:#6b7280;border:1px solid #6b728044">已完成</span>
           </div>
-          <div class="focus-note">✅ 收口完成（08-19 台词定稿：看星星的人多了）</div>
+          <div class="focus-note">Phase 1 状态机已落地 · 探针 34/34 · 待制作人实机试玩定最终值</div>
         </div>
 
         <div class="focus-item st-done">
@@ -308,6 +290,24 @@
           <div class="focus-note">✅ 雨天河螺 / 雨天 NPC 台词 / 河草 · 探针债务同步清理</div>
         </div>
 
+        <div class="focus-item st-next">
+          <div class="focus-head">
+            <span class="focus-icon">🌾</span>
+            <span class="focus-name">《秋日晒场》</span>
+            <span class="badge" style="background:#a78bfa22;color:#a78bfa;border:1px solid #a78bfa44">第一章内容</span>
+          </div>
+          <div class="focus-note">第一章章末收束 · 台词已定稿（08-19）· 复用 EventPlan · 约 8 人日</div>
+        </div>
+
+        <div class="focus-item st-wait">
+          <div class="focus-head">
+            <span class="focus-icon">⏱️</span>
+            <span class="focus-name">昼夜 ActionTime</span>
+            <span class="badge" style="background:#fbbf2422;color:#fbbf24;border:1px solid #fbbf2444">待试玩</span>
+          </div>
+          <div class="focus-note">验收通过 · 待实机试玩定「10 分钟/次」最终值</div>
+        </div>
+
         <div class="focus-item st-pause">
           <div class="focus-head">
             <span class="focus-icon">🌸</span>
@@ -317,7 +317,7 @@
           <div class="focus-note">⏸️ Alpha 不实现（D-011）· 正文已定稿待排期</div>
         </div>
       <div class="milestone">
-        🏁 <b>里程碑 · 生活循环闭合（2026-08-15）</b>——四大基础生活循环全部闭合，不是"功能数量够了"，而是每个系统都有了自己的出口。下一步 v1.5：《秋日晒场》第一次全镇回应玩家。
+        🏁 <b>里程碑 · 架构冻结（2026-08-27）</b>——MapScene 重构 P0~P7 圆满完成，8 个领域模块抽离，交互决策与剧情编排分离。后续进入第一章「复苏」内容开发，不再主动推进 P8。
       </div>
     </div>
     <div>
@@ -367,6 +367,11 @@
         <div class="sys-group">
           <div class="sys-cat" style="color:#a78bfa">核心系统</div>
           <ul class="sys-list"><li><code style="color:#a78bfa">SaveSystem</code><span class="sys-desc">存档（SAVE_VERSION 契约红线）</span></li><li><code style="color:#a78bfa">EventManager</code><span class="sys-desc">事件总线 · triggerOnce 一次性触发</span></li><li><code style="color:#a78bfa">StorySystem</code><span class="sys-desc">剧情（冻结区单写者制）</span></li><li><code style="color:#a78bfa">QuestSystem</code><span class="sys-desc">任务 · DailyQuestSystem 日常</span></li><li><code style="color:#a78bfa">ChapterSystem</code><span class="sys-desc">章节切换</span></li></ul>
+        </div>
+
+        <div class="sys-group">
+          <div class="sys-cat" style="color:#c4b5fd">架构模块（P0~P7 已抽离）</div>
+          <ul class="sys-list"><li><code style="color:#c4b5fd">CameraDirector</code><span class="sys-desc">空间控制（相机跟随/边界/缩放）</span></li><li><code style="color:#c4b5fd">UIBus</code><span class="sys-desc">UI 生命周期（面板开关/焦点管理）</span></li><li><code style="color:#c4b5fd">WeatherDirector</code><span class="sys-desc">天气视觉（粒子/覆盖层/氛围）</span></li><li><code style="color:#c4b5fd">WorldDecorator</code><span class="sys-desc">世界装饰（环境物件/光尘/植被）</span></li><li><code style="color:#c4b5fd">FishingController</code><span class="sys-desc">钓鱼玩法域（状态机/鱼苗/奖励）</span></li><li><code style="color:#c4b5fd">FarmController</code><span class="sys-desc">农场玩法域（锄地/种植/收获/经济）</span></li><li><code style="color:#c4b5fd">InteractionRouter</code><span class="sys-desc">交互决策（Gate + Target Resolve）</span></li><li><code style="color:#c4b5fd">StorySequenceRunner</code><span class="sys-desc">剧情编排（对话序列/状态机/回调）</span></li></ul>
         </div>
 
         <div class="sys-group">
@@ -490,6 +495,15 @@
 <section id="git">
   <div class="sec-head"><h2>提交动态</h2><span class="hint">最近 20 条 · git log 实时采集</span></div>
   <div class="panel gitlog">
+        <div class="commit">
+          <div class="commit-date">08-27<span class="commit-time">—</span></div>
+          <div class="commit-dot"></div>
+          <div class="commit-body">
+            <div class="commit-msg">🏗️ MapScene 重构 P0~P7 归档 · 8 模块抽离 · playStory 统一入口 · InteractionRouter + StorySequenceRunner · 104/104 探针通过</div>
+            <div class="commit-hash">待提交 · 架构冻结</div>
+          </div>
+        </div>
+
         <div class="commit">
           <div class="commit-date">08-18<span class="commit-time">01:18</span></div>
           <div class="commit-dot"></div>

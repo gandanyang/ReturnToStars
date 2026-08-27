@@ -7,7 +7,7 @@
  * 后续可替换为真实音频文件，只需修改 play() 内部实现。
  */
 
-type SfxName =
+export type SfxName =
   | 'hoe' | 'plant' | 'water' | 'harvest' | 'buy' | 'sell' | 'levelup' | 'chop' | 'tree_fall' | 'invalid'
   // 演出音效（试玩-14）：列车 / 大门 / 星之碎片 / 观星夜
   | 'train' | 'train_hiss' | 'gate_open' | 'shard' | 'stargaze'

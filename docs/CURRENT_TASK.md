@@ -6,12 +6,38 @@
 
 ---
 
-## 🟢 当前阶段：第一章「复苏」玩法 Vertical Slice（2026-08-12 解冻后，进行中）
+## 🟢 当前阶段：第一章「复苏」玩法 + 架构冻结后内容开发（2026-08-27 MapScene 重构 P0~P7 归档）
 
 > 第0章 Demo 已冻结（D-021）。第一章不追求地图扩大/系统数量，重点建立「玩家行为 → 世界变化 → 情感反馈」循环。
 > 最高指导：`docs/第一章开发总纲.md`。
+>
+> **架构基线：MapScene 重构 P0~P7 已完成并冻结（2026-08-27）**。8 个领域模块抽离完成，InteractionRouter + StorySequenceRunner 建立统一交互/对话入口。后续内容开发在当前架构上进行，不再主动推进 P8（CutsceneGuard 列为候选，由实际痛点驱动）。
 
-### 当前施工（2026-08-13 状态）
+### 架构基线快照（2026-08-27，冻结）
+
+| 指标 | 数值 |
+|------|------|
+| MapScene.ts 行数 | 18,231 |
+| 抽离模块数 | 8 个（2,596 行迁出） |
+| 统一对话入口 | `playStory()` 80 处，残余 0 |
+| 交互路由 | InteractionRouter 49 目标 + 43 canTry 纯函数 |
+| 剧情编排 | StorySequenceRunner 状态机 + 回调链 |
+| 探针全通过 | 104/104 |
+
+### 已抽离模块
+
+| 模块 | 职责 |
+|------|------|
+| CameraDirector | 空间控制 |
+| UIBus | UI 生命周期 |
+| WeatherDirector | 天气视觉 |
+| WorldDecorator | 世界装饰 |
+| FishingController | 钓鱼玩法域 |
+| FarmController | 农场玩法域 |
+| InteractionRouter | 交互决策（Gate + Target Resolve） |
+| StorySequenceRunner | 剧情编排 |
+
+### 当前施工（2026-08-27 状态）
 
 | 项 | 状态 |
 |---|---|
@@ -124,6 +150,7 @@
 
 ## 上一批次（已完成）
 
+- 2026-08-27：**MapScene 重构 P0~P7 正式归档** — 8 个领域模块抽离完成（CameraDirector/UIBus/WeatherDirector/WorldDecorator/FishingController/FarmController/InteractionRouter/StorySequenceRunner），`playStory()` 统一全部 80 处对白入口，InteractionRouter 完成交互决策分离，104/104 探针全通过；架构冻结，后续在当前基线进入第一章内容开发
 - 2026-08-13：三阶段小型体验链冻结（`c7b21e5`）；夏雅配音 IndexTTS-2 全量重录 76 + 18 条；春深有信语音接入 + P1 花田反馈；衔接设计 v1.1；Phase3 美术 §一~§四；出口重定位
 - 2026-08-12：解除 Alpha Freeze，进入第一章开发阶段（D-027）；集市广场恢复 Sprint 3
 - 2026-08-11：BUG-072/073 对白调度守卫 + 灯塔远景撤除 + 花田支线（小梅）+ 售货机可出售（`5df95cc`）

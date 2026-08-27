@@ -88,12 +88,25 @@ function tileKey(col: number, row: number): string {
   return `${col},${row}`;
 }
 
-/** 全局土地状态表：key = "col,row" */
-const tiles = new Map<string, TileState>();
+/** 
+ * 全局土地状态表：key = "col,row" 
+ * 使用 globalThis 存储，防止 Vite HMR 模块分裂导致多实例问题
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const g = globalThis as any;
+if (!g.__FARM_TILES__) {
+  g.__FARM_TILES__ = new Map<string, TileState>();
+  // eslint-disable-next-line no-console
+  console.warn('[FarmState] Created new tiles Map (first load or after cache clear)');
+}
+const tiles: Map<string, TileState> = g.__FARM_TILES__;
 
 /** 读取某格状态，未记录视为 empty */
 export function getTileState(col: number, row: number): TileState {
-  return tiles.get(tileKey(col, row)) ?? 'empty';
+  const state = tiles.get(tileKey(col, row)) ?? 'empty';
+  // eslint-disable-next-line no-console
+  console.log('[FarmState] getTileState', { col, row, state, tilesSize: tiles.size });
+  return state;
 }
 
 /** 设置某格状态 */
@@ -102,7 +115,10 @@ export function setTileState(
   row: number,
   state: TileState
 ): void {
-  tiles.set(tileKey(col, row), state);
+  const key = tileKey(col, row);
+  tiles.set(key, state);
+  // eslint-disable-next-line no-console
+  console.log('[FarmState] setTileState', { col, row, state, tilesSize: tiles.size });
 }
 
 // ---------------- 种子库存（已迁移到 Inventory 系统） ----------------
@@ -129,8 +145,15 @@ export interface CropData {
   grownDays?: number;
 }
 
-/** 作物数据表：key = "col,row"，仅 planted/watered/grown 状态有值 */
-const crops = new Map<string, CropData>();
+/** 
+ * 作物数据表：key = "col,row"，仅 planted/watered/grown 状态有值
+ * 使用 globalThis 存储，防止 Vite HMR 模块分裂
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+if (!g.__FARM_CROPS__) {
+  g.__FARM_CROPS__ = new Map<string, CropData>();
+}
+const crops: Map<string, CropData> = g.__FARM_CROPS__;
 
 /** 读取某格作物数据 */
 export function getCrop(col: number, row: number): CropData | undefined {
@@ -198,8 +221,15 @@ export const FARM_TREE_POSITIONS: { col: number; row: number }[] = [
   { col: 4, row: 2 }, { col: 6, row: 2 }, { col: 9, row: 4 }, { col: 10, row: 6 },
 ];
 
-/** 树木状态表：key = "col,row" */
-const trees = new Map<string, TreeState>();
+/** 
+ * 树木状态表：key = "col,row"
+ * 使用 globalThis 存储，防止 Vite HMR 模块分裂
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+if (!g.__FARM_TREES__) {
+  g.__FARM_TREES__ = new Map<string, TreeState>();
+}
+const trees: Map<string, TreeState> = g.__FARM_TREES__;
 
 /** 初始化所有树木为满血状态 */
 export function initTrees(): void {
@@ -280,6 +310,8 @@ export function getAllCropEntries(): [string, CropData][] {
 
 /** 清空所有土地和作物状态（存档恢复前调用） */
 export function clearAllTiles(): void {
+  // eslint-disable-next-line no-console
+  console.warn('[FarmState] clearAllTiles called! Stack:', new Error().stack);
   tiles.clear();
   crops.clear();
 }

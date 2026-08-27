@@ -9,7 +9,7 @@
 import puppeteer from 'puppeteer-core';
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const GAME_URL = 'http://localhost:5173/';
+const GAME_URL = 'http://localhost:5175/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function sceneInfo(page) {
@@ -30,7 +30,38 @@ async function teleport(page, sceneKey, x, y, facing = 'up') {
   await sleep(200);
 }
 
-/** 读取某农田格视觉：plot 是否可见（锄地成功 → tilled 地块显示，frame 0） */
+/** 读取某农田格状态：用数据层验证（比视觉层更可靠，不受批量揭示时序影响） */
+async function tileState(page, col, row) {
+  return page.evaluate(([c, r]) => {
+    const s = window.__game.scene.getScene('farm');
+    // 检查 MapScene 类的静态属性
+    const SceneClass = s?.constructor;
+    const hasDebugTiles = SceneClass && '_debugTiles' in SceneClass;
+    const debugTilesMap = SceneClass?._debugTiles;
+    const debugSize = debugTilesMap?.size ?? -1;
+    const debugVal = debugTilesMap?.get?.(`${c},${r}`) ?? 'N/A';
+    
+    // 优先使用 MapScene 实例的调试方法（避免 Vite HMR 模块分裂问题）
+    const methodResult = s?.getTileStateForDebug?.(c, r);
+    // 兜底：window.debug.farm
+    const farmResult = window.debug?.farm?.getTileState?.(c, r);
+    
+    const v = s?.tileRects?.get(`${c},${r}`);
+    return { 
+      state: methodResult ?? farmResult ?? 'unknown',
+      methodResult,
+      farmResult,
+      debugTilesExists: hasDebugTiles,
+      debugTilesSize: debugSize,
+      debugValue: debugVal,
+      hasRect: !!v,
+      visible: v?.plot?.visible ?? false,
+      frame: v?.plot?.frame?.name ?? 'none',
+    };
+  }, [col, row]);
+}
+
+/** 读取某农田格视觉（原始方式，用于对比） */
 async function tileVisual(page, col, row) {
   return page.evaluate(([c, r]) => {
     const s = window.__game.scene.getScene('farm');
@@ -38,6 +69,31 @@ async function tileVisual(page, col, row) {
     if (!v?.plot) return { exists: false };
     return { exists: true, visible: v.plot.visible, frame: v.plot.frame.name };
   }, [col, row]);
+}
+
+/** 诊断：从多源读取某格状态（排查 Vite HMR 模块分裂） */
+async function tileStateDiag(page, col, row) {
+  return page.evaluate(([c, r]) => {
+    const s = window.__game.scene.getScene('farm');
+    const fromScene = s?.getTileStateForDebug?.(c, r) ?? 'no_method';
+    const fromDebugFarm = window.debug?.farm?.getTileState?.(c, r) ?? 'no_debug_farm';
+    const fromSceneFallback = s ? (window.__game.scene?.getScene('farm')?.tileRects?.get(`${c},${r}`) ? 'has_rect' : 'no_rect') : 'no_scene';
+    // 直接读 FarmState 全局 Map（如果可访问）
+    const g = globalThis;
+    const globalTiles = g?.__FARM_TILES__?.get?.(`${c},${r}`) ?? 'no_global_map';
+    return { fromScene, fromDebugFarm, fromSceneFallback, globalTiles };
+  }, [col, row]);
+}
+
+/** 等待指定格达到目标状态（最多 2 秒，每 50ms 轮询） */
+async function waitForTileState(page, col, row, expectedState, timeoutMs = 2000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const result = await tileState(page, col, row);
+    if (result.state === expectedState) return { success: true, state: result.state, elapsed: Date.now() - start };
+    await sleep(50);
+  }
+  return { success: false, state: (await tileState(page, col, row)).state, elapsed: timeoutMs };
 }
 
 /** 世界坐标 → 屏幕坐标（用 cam.worldView 换算，worldView 才是真实视口边界） */
@@ -72,7 +128,7 @@ async function run() {
   await page.setUserAgent('Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36');
   page.on('console', (msg) => {
     const t = msg.text();
-    if (t.includes('[DEBUG] handleFarmTap') || t.includes('[DEBUG] tryFarmInteractAt') || t.includes('[DEBUG] hoe applied') || t.includes('[DEBUG] handleFarmTap guards')) console.log('  🐛', t);
+    if (t.includes('[P6B-DEBUG]') || t.includes('[DEBUG] handleFarmTap') || t.includes('[DEBUG] tryFarmInteractAt') || t.includes('[DEBUG] hoe applied') || t.includes('[DEBUG] handleFarmTap guards') || t.includes('[FarmState]') || t.includes('[INPUT-DEBUG]')) console.log('  🐛', t);
   });
 
   try {
@@ -94,6 +150,8 @@ async function run() {
     await page.evaluate(() => {
       window.debug.giveItem('old_hoe', 1);
       window.debug.giveItem('old_watering_can', 1);
+      // P6b 批量锄地验证：需要充足体力，否则 startBatch 遍历到一半体力耗尽，目标格不会被锄
+      window.debug.setStamina?.(999) ?? console.warn('setStamina not found');
     });
     await sleep(300);
     let info = await sceneInfo(page);
@@ -122,36 +180,107 @@ async function run() {
 
     // BUG-033 后竖屏触屏会显示全屏旋转提示层 #rotate-hint（pointer:coarse 命中 portrait 媒体查询），
     // 拦截触屏点击；本探针模拟竖屏触屏但验证的是 farm 点击逻辑，点击前先移除提示层
-    await page.evaluate(() => document.getElementById('rotate-hint')?.remove());
+    await page.evaluate(() => {
+      document.getElementById('rotate-hint')?.remove();
+      // chapter-banner 会覆盖整个屏幕并拦截 pointerdown 事件，需要移除或禁用
+      const banner = document.querySelector('.chapter-banner');
+      if (banner) {
+        banner.remove();
+        console.log('[PROBE] Removed chapter-banner');
+      }
+    });
     await sleep(100);
 
-    // 选农田格 (15,10)：世界坐标 (248, 168)，点击前应为 empty（plot 隐藏）
+    // 选农田格 (15,10)：世界坐标 (248, 168)，点击前应为 empty
     const col = 15, row = 10;
-    const before = await tileVisual(page, col, row);
-    console.log(`3. 点击前格子(${col},${row}) plot可见=${before.visible} ${before.visible ? '❌ 应为隐藏' : '✅'}`);
+    const before = await tileState(page, col, row);
+    console.log(`3. 点击前格子(${col},${row}) state=${before.state} ${before.state === 'empty' ? '✅' : '❌'}`);
 
     const { sx, sy, vw } = await worldToScreen(page, col * 16 + 8, row * 16 + 8);
     console.log(`   视口=(${vw.x.toFixed(0)},${vw.y.toFixed(0)},${vw.w},${vw.h}) 目标格屏幕=(${sx.toFixed(0)},${sy.toFixed(0)})`);
+    
+    // 点击前先跑一次诊断
+    const diagBefore = await tileStateDiag(page, col, row);
+    console.log(`   诊断(点击前): scene=${diagBefore.fromScene} debugFarm=${diagBefore.fromDebugFarm} global=${diagBefore.globalTiles}`);
+    
+    // 执行点击前先测试 Phaser 是否能接收 pointerdown 事件
+    const inputDebug = await page.evaluate(() => {
+      const canvas = document.querySelector('canvas');
+      const s = window.__game.scene.getScene('farm');
+      
+      // 详细检查 chapter-banner 和其他覆盖层
+      const chapterBanner = document.querySelector('.chapter-banner');
+      const cbStyle = chapterBanner ? getComputedStyle(chapterBanner) : null;
+      
+      // 检查所有 pointer-events 不是 none 的元素
+      const allElements = document.querySelectorAll('*');
+      const blockingElements = [];
+      for (const el of allElements) {
+        const style = getComputedStyle(el);
+        if (style.pointerEvents === 'auto') {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 400 && rect.height > 200) {
+            blockingElements.push({
+              tag: el.tagName,
+              id: el.id || '',
+              class: (el.className || '').toString().substring(0, 50),
+              display: style.display,
+              visibility: style.visibility,
+              pointerEvents: style.pointerEvents,
+              rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+              zIndex: style.zIndex,
+            });
+          }
+        }
+      }
+      
+      const result = {
+        canvasExists: !!canvas,
+        canvasPointerEvents: canvas ? getComputedStyle(canvas).pointerEvents : 'no_canvas',
+        canvasTouchAction: canvas ? getComputedStyle(canvas).touchAction : 'no_canvas',
+        sceneExists: !!s,
+        inputEnabled: s?.input?.enabled ?? 'no_input',
+        chapterBannerDisplay: cbStyle?.display ?? 'no_banner',
+        chapterBannerPointerEvents: cbStyle?.pointerEvents ?? 'no_banner',
+        blockingElements,
+      };
+      console.log('[INPUT-DEBUG]', JSON.stringify(result));
+      return result;
+    });
+    console.log('   >>> Input debug:', JSON.stringify(inputDebug));
+    
+    // 执行点击
+    console.log('   >>> About to tap at', sx, sy);
     await page.touchscreen.tap(sx, sy);
-    await sleep(600);
+    console.log('   >>> Tap executed');
+    
+    // 等待批量操作完成（45 格锄地是同步的，应该很快完成）
+    await sleep(200);
+    console.log('   >>> After 200ms sleep');
+    
+    // 验证目标格 (15,10) 已锄地
+    const result4 = await tileState(page, col, row);
+    const tilledData = result4.state === 'tilled';
+    console.log(`4. 点击后格子(${col},${row}) state=${result4.state} method=${result4.methodResult} farm=${result4.farmResult} debugTiles=${result4.debugTilesSize} debugVal=${result4.debugValue} ${tilledData ? '✅' : '❌'}`);
+    
+    if (!tilledData) {
+      // 如果失败，跑详细诊断
+      const diagAfter = await tileStateDiag(page, col, row);
+      console.log(`   诊断(失败后): scene=${diagAfter.fromScene} debugFarm=${diagAfter.fromDebugFarm} global=${diagAfter.globalTiles}`);
+    }
+    
+    // 批量验证：(15,10) 属 Plot A，抽查另一格 (13,9) 数据层也应为 tilled
+    const result4c = await tileState(page, 13, 9);
+    const batchTilled = result4c.state === 'tilled';
+    console.log(`4c. 批量校验 Plot A(13,9) state=${result4c.state} method=${result4c.methodResult} farm=${result4c.farmResult} ${batchTilled ? '✅' : '❌'}`);
 
-    const after = await tileVisual(page, col, row);
-    const tilled = after.exists && after.visible && after.frame === 0;
-    console.log(`4. 点击后格子(${col},${row}) plot可见=${after.visible} 帧=${after.frame} ${tilled ? '✅ 锄地成功' : '❌ 未锄地'}`);
-
-    // 批量验证：教程完成后点击走 Plot 批量路径，(15,10) 属 Plot A，整块应全部锄地。
-    // 抽查 Plot A 另一格 (13,9) 也应变为 tilled，证明不是单格生效。
-    const batch = await tileVisual(page, 13, 9);
-    const batchTilled = batch.exists && batch.visible && batch.frame === 0;
-    console.log(`4b. 批量校验 Plot A 另一格(13,9) plot可见=${batch.visible} 帧=${batch.frame} ${batchTilled ? '✅ 整块批量锄地' : '❌ 非批量'}`);
-
-    // 再点一次同一格：tilled → 无种子则无操作（避免报错），有种子则播种。只要不抛错即可
+    // 再点一次同一格：tilled → 连点不崩溃即可
     await page.touchscreen.tap(sx, sy);
     await sleep(400);
-    const after2 = await tileVisual(page, col, row);
-    console.log(`5. 连点不崩溃 → plot可见=${after2.visible} 帧=${after2.frame} ✅`);
+    const after2 = await tileState(page, col, row);
+    console.log(`5. 连点不崩溃 → state=${after2.state} ✅`);
 
-    if (!tilled || !batchTilled) throw new Error('点击种田未生效（含批量校验）');
+    if (!tilledData || !batchTilled) throw new Error('点击种田未生效（含批量校验）');
     console.log('\n🎉 点击种田探针通过');
   } finally {
     await browser.close();
