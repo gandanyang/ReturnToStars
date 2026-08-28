@@ -287,6 +287,8 @@ const TREE_KEY_MIGRATIONS: Record<string, [number, number]> = {
 
 /** 恢复树木状态（存档恢复用；旧档 key 命中迁移表时迁到新坐标） */
 export function restoreTreeEntries(entries: [string, TreeState][]): void {
+  // BUG-FIX（A6）：entries 缺失/非数组（调用侧 ?? [] 挡不住错误类型）时直接返回，防 for-of 崩溃黑屏
+  if (!Array.isArray(entries)) return;
   for (const [key, rawState] of entries) {
     const moved = TREE_KEY_MIGRATIONS[key];
     if (moved) {
@@ -318,6 +320,8 @@ export function clearAllTiles(): void {
 
 /** 恢复土地状态（存档恢复用） */
 export function restoreTileEntries(entries: [string, TileState][]): void {
+  // BUG-FIX（A6）：entries 缺失/非数组时直接返回，防 for-of 崩溃黑屏（纵深防御，同 restoreTreeEntries）
+  if (!Array.isArray(entries)) return;
   for (const [key, state] of entries) {
     tiles.set(key, state);
   }
@@ -325,6 +329,8 @@ export function restoreTileEntries(entries: [string, TileState][]): void {
 
 /** 恢复作物状态（存档恢复用） */
 export function restoreCropEntries(entries: [string, CropData][]): void {
+  // BUG-FIX（A6）：entries 缺失/非数组时直接返回，防 for-of 崩溃黑屏（纵深防御，同 restoreTreeEntries）
+  if (!Array.isArray(entries)) return;
   for (const [key, crop] of entries) {
     crops.set(key, crop);
   }
@@ -344,6 +350,14 @@ export function advanceDay(newDay: number): void {
   for (const [key, crop] of crops) {
     const def = CROP_DEFS[crop.cropType];
     const [col, row] = key.split(',').map(Number);
+    if (!def) {
+      // BUG-FIX（P1-2）：存档含未知作物类型（旧档/改版删除作物）时 def 为 undefined，
+      // 后续 def.growthDays 抛 TypeError → 每晚睡觉跨天必崩（黑屏）。清除该格作物并留痕。
+      console.warn(`[FarmState] advanceDay: 未知 cropType=${crop.cropType} @ ${key}，已清除该格`);
+      crops.delete(key);
+      setTileState(col, row, 'empty');
+      continue;
+    }
     if (crop.watered && crop.plantDay + def.growthDays <= newDay) {
       if (getTileState(col, row) !== 'grown') {
         setTileState(col, row, 'grown');

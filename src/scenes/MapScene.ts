@@ -1115,6 +1115,11 @@ export class MapScene extends Phaser.Scene {
     }
     // 对话残留跨场景传递会导致新场景按交互被对话拦截（reset 不触发 onComplete，安全）
     this.storyDialogue?.reset();
+    // BUG-FIX（P0-2）：reset 只清 UI 与闭包，runner 内部 playing 标记不会释放；
+    // 若对话播放中途切场景（闭包被丢弃后 onComplete 永不再来），playing 卡死
+    // 会跨 shutdown/create 存活（场景实例复用），新场景所有 playStory 静默失效。
+    // interrupt() 兜底：未在播放时直接返回（无副作用），在播时释放 playing 并幂等重置对话。
+    this.storySequenceRunner?.interrupt();
     // E1/E9 夏雅精灵清理（场景切换时销毁，防止残留）
     this.clearDawnXiya();
     this.clearEveningXiya();
@@ -1561,7 +1566,13 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
       const saveData = load();
       if (saveData) {
         apply(saveData);
-        if (saveData.player.scene !== 'farm') {
+        // BUG-FIX（P1-5）：坏档可能携带非法场景 key（历史版本写入/手改档），直接 scene.start 会因
+        // 目标场景不存在而黑屏（存档却"看起来完好"）。用场景管理器动态校验（自动反映注册场景，
+        // 新增地图无需同步白名单）；非法值降级为留在 farm 并按存档位置出生。
+        if (
+          saveData.player.scene !== 'farm' &&
+          this.scene.manager.getScene(saveData.player.scene)
+        ) {
           this.scene.start(saveData.player.scene, {
             spawn: { x: saveData.player.x, y: saveData.player.y },
           });
@@ -2240,6 +2251,19 @@ this.setupFieldLife();
     // v0.11（P0.5 音乐优先级）：进图统一走 playSceneBgm——剧情 > 音乐盒"我的歌" > 地图默认
     const mHour = getTime().hour;
     MusicSystem.playSceneBgm(this.mapKey, mHour);
+  }
+
+  /**
+   * BUG-FIX（B3/B4）：统一存档入口（带场景存活守卫）。
+   * 延迟回调（对白 onComplete / delayedCall / tween onComplete / setTimeout / playMemoryFlashback
+   * 回调等）可能在场景 shutdown 后迟到，此时 this.player 已失效或坐标过期，
+   * 直接 save 会以过期对象写档。守卫范式复用 beforeunload 处理器既有写法
+   * （isAutoSaveSuppressed + player.active）；dailyQuest 由 SaveSystem 自动兜底，无需显式传入。
+   */
+  private saveAtPlayer(): void {
+    if (isAutoSaveSuppressed()) return;
+    if (!this.player || !this.player.active) return;
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing });
   }
 
   /**
@@ -4063,11 +4087,7 @@ this.setupFieldLife();
             });
           }
         }
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
         this.updateHUD();
       },
     );
@@ -5516,6 +5536,10 @@ this.setupFieldLife();
   }
 
   private startArtShow(): void {
+    // BUG-FIX（P0-3）：runner 占用时 playStory 会被静默吞掉——而本函数是"标记/存档先行"模式
+    // （artshow_held triggerOnce + save），一旦吞段 = 三段演出永久丢失且永不重放。
+    // 窗口期直接不触发，玩家仍站在广场时 update 下一帧会重查重试。
+    if (this.storySequenceRunner?.isPlaying?.()) return;
     if (!this.artShowReady() || this.artShowHeld || this.inArtShowCutscene) return;
     this.inArtShowCutscene = true;
     this.artShowHeld = true;
@@ -5582,7 +5606,7 @@ this.setupFieldLife();
       this.clearArtShowSprites();
       this.inArtShowCutscene = false;
       this.updateHUD();
-      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       setTimeout(() => showMemoryMoment('星光艺术展办完的那天晚上，青禾镇多了一个会被记住的角落。'), 1600);
     });
   }
@@ -5766,6 +5790,13 @@ this.setupFieldLife();
 
   /** 开场演出：镇民讨论 → 老张提起晒场（台词定稿 v0.3【触发】段） */
   private startDryyardIntro(): void {
+    // BUG-FIX：runner 被其他对白（如随机日常 daily_event）占用时，playSequence 会静默丢弃本段
+    // （返回 false 但 triggerOnce 按「先执行后标记」契约已入库）→ intro 永不落地 + cutscene 卡死。
+    // 延后有界重试：tryDryyardIntro 的 22 点窗口关闸保证不会无限循环。
+    if (this.storySequenceRunner?.isPlaying()) {
+      this.time.delayedCall(1200, () => this.tryDryyardIntro());
+      return;
+    }
     this.inDryyardCutscene = true;
     const ok = triggerOnce('dryyard_intro', () => {
 
@@ -6009,7 +6040,7 @@ this.setupFieldLife();
         this.clearDryyardSprites();
         this.inDryyardCutscene = false;
         this.updateHUD();
-        save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
         // 完成瞬间：世界反馈句 → UI（设计定稿 §三：先「多年以后…」，再「青禾晒场已恢复。」）
         showMemoryMoment('多年以后，青禾镇又晒起了今年的收成。');
         setTimeout(() => showMemoryMoment('青禾晒场已恢复。'), 1800);
@@ -6517,11 +6548,7 @@ this.setupFieldLife();
       speaker: req.npcName, color: req.npcColor, text,
     }));
     this.playStory(lines, () => {
-      save({
-        x: this.player.x, y: this.player.y,
-        scene: this.mapKey, facing: this.player.facing,
-        dailyQuest: getDailyQuestSaveData(),
-      });
+      this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
     }, undefined, 'resident_deliver');
   }
 
@@ -6738,11 +6765,7 @@ this.setupFieldLife();
           this.updateQuestHUD();
           // 演出精灵生命周期闭合（BUG-071：对白结束夏雅离开，防止僵尸夏雅与后续时段实例同场）
           this.clearMorningXiya();
-          save({
-            x: this.player.x, y: this.player.y,
-            scene: this.mapKey, facing: this.player.facing,
-            dailyQuest: getDailyQuestSaveData(),
-          } as any);
+          this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
           // 2026-08-11：演出窗口结束；窗口内玩家抢先完成的首次收获对白在此补播
           //（防两个剧情互相覆盖：先完整播完清晨回应，再播首次收获情绪）
           this.firstMorningActive = false;
@@ -6817,10 +6840,7 @@ this.setupFieldLife();
           if (ended) return;
           ended = true;
           this.clearElderVisit();
-          save({
-            x: this.player.x, y: this.player.y,
-            scene: this.mapKey, facing: this.player.facing,
-          } as any);
+          this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
         };
         this.storyDialogue!.play(
           [
@@ -6869,10 +6889,7 @@ this.setupFieldLife();
 
       this.playStory(RAIN_MUSHROOM_HINT_DIALOGUE, () => {
         this.updateHUD();
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-        } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       });
     });
   }
@@ -6932,11 +6949,7 @@ this.setupFieldLife();
         this.playStory(CARPENTER_RETURN_DIALOGUE, () => {
           // ④ 对白结束：木匠成为常驻 NPC → 刷新 HUD → 存档（含 triggerOnce 状态）
           this.updateHUD();
-          save({
-            x: this.player.x, y: this.player.y,
-            scene: this.mapKey, facing: this.player.facing,
-            dailyQuest: getDailyQuestSaveData(),
-          } as any);
+          this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
         });
       });
     });
@@ -6979,11 +6992,7 @@ this.setupFieldLife();
           this.adventurerWelcomeLabel?.destroy();
           this.adventurerWelcomeLabel = null;
           this.updateHUD();
-          save({
-            x: this.player.x, y: this.player.y,
-            scene: this.mapKey, facing: this.player.facing,
-            dailyQuest: getDailyQuestSaveData(),
-          } as any);
+          this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
         });
       });
     });
@@ -8538,11 +8547,7 @@ this.setupFieldLife();
 
       this.playStory(FOREST_LOOKOUT_DIALOGUE, () => {
         this.updateHUD();
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       });
     });
   }
@@ -9606,11 +9611,40 @@ this.setupFieldLife();
   private triggerDailyEvent(): void {
     // 守卫：对话已打开时不打断（避免每日事件覆盖主线/交付/教程对话，BUG：交付观星引导被吞）
     if (this.storyDialogue?.isOpen?.()) return;
+    // 守卫：runner 占用（对话刚结束/演出切换窗口）时不插话
+    // BUG-FIX：与老周对话刚结束的整点窗口 → 夏雅日常凭空弹出（串线）
+    if (this.storySequenceRunner?.isPlaying?.()) return;
     const event = triggerRandomEvent();
     if (!event) return;
-    
+    // 守卫：发言 NPC 不在场时不凭空说话（BUG：老周在 farm 干活，夏雅人不在却弹出"下午好呀"）
+    // 事件已被标记今日已触发 → 语义为"今天没遇上"，次日可再触发
+    if (!this.isDailyEventSpeakerPresent(event.id)) return;
+
     // 使用 playStory 统一播放事件对话
     this.playStory(event.dialogue, undefined, undefined, 'daily_event');
+  }
+
+  /**
+   * BUG-FIX：日常事件发言 NPC 在场检查（防"凭空说话"穿帮）
+   * 事件 id 前缀与 NPCSystem id 对齐（elder_/gardener_/miner_/adventurer_）；
+   * 夏雅不在 NPCSystem（特殊剧情精灵），用 xiya_ 前缀特判，任一夏雅形态精灵在场即可。
+   */
+  private isDailyEventSpeakerPresent(eventId: string): boolean {
+    if (eventId.startsWith('xiya_')) return this.isXiyaVisibleInScene();
+    const npcId = eventId.split('_')[0];
+    if (!npcId) return true;
+    // 判定模式与 findNearestNPC 一致：无 sprite / 已消失 / 不可见 → 不在场
+    return this.npcList.some((n) => n.id === npcId && n.sprite && !n.vanished && n.sprite.visible);
+  }
+
+  /** 夏雅在当前场景是否有可见活动精灵（dryyardXiya 是旧照片装饰，不算真人在场） */
+  private isXiyaVisibleInScene(): boolean {
+    const sprites = [
+      this.xiyaSprite, this.dawnXiya, this.morningXiya, this.eveningXiya,
+      this.riversideXiya, this.gardenXiya, this.artShowXiya,
+      this.artShowAfterXiya, this.letterXiya, this.bloomXiya,
+    ];
+    return sprites.some((s) => !!s && s.visible);
   }
 
   /**
@@ -9957,11 +9991,7 @@ this.setupFieldLife();
         playMemoryFlashback(SHOP_CROP_FLASHBACK, () => {
           showMemoryMoment('店里的货，越来越有人买了。');
           this.updateHUD();
-          save({
-            x: this.player.x, y: this.player.y,
-            scene: this.mapKey, facing: this.player.facing,
-            dailyQuest: getDailyQuestSaveData(),
-          } as any);
+          this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
         });
       }, 250);
     });
@@ -10800,11 +10830,7 @@ this.setupFieldLife();
         if (this.mapKey === 'farm' && isRestored('farmWarm') && !this.farmController.isWarmActive()) {
           this.setupFarmWarm();
         }
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        });
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       });
     } else if (nearest.id === 'shopkeeper') {
       this.showDialogue(nearest);
@@ -11284,14 +11310,29 @@ this.setupFieldLife();
     if (!isTutorialDone()) return false;
     if (!this.letterTimeOk()) return false;
     const R = 32 * 32;
+    // 判定源必须与 tryXiyaLetterInteract 的 4 段分支一一对应：
+    // BUG-FIX（P0-4）：stage1/2 恢复的是花苗/记录标记（setupLetterXiya 只 spawn 标记、不 spawn 夏雅），
+    // 原先 B/C/D 段只查 letterXiya.visible → 刷新后 B/C 段交互永远不可达，任务链死锁。
     // A 段：初始夏雅（visible 检查）
     if (!this.xiyaLetterAsked && this.letterXiya?.visible) {
       const dx = this.player.x - this.letterXiya.x;
       const dy = this.player.y - this.letterXiya.y;
       if (dx * dx + dy * dy <= R) return true;
     }
-    // B/C/D 段检查（简化为 letterXiya 可见性检查）
-    if (this.letterXiya?.visible) {
+    // B 段：「花苗」交互点
+    if (this.letterFlowerMark) {
+      const dx = this.player.x - this.letterFlowerMark.x;
+      const dy = this.player.y - this.letterFlowerMark.y;
+      if (dx * dx + dy * dy <= R) return true;
+    }
+    // C 段：「旧花种记录」交互点
+    if (this.letterRecordMark) {
+      const dx = this.player.x - this.letterRecordMark.x;
+      const dy = this.player.y - this.letterRecordMark.y;
+      if (dx * dx + dy * dy <= R) return true;
+    }
+    // D 段：收尾夏雅（visible 检查）
+    if (this.xiyaLetterAsked && this.xiyaLetterStage >= 3 && this.letterXiya?.visible) {
       const dx = this.player.x - this.letterXiya.x;
       const dy = this.player.y - this.letterXiya.y;
       if (dx * dx + dy * dy <= R) return true;
@@ -11521,6 +11562,17 @@ this.setupFieldLife();
    * 复用 StoryDialogue 选项机制（与观星夜三选项同一组件）
    */
   private promptSleepChoice(): void {
+    // BUG-FIX：runner 占用时 playStory 会被静默吞掉 → 床上按 E 无任何反应
+    // （与 dryyard BUG-FIX 同源：playSequence 的 if (this.playing) return false 静默丢段）
+    // 延迟重试；重试前确认对话未打开且玩家仍在床上，防止走开后突然弹窗
+    if (this.storySequenceRunner?.isPlaying?.()) {
+      this.time.delayedCall(1200, () => {
+        if (this.storyDialogue?.isOpen?.()) return;
+        if (!this.canTryBed()) return;
+        this.promptSleepChoice();
+      });
+      return;
+    }
 
     this.playStory(
       [
@@ -11563,6 +11615,9 @@ this.setupFieldLife();
       const rainMoistened = this.rainAutoMoisten();
       resetStamina();
       resetOres();
+      // BUG-FIX（P1-1）：跨天重置日常事件——此前 resetDailyEvents 只挂在教程睡觉路径（tryTutorialSleep），
+      // 正常睡觉漏挂：触发过的"每日"事件本会话内不再触发、刷新页面后又复活（触发状态纯内存）。
+      resetDailyEvents();
       let treesRefreshed = false;
       if (getTime().day % TREE_REFRESH_INTERVAL === 0) {
         refreshStumps();
@@ -12129,7 +12184,7 @@ this.setupFieldLife();
                         if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
                         triggerOnce('ch1_awakening', () => {
                           this.storyDialogue!.play(CH1_AWAKENING_DIALOGUE, () => {
-                            save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+                            this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
                           });
                         });
                       });
@@ -12138,7 +12193,7 @@ this.setupFieldLife();
                   // 第一章衔接（P0-1，2026-08-12）：观星夜完成 → 进入第一章「复苏」
                   // 必须在本次存档前设置，使 chapter 随档持久化；D-025 时序红线：观星夜之后才进第1章
                   setChapter(CHAPTER_1);
-                  save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+                  this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
                   this.inStargazeCutscene = false; // v0.10.4 演出结束，恢复自动演出
                   this.endingPanel.open();
                 },
@@ -12197,11 +12252,7 @@ this.setupFieldLife();
     this.showDialogueText('采集到「星之碎片」！返回镇长交付任务。');
     this.updateQuestHUD();
     // 里程碑保存（v0.5.2 P0）：碎片采集后立即入档
-    save({
-      x: this.player.x, y: this.player.y,
-      scene: this.mapKey, facing: this.player.facing,
-      dailyQuest: getDailyQuestSaveData(),
-    });
+    this.saveAtPlayer(); // BUG-FIX（B3/B4）：异步入口（playMemoryFlashback 回调）统一走守卫入口
   }
 
   /**
@@ -14344,7 +14395,7 @@ this.setupFieldLife();
     if (!this.mailRead.includes(id)) this.mailRead.push(id);
     this.mailQueue = this.mailQueue.filter((q) => q !== id);
     this.refreshMailboxFlag();
-    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    this.saveAtPlayer(); // BUG-FIX（B3/B4）：异步入口（信件回调）统一走守卫入口
   }
 
   /** 打开邮箱面板（未读列表 + 已读归档） */
@@ -15001,11 +15052,7 @@ this.setupFieldLife();
 
   /** 保存布置进度（每个摆设点入档） */
   private saveMarketArrangement(): void {
-    save({
-      x: this.player.x, y: this.player.y,
-      scene: this.mapKey, facing: this.player.facing,
-      dailyQuest: getDailyQuestSaveData(),
-    } as any);
+    this.saveAtPlayer(); // BUG-FIX（B3/B4）：异步入口（摆摊对白回调）统一走守卫入口
   }
 
   /** 3 摊齐 → 开张：灯亮 / 人来 / 音乐 + markRestored + 世界状态变化 */
@@ -15737,11 +15784,7 @@ this.setupFieldLife();
       playMemoryFlashback(XIYA_GARDEN_FLASHBACK, () => {
         showMemoryMoment('花田那边，一直有人打理着。');
         this.updateHUD();
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       });
     });
   }
@@ -15773,11 +15816,7 @@ this.setupFieldLife();
       playMemoryFlashback(ELDER_STAR_FLASHBACK, () => {
         showMemoryMoment('第二天，镇长听说了，只是点点头。「你爷爷要是知道你还记得那块空地，会高兴的。」');
         this.updateHUD();
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       });
     });
     return true;
@@ -15825,11 +15864,7 @@ this.setupFieldLife();
       playMemoryFlashback(XIYA_PHOTO_FLASHBACK, () => {
         showMemoryMoment('那张泛黄的照片，一直有人收着。');
         this.updateHUD();
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       });
     });
     return true;
@@ -15877,11 +15912,7 @@ this.setupFieldLife();
     this.playStory(XIYA_OLD_SHADOW_ENTRY_DIALOGUE, () => {
       showMemoryMoment('也许夏雅认识这个。');
       this.updateHUD();
-      save({
-        x: this.player.x, y: this.player.y,
-        scene: this.mapKey, facing: this.player.facing,
-        dailyQuest: getDailyQuestSaveData(),
-      } as any);
+      this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
     });
     return true;
   }
@@ -15908,11 +15939,7 @@ this.setupFieldLife();
     this.playStory(XIYA_OLD_SHADOW_DELIVER_DIALOGUE, () => {
       showMemoryMoment('她留着的不是旧物，是它们还可能被用上的那天。');
       this.updateHUD();
-      save({
-        x: this.player.x, y: this.player.y,
-        scene: this.mapKey, facing: this.player.facing,
-        dailyQuest: getDailyQuestSaveData(),
-      } as any);
+      this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
     });
     return true;
   }
@@ -15961,11 +15988,7 @@ this.setupFieldLife();
 
   /** 剧情专线存档（x/y/scene/facing + dailyQuest 与既有支线一致） */
   private saveLetterFlags(): void {
-    save({
-      x: this.player.x, y: this.player.y,
-      scene: this.mapKey, facing: this.player.facing,
-      dailyQuest: getDailyQuestSaveData(),
-    } as any);
+    this.saveAtPlayer(); // BUG-FIX（B3/B4）：异步入口统一走守卫入口
   }
 
   /** 生成花田边剧情夏雅（A 段开场 / D 段收尾共用） */
@@ -16150,11 +16173,7 @@ this.setupFieldLife();
 
   /** 存档：花期未至标记（复用 ·一 save 契约：x/y/scene/facing/dailyQuest） */
   private saveBloomFlags(): void {
-    save({
-      x: this.player.x, y: this.player.y,
-      scene: this.mapKey, facing: this.player.facing,
-      dailyQuest: getDailyQuestSaveData(),
-    } as any);
+    this.saveAtPlayer(); // BUG-FIX（B3/B4）：异步入口统一走守卫入口
   }
 
   /** 花期未至剧情夏雅生成（公告板旁：BLOOM_POS 左上偏移，面朝玩家来向） */
@@ -16412,11 +16431,7 @@ this.setupFieldLife();
     this.buildMinerLampLit();
     this.playStory(MINER_LAMP_DONE_DIALOGUE, () => {
       this.updateHUD();
-      save({
-        x: this.player.x, y: this.player.y,
-        scene: this.mapKey, facing: this.player.facing,
-        dailyQuest: getDailyQuestSaveData(),
-      } as any);
+      this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
     });
     return true;
   }
@@ -16467,11 +16482,7 @@ this.setupFieldLife();
       playMemoryFlashback(PLUM_BLOOM_FLASHBACK, () => {
         showMemoryMoment('花圃边上，多了一株小梅花。');
         this.updateHUD();
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       });
     });
     return true;
@@ -16712,11 +16723,7 @@ this.setupFieldLife();
       playMemoryFlashback(GARDENER_FIELD_FLASHBACK, () => {
         showMemoryMoment('花田里，开出了第一片花。');
         this.updateHUD();
-        save({
-          x: this.player.x, y: this.player.y,
-          scene: this.mapKey, facing: this.player.facing,
-          dailyQuest: getDailyQuestSaveData(),
-        } as any);
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       });
     });
   }
@@ -16921,11 +16928,7 @@ this.setupFieldLife();
       play('levelup');
       this.showDialogueText('获得物品：【自动农业机器人】\n打开背包即可部署到农田旁。');
       // 里程碑入档（与花园恢复一致：修复获得后立即保存，防刷新丢失）
-      save({
-        x: this.player.x, y: this.player.y,
-        scene: this.mapKey, facing: this.player.facing,
-        dailyQuest: getDailyQuestSaveData(),
-      } as any);
+      this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       this.updateHUD();
     });
     return true;
