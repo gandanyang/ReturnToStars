@@ -295,6 +295,10 @@ export const MusicSystem = {
     if (currentMusicBoxTrack) return currentMusicBoxTrack;
     if (mapKey === 'town' && hour >= 5 && hour < 19) return 'town';
     if (mapKey === 'house') return 'linche_theme2';
+    // 第三章：灯塔半岛（昼=「岛之苏醒」——灯塔开放即岛屿苏醒的听觉化；夜=观星夜曲延续星空气质）。
+    // 专属曲归档后在此替换（音乐制作需求清单见 docs/design/第三章音乐需求与分配方案-v0.1.md）。
+    if (mapKey === 'lighthouse') return hour >= 19 || hour < 5 ? 'stargaze_night' : 'island_wakes';
+    // 青禾河畔：暂沿用农场曲（第一章既定），专属曲归档后同上替换
     return hour >= 19 || hour < 5 ? 'stargaze_night' : 'farm_day';
   },
 

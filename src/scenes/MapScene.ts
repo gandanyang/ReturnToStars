@@ -11978,6 +11978,7 @@ this.setupFieldLife();
       if (this.ch3FinaleActive()) {
         this.time.delayedCall(1600, () => {
           if (!this.scene.isActive()) return;
+          MusicSystem.playStory('linche_theme2'); // 留岛：老屋情绪基地延续
           this.playStory(
             [
               { speaker: '', color: '#aaaaaa', text: '（躺下之前，你把灯留在窗边——让西边那盏，也能看见这一点光。）' },
@@ -11987,6 +11988,7 @@ this.setupFieldLife();
             ],
             () => {
               triggerOnce('ch3_end_stay', () => {});
+              MusicSystem.endStory();
               this.saveAtPlayer();
             },
           );
@@ -14822,6 +14824,8 @@ this.setupFieldLife();
   }
 
   private runCh3DiaryFinale(): void {
+    // 音乐节拍：第一章主题曲《Returning Home》=归位主题（分配建议随音乐方案 v0.1，制作人可改）
+    MusicSystem.playStory('returning_home');
     this.playStory(
       [
         { speaker: '', color: '#aaaaaa', text: '（三片星屑在灯室里排成一线，像一段没写完的话，被补上了最后一句。）' },
@@ -14837,6 +14841,7 @@ this.setupFieldLife();
       ],
       () => {
         triggerOnce('ch3_diary_finale', () => {});
+        MusicSystem.endStory(); // 演出结束：清除覆盖，恢复地图默认
         this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
       },
     );
@@ -14882,6 +14887,7 @@ this.setupFieldLife();
 
   private tryCh3EndShipInteract(): boolean {
     this.inputManager.clearAction();
+    MusicSystem.playStory('title_main'); // 返城：主题曲第一句即离乡动机的回望
     this.playStory(
       [
         { speaker: '', color: '#aaaaaa', text: '（船板轻轻晃了一下。你跳了上去。）' },
@@ -14892,6 +14898,7 @@ this.setupFieldLife();
       ],
       () => {
         triggerOnce('ch3_end_leave', () => {});
+        MusicSystem.endStory();
         this.saveAtPlayer();
       },
     );
@@ -14900,6 +14907,7 @@ this.setupFieldLife();
 
   /** 结局三（桥）：日志交互在归位期 = 把日志留在灯塔（连接行为），自己不上船、不回家睡 */
   private tryCh3EndBridge(): boolean {
+    MusicSystem.playStory('chasing_wind'); // 桥：音乐盒「追风」=两边的连接意象
     this.playStory(
       [
         { speaker: '', color: '#aaaaaa', text: '（你没有上船，也没有回家。你把日志放在了灯室的窗台上——摊开到有爷爷字迹的那页。）' },
@@ -14910,6 +14918,7 @@ this.setupFieldLife();
       ],
       () => {
         triggerOnce('ch3_end_bridge', () => {});
+        MusicSystem.endStory();
         this.saveAtPlayer();
       },
     );
