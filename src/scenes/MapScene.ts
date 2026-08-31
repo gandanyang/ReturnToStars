@@ -2066,6 +2066,11 @@ this.setupGatherMushroomDrying();
         this.setupCh3Keeper();
       this.setupCh3ArchiveTripod();
       this.setupCh3Shards(); // 幕四碎片（灯塔内，碰面后可见）
+        // 陈叔点灯日常（制作人拍板人设："不负责讲故事，负责每天把灯点起来"）：夜幕首次目击
+        if (!hasTriggered('ch3_keeper_dusk') && (getTime().hour >= 18 || getTime().hour < 6)) {
+          triggerOnce('ch3_keeper_dusk', () => {});
+          showMemoryMoment('（陈叔提着油壶上了灯室。每天一趟，风雨无阻。）');
+        }
         this.tryCh3LighthouseArrival();
       }
     }
@@ -14198,7 +14203,7 @@ this.setupFieldLife();
     bell.fillStyle(0x8a7440, 1); bell.fillRect(b.x - 4, b.y - 4, 8, 2);    // 钟口沿
     bell.fillStyle(0x6e5a2a, 1); bell.fillCircle(b.x, b.y + 1, 1.5);       // 钟舌
     this.ch3BellGfx = bell;
-    this.add.text(kx, ky - 22, '执灯人', {
+    this.add.text(kx, ky - 22, '陈叔', {
       fontSize: '11px', color: '#ffe6a0', stroke: '#000000', strokeThickness: 3,
       backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
     }).setOrigin(0.5).setDepth(5);
@@ -14230,10 +14235,10 @@ this.setupFieldLife();
       [
         { speaker: '', color: '#aaaaaa', text: '（塔内比想象中亮。灯室的暖光，落在旋转的阶梯上。）' },
         { speaker: '', color: '#aaaaaa', text: '（一个背影正在给灯罩除尘。听见脚步，没有回头。）' },
-        { speaker: '执灯人', color: '#ffe6a0', text: '……门没锁，就是给愿意上来的人留的。' },
+        { speaker: '陈叔', color: '#ffe6a0', text: '……门没锁，就是给愿意上来的人留的。' },
         { speaker: '林澈', color: '#c8d8f0', text: '您是……？' },
-        { speaker: '执灯人', color: '#ffe6a0', text: '（把抹布搭到肩上）守灯的。你爷爷那时候，这灯就亮着。' },
-        { speaker: '执灯人', color: '#ffe6a0', text: '（顿了顿）现在，又亮了。' },
+        { speaker: '陈叔', color: '#ffe6a0', text: '（把抹布搭到肩上）我叫陈叔，守灯的。你爷爷那时候，这灯就亮着。' },
+        { speaker: '陈叔', color: '#ffe6a0', text: '（顿了顿）现在，又亮了。' },
         { speaker: '', color: '#aaaaaa', text: '（他没再说话。灯室的光，慢慢扫过海面。）' },
       ],
       () => {
@@ -14364,10 +14369,10 @@ this.setupFieldLife();
     this.ch3KeeperTalkCount++;
     if (this.ch3KeeperTalkCount === 4 && (hasTriggered('ch3_log_line_a') || hasTriggered('ch3_log_line_b'))) {
       // D-012 半句话：看到玩家续写的日志后（一次性插入，不打乱轮换）
-      this.showDialogueText('执灯人：……（他瞥了一眼日志上你的字）字不错。');
+      this.showDialogueText('陈叔：……（他瞥了一眼日志上你的字）字不错。');
       return true;
     }
-    this.showDialogueText(`执灯人：${lines[i]}`);
+    this.showDialogueText(`陈叔：${lines[i]}`);
     return true;
   }
 
@@ -14820,14 +14825,14 @@ this.setupFieldLife();
     this.playStory(
       [
         { speaker: '', color: '#aaaaaa', text: '（三片星屑在灯室里排成一线，像一段没写完的话，被补上了最后一句。）' },
-        { speaker: '执灯人', color: '#ffe6a0', text: '（把日志递还给你）最后一页，是给你留的。' },
+        { speaker: '陈叔', color: '#ffe6a0', text: '（把日志递还给你）最后一页，是给你留的。' },
         { speaker: '', color: '#aaaaaa', text: '（那一页只有短短几行——是爷爷的字。）' },
         { speaker: '', color: '#ffe9c8', text: '「灯不是为哪一艘船点的。是给所有想回来的人留的。我不知道回来的是谁。但只要灯亮着，回来的路上，就不会黑。」' },
         { speaker: '林澈', color: '#c8d8f0', text: '……原来爷爷不是在等我。' },
-        { speaker: '执灯人', color: '#ffe6a0', text: '他是在等"有人"。' },
+        { speaker: '陈叔', color: '#ffe6a0', text: '他是在等"有人"。' },
         { speaker: '林澈', color: '#c8d8f0', text: '（想起铭牌上的字）「每日点灯，为归航的人照亮回家的路」——原来这句话，不是写给船的。' },
         { speaker: '林澈', color: '#c8d8f0', text: '那现在呢？' },
-        { speaker: '执灯人', color: '#ffe6a0', text: '（看了一眼灯）现在，灯等的是下一个十年。' },
+        { speaker: '陈叔', color: '#ffe6a0', text: '（看了一眼灯）现在，灯等的是下一个十年。' },
         { speaker: '', color: '#aaaaaa', text: '（光束扫过海面。那一夜，灯塔比任何一夜都亮。）' },
       ],
       () => {
@@ -14898,7 +14903,7 @@ this.setupFieldLife();
     this.playStory(
       [
         { speaker: '', color: '#aaaaaa', text: '（你没有上船，也没有回家。你把日志放在了灯室的窗台上——摊开到有爷爷字迹的那页。）' },
-        { speaker: '执灯人', color: '#ffe6a0', text: '（看懂了。他往灯里添了一勺油。）留着吧。以后回来的人，读得到。' },
+        { speaker: '陈叔', color: '#ffe6a0', text: '（看懂了。他往灯里添了一勺油。）留着吧。以后回来的人，读得到。' },
         { speaker: '', color: '#aaaaaa', text: '（你走下灯塔，坐在庄园门口。没有睡，看那道光扫到天亮。）' },
         { speaker: '林澈', color: '#c8d8f0', text: '（轻声）这样，我两边都在。' },
         { speaker: '', color: '#aaaaaa', text: '（第三章·归位——完）' },
