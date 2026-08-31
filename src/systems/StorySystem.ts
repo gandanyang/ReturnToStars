@@ -815,7 +815,7 @@ export const XIYA_LETTER_FINAL_DIALOGUE: DialogueLine[] = [
 // - 存档：新增 xiyaBloomAsked / xiyaBloomDone / xiyaBloomStage（均 optional，旧档兼容，不升 SAVE_VERSION）。
 // - 禁词：那个约定 / 那个人 / 她一直等待——改用"以前的习惯 / 大家一起做的事 / 岛上的老传统"。
 
-/** 【S1 承接开场】青禾镇旧广场公告栏边的邀约（衔接·一末尾"下周有个活动"） */
+/** 【S1 承接开场】青禾镇旧广场公告栏边的邀约（衔接·一末尾"下周有个活动"＝秋日晒场，2026-08-29 口径） */
 export const XIYA_BLOOM_S1_OPEN_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（青禾镇。午后阳光穿过树叶，斑驳落在旧广场。）' },
   { speaker: '', color: COLORS.system, text: '（夏雅从边角冒出来，手里抱着一卷布。）' },
@@ -823,7 +823,7 @@ export const XIYA_BLOOM_S1_OPEN_DIALOGUE: DialogueLine[] = [
   { speaker: '林澈', color: COLORS.linche, text: '嗯？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '还记得我上回说的那个"小活动"吗？' },
   { speaker: '林澈', color: COLORS.linche, text: '你说下周有个活动。' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '对，就是下周的事了。摊子还没支起来，得趁这几天把东西都腾出来。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '对，就是下周的事了。收成下来了，要把一年的东西拿出来晒一晒。晒架还没支起来，得趁这几天把东西都腾出来。' },
   { speaker: '林澈', color: COLORS.linche, text: '……多大的活动？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '不大。就是大家老时候会一起过的一个日子。你也来帮忙吧？' },
   { speaker: '林澈', color: COLORS.linche, text: '我？我不会这些。' },
@@ -832,17 +832,17 @@ export const XIYA_BLOOM_S1_OPEN_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '别站着了，帮忙搬箱子！' },
 ];
 
-/** 【S2 整理旧物】临时仓库里摊开的春祭旧物——旧花架、挂饰、褪色纸花 */
+/** 【S2 整理旧物】临时仓库里摊开的晒场旧物——旧晒架、竹匾、褪色灯笼穗 */
 export const XIYA_BLOOM_S2_STORAGE_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（临时仓库。阳光从窗缝漏进来，尘埃在光里浮着。）' },
-  { speaker: '', color: COLORS.system, text: '（地上摊着一地旧东西：花架、挂饰、一串褪了色的纸花。）' },
+  { speaker: '', color: COLORS.system, text: '（地上摊着一地旧东西：晒架、竹匾、一串褪了色的旧灯笼穗。）' },
   { speaker: '林澈', color: COLORS.linche, text: '这些都是以前的？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯。一年一年留下来的。有些还能用，扫扫灰就行。' },
-  { speaker: '林澈', color: COLORS.linche, text: '这个花架……这么旧了还留着？' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '旧但不坏。补一补，还能再站一个春天。' },
-  { speaker: '', color: COLORS.system, text: '（林澈弯腰拾起一条旧挂饰。上面写着一个个名字和日期。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '这个晒架……这么旧了还留着？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '旧但不坏。补一补，还能再撑一个秋天。' },
+  { speaker: '', color: COLORS.system, text: '（林澈弯腰拾起一条旧竹牌。上面写着一个个名字和年份。）' },
   { speaker: '林澈', color: COLORS.linche, text: '这上面写了好多字。' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '每年谁准备的，都记在上面。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '每年谁家晒了什么、谁收拾的，都记在上面。' },
   { speaker: '林澈', color: COLORS.linche, text: '记这些做什么？' },
   { speaker: '', color: COLORS.system, text: '（夏雅抬眼看了看窗外。）' },
   { speaker: '夏雅', color: COLORS.xiya, text: '以前大家一起做的时候，留着，是怕忘了。' },
@@ -851,15 +851,15 @@ export const XIYA_BLOOM_S2_STORAGE_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '……嗯。还在这里，真好。' },
 ];
 
-/** 【S3 修补花架】旧花架重新立起来——玩家和夏雅一起修 */
+/** 【S3 修补晒架】旧晒架重新立起来——玩家和夏雅一起修 */
 export const XIYA_BLOOM_S3_FLOWERSTAND_DIALOGUE: DialogueLine[] = [
-  { speaker: '', color: COLORS.system, text: '（白天。夏雅把旧花架搬出来，架在树荫下。林澈帮忙打下手，递钉子。）' },
-  { speaker: '林澈', color: COLORS.linche, text: '这个花架，每个春天都要这么弄一次？' },
+  { speaker: '', color: COLORS.system, text: '（白天。夏雅把旧晒架搬出来，架在树荫下。林澈帮忙打下手，递钉子。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '这个晒架，每年这个时候都要这么弄一次？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '能弄就弄。不弄的话，它就那么坏着。' },
   { speaker: '林澈', color: COLORS.linche, text: '坏了换新的不就行？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '新的没有旧的这份……（想了想）这份用久了才有的顺手。你不是也修过老屋的门？' },
   { speaker: '林澈', color: COLORS.linche, text: '那倒是。' },
-  { speaker: '', color: COLORS.system, text: '（两个人一起把花架扶正。花架缺的地方露着旧木纹，被新木片衬得新旧交错。）' },
+  { speaker: '', color: COLORS.system, text: '（两个人一起把晒架扶正。晒架缺的地方露着旧木纹，被新木片衬得新旧交错。）' },
   { speaker: '林澈', color: COLORS.linche, text: '这样就能用了吗？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '能用一阵。' },
   { speaker: '林澈', color: COLORS.linche, text: '那你每年都守着这个老地方，累吗？' },
@@ -873,18 +873,18 @@ export const XIYA_BLOOM_S3_FLOWERSTAND_DIALOGUE: DialogueLine[] = [
 /** 【S4 误解形成】旧名单上出现爷爷的名字——林澈误以为"夏雅一直在等某个人" */
 export const XIYA_BLOOM_S4_MISUNDERSTAND_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（临时仓库，灰尘里翻出几叠旧纸。夏雅蹲在箱边，一张张抚平卷边。）' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '这些都是往年春祭的东西，先放这边。' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '这些都是往年晒场的单子，先放这边。' },
   { speaker: '林澈', color: COLORS.linche, text: '我来帮你搬。' },
   { speaker: '', color: COLORS.system, text: '（林澈随手翻页，忽然停住。）' },
-  { speaker: '林澈', color: COLORS.linche, text: '这些是春祭的名单？' },
+  { speaker: '林澈', color: COLORS.linche, text: '这些是晒场的名单？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯。每年都会列一张，看谁负责什么。' },
-  { speaker: '林澈', color: COLORS.linche, text: '「花苗」「点心」「场地」「烟花」……原来烟花以前也是会放的。' },
+  { speaker: '林澈', color: COLORS.linche, text: '「玉米」「鱼干」「场地」「灯笼」……原来灯笼以前也是要挂满的。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯。很久以前。' },
   { speaker: '', color: COLORS.system, text: '（林澈翻到更早的几页，注意到其中一个名字。）' },
   { speaker: '林澈', color: COLORS.linche, text: '这里也有爷爷的名字。' },
   { speaker: '', color: COLORS.system, text: '（夏雅动作停了一下。）' },
   { speaker: '夏雅', color: COLORS.xiya, text: '……嗯。' },
-  { speaker: '林澈', color: COLORS.linche, text: '他以前也在春祭帮忙？' },
+  { speaker: '林澈', color: COLORS.linche, text: '他以前也在晒场帮忙？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '岛上的很多事情，大家都会一起做。' },
   { speaker: '林澈', color: COLORS.linche, text: '那后来，是谁带头做这些？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '没有带头的人。' },
@@ -898,8 +898,8 @@ export const XIYA_BLOOM_S4_MISUNDERSTAND_DIALOGUE: DialogueLine[] = [
 
 /** 【S5 真相转换】村民陆续加入——林澈理解夏雅等的不是一个人 */
 export const XIYA_BLOOM_S5_TURNING_DIALOGUE: DialogueLine[] = [
-  { speaker: '', color: COLORS.system, text: '（春祭前一天，场外。王婶端着一篮点心过来。）' },
-  { speaker: '王婶', color: COLORS.laojiang, text: '听说今年要弄春祭了？我给带了点南瓜饼，添个味。' },
+  { speaker: '', color: COLORS.system, text: '（晒场前一天，场外。王婶端着一篮点心过来。）' },
+  { speaker: '王婶', color: COLORS.laojiang, text: '听说今年要弄晒场了？我给带了点南瓜饼，添个味。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '婶儿，您怎么来了？' },
   { speaker: '顾婶', color: COLORS.gardener, text: '从前每年的这个时候，我们也都会弄。今年听说你要弄，就说来帮把手。' },
   { speaker: '林澈', color: COLORS.linche, text: '原来……不是只有你一个人记得。' },
@@ -911,25 +911,25 @@ export const XIYA_BLOOM_S5_TURNING_DIALOGUE: DialogueLine[] = [
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯。我等的，是有人还愿意一起做这些事。' },
   { speaker: '林澈', color: COLORS.linche, text: '你不是想把以前变回来？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '以前回不来。只是……如果没有人接着做，它就一直留在"以前"了。' },
-  { speaker: '', color: COLORS.system, text: '（镜头：新开的花梢、重修的花架、跑过广场的孩子。）' },
+  { speaker: '', color: COLORS.system, text: '（镜头：晒架重新支起、竹席上铺满新收的玉米、跑过广场的孩子。）' },
 ];
 
-/** 【S6 村民参与】春祭当日早晨：居民带着各自的旧习惯回来 */
+/** 【S6 村民参与】晒场当日早晨：居民带着各自的旧习惯回来 */
 export const XIYA_BLOOM_S6_VILLAGERS_DIALOGUE: DialogueLine[] = [
-  { speaker: '', color: COLORS.system, text: '（春祭当天早晨，旧广场。前两天还空荡荡的地方，今天零星支起几顶布棚。）' },
+  { speaker: '', color: COLORS.system, text: '（晒场当天早晨，旧广场。前两天还空荡荡的地方，今天支起一排排晒架，竹席上摊着玉米和萝卜干，鱼干架边晾着几条咸鱼。）' },
   { speaker: '林澈', color: COLORS.linche, text: '来的人……比我想的多。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯。陆陆续续都来了。' },
   { speaker: '老爷爷', color: COLORS.elder, text: '今年还有人记得这摊子呢？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '记得。您去年说腿脚不好，我还怕您不来。' },
   { speaker: '老爷爷', color: COLORS.elder, text: '腿是老了，可这天一年就一趟。不来，心里空。' },
-  { speaker: '', color: COLORS.system, text: '（老花架支起来了、旧毯子铺开了、孩子们在人群里钻来钻去。）' },
+  { speaker: '', color: COLORS.system, text: '（老晒架支起来了、旧竹席铺开了、孩子们在人群里钻来钻去。）' },
   { speaker: '林澈', color: COLORS.linche, text: '（小声）他们……是因为你才来的吗？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '不是。他们本来就住在这里。只是有一阵子，大家都忘了还能这样。不是我拉他们回来，是日子把他们带回来了。' },
 ];
 
-/** 【S7 春祭日】广场上的东西一眼看得出发旧——"不完美但聚起了人"的傍晚 */
+/** 【S7 晒场日】广场上的东西一眼看得出发旧——"不完美但聚起了人"的傍晚 */
 export const XIYA_BLOOM_S7_FESTIVAL_DIALOGUE: DialogueLine[] = [
-  { speaker: '', color: COLORS.system, text: '（午后。广场上很热闹，但东西一眼看得出发旧：摊布洗过太多次、纸花褪了色、有几处没凑齐。）' },
+  { speaker: '', color: COLORS.system, text: '（午后。广场上很热闹，但东西一眼看得出发旧：竹席补过好几处、玉米串得不太齐、有几样没晒够。）' },
   { speaker: '林澈', color: COLORS.linche, text: '东西好像不太够？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '嗯，是有点不够。往年那些做得好的，这几年没人做，都散在别处了。' },
   { speaker: '林澈', color: COLORS.linche, text: '那怎么办？' },
@@ -942,20 +942,21 @@ export const XIYA_BLOOM_S7_FESTIVAL_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（天色渐晚，广场上的旧灯一盏盏亮起来。不是崭新的光，是旧灯透出的、暖黄的日常的光。）' },
 ];
 
-/** 【S8 烟花】不是恋爱高潮——是归星岛重新有一天像以前一样的日子 */
+/** 【S8 收束】不是烟花——人回来了＋远处灯塔亮一下；归星岛重新有了一天像以前一样的日子（2026-08-29 口径） */
 export const XIYA_BLOOM_S8_FIREWORKS_DIALOGUE: DialogueLine[] = [
-  { speaker: '', color: COLORS.system, text: '（夜。春祭接近尾声，村民陆续站到空地上，有人搬来几箱烟花。）' },
-  { speaker: '', color: COLORS.system, text: '（烟花升空。旧广场被照亮一瞬，又落入夜色，接着又是一丛。）' },
-  { speaker: '林澈', color: COLORS.linche, text: '以前每次都能看到这种吗？' },
-  { speaker: '夏雅', color: COLORS.xiya, text: '也不是每次。有几年，没人放了。' },
-  { speaker: '林澈', color: COLORS.linche, text: '那现在呢？' },
+  { speaker: '', color: COLORS.system, text: '（夜。晒场收尾，村民搬出条凳长桌，围坐在一起。海风从桌边过去，灯笼摇摇晃晃。）' },
+  { speaker: '', color: COLORS.system, text: '（远处海面上，灯塔亮了一下。）' },
+  { speaker: '林澈', color: COLORS.linche, text: '那是什么？' },
+  { speaker: '夏雅', color: COLORS.xiya, text: '……是灯塔。以前也这样，偶尔亮一下。' },
+  { speaker: '林澈', color: COLORS.linche, text: '现在……也是吗？' },
   { speaker: '夏雅', color: COLORS.xiya, text: '现在，你看，大家都在看。' },
   { speaker: '林澈', color: COLORS.linche, text: '辛苦了。这么多年。' },
   { speaker: '夏雅', color: COLORS.xiya, text: '……谢谢你们愿意来。' },
-  { speaker: '', color: COLORS.system, text: '（烟花一次次升空。夏雅没有一直盯着烟花——她时不时看向人群里跑着的孩子、聊着的老人。）' },
+  { speaker: '', color: COLORS.system, text: '（夜深下去。灯笼还亮着。夏雅没有一直看着远处——她时不时看向人群里跑着的孩子、聊着的老人。）' },
 ];
 
-/** 【章末·尾声衔接】烟花散去，夏雅留下收拾——为第三章入口"她还需要继续守着吗？"留口 */
+/** 【章末·尾声衔接】晒场散场，夏雅留下收拾——为第三章入口"她还需要继续守着吗？"留口
+ *  （2026-08-29 拍板：纸花=花期未至人物记忆物保留；樱花=人物隐喻保留，不指代活动本体） */
 export const XIYA_BLOOM_EPILOGUE_DIALOGUE: DialogueLine[] = [
   { speaker: '', color: COLORS.system, text: '（人群散去，空下来的广场。风卷着几张飘落的纸花滚过脚边。）' },
   { speaker: '林澈', color: COLORS.linche, text: '我来帮你收。' },

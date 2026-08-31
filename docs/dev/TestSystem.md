@@ -184,7 +184,7 @@ export default async function ({ suiteReport: r }) {
 | 用途 | 稳定回归 | 专项验证 / bug 复现 / 视觉验收 |
 | 命名 | `test-*.mjs` | `probe-*.mjs` |
 
-### 5.2 探针骨架（参考 `probe-t3-npc-events.mjs` / `probe-ch1-xiya-old-shadow.mjs`）
+### 5.2 探针骨架（参考 `probe-t3-npc-events.mjs` / `probe-ch1-xiya-old-shadow.mjs` / `probe-xiya-bloom.mjs`）
 
 ```javascript
 import puppeteer from 'puppeteer-core';
@@ -230,6 +230,88 @@ process.exit(fail > 0 ? 1 : 0);
 - `probe-bug<NNN>-<desc>.mjs` — bug 复现（NNN = bug 编号）
 - `probe-mobile-<feature>.mjs` — 移动端专项（必须横屏+UA）
 - `probe-<npc>-<event>.mjs` — NPC 事件（如 `probe-xiya-letter.mjs`）
+
+### 5.4 采样前预检：竞争性一次性事件（竞争消费者）
+
+> 正式规范（制作人 2026-08-28 拍板入档）：**先识别可能抢占目标 UI 的一次性事件 → 预标记/消费它 → 再采样目标对白。**
+
+**核心结论：探针失败 ≠ 游戏逻辑失败。** 探针的采样窗口可能被其他合法世界事件占用——本质是**测试观察窗口被合法世界事件抢占**，不是业务 Bug。归因前先回答一个问题："**有没有竞争消费者？**"
+
+**标准流程**：
+
+1. **识别**：写探针前先排查目标场景 / 时段可能自动触发的一次性事件（grep `triggerOnce(` / `triggerOnceIf(`，结合存档的 day/hour/scene 判断哪些会在探针场景命中）
+2. **预标记**：在种子存档的 `gameState.triggeredEvents` 中把竞争事件 id 预标记为已触发，让探针只面对目标对白
+3. **采样**：等待目标对白真正开始（如轮询首句文本出现）再采样，不要按固定延时硬猜
+
+**实战案例**（2026-08-28，probe-ch1-afeng-welcome 10/12 → 12/12）：
+
+- 探针存档 day=2 hour=10 恰逢雨天，P0.5 雨蘑菇提示 `world_hint_rain_mushroom`（`MapScene.tryRainMushroomHint`，晚于该探针编写才上线）与阿风欢迎对白竞争同一对白框，蘑菇 3 行先播挤占采样窗口 → 台词错位 + 精灵未移除**双失败**
+- 修复：种子存档预标记一行 `world_hint_rain_mushroom: true`，游戏代码零改动
+- 参考实现：`probe-ch1-afeng-welcome.mjs` 的 `BASE_SAVE.gameState.triggeredEvents`（同模式先例：`first_morning_response: true` 跳过清晨演出）
+
+**归因纪律**：采样失败时按顺序排查——① 探针自身假设（时序/选择器/阈值）→ ② 竞争消费者（本节）→ ③ 业务 Bug（最后才怀疑，且改前须制作人确认，见 §6.4）。
+
+### 5.5 Phaser 按键取证采样（down → 等待 → 采样 → up）
+
+> 正式规范（制作人 2026-08-28 拍板入档）：**不要把 `pressKey()` 当作稳定的游戏输入语义。**
+
+长会话、焦点变化、帧时序都会让单次 press 出现偶发漏采样——Phaser `JustDown` 依赖 update 循环的帧间采样，单次 press 与游戏帧的相对时序不受测试控制。
+
+**标准模式（取证模式）**：
+
+```javascript
+await page.keyboard.down('KeyJ');
+await sleep(60);                                  // 等待游戏 update 循环消费
+const jProbe = await page.evaluate(() => {        // 采样：键状态 + 门控 + 面板等目标状态
+  const s = window.__game?.scene?.getScenes(true)?.[0];
+  return { isDown: !!s?.inputManager?.keyJ?.isDown,
+           justDown: !!s?.inputManager?.keyJ?._justDown,
+           gate: s?.interactionRouter?.checkGate?.(s?.buildGateSnapshot?.() ?? {}) ?? null };
+});
+await page.keyboard.up('KeyJ');
+// 之后轮询目标状态（如面板 DOM 可见）判定成败，而非假设按键必达
+```
+
+**重要声明**：这是**取证模式**——在测试侧稳定捕获"按键已被游戏消费"的证据（`isDown` / `_justDown` / gate 切换），**不是修改游戏输入实现**。游戏输入代码不动（§6.4 铁律）。
+
+**适用边界**：InputManager 双通路时序敏感度不同——
+- E / Space / Enter 走 keydown **事件排队**（queueAction/consumeAction），单次 press 基本可靠
+- J / B / T / R 等走 Phaser Key 对象 **JustDown 轮询**，长会话后单次 press 会抖动丢失，**必须用 down→等待→采样→up 模式**
+
+**实战案例**（2026-08-28，probe-xiya-bloom E0 40/43 → 43/43）：按 J 开任务面板，尾声 + 演出后的长会话中单次 press 静默丢失（取证显示 `isDown=true, _justDown=false, gate=none` = 事件已送达但被消费于无效果处）；改 down→60ms→up 后取证显示 `gate` 已切 `panel_open/quest`，稳定通过。参考实现：`probe-xiya-bloom.mjs` Case E。
+
+---
+
+### 5.6 事件/库存断言：localStorage 存档真相源取证（vite HMR 双实例坑）
+
+> 正式规范（2026-08-28 入档。来源：probe-dryyard 6 失败定性 → v1.2 修复 33/33；probe-artshow-aftermath 同类问题 → v1.4 修复 14/14）。
+
+**问题**：探针用裸 URL 动态 `import('/src/...')` 拿模块实例做断言时，若探针运行期间 vite HMR 重建了模块图（典型场景：并行 Agent 保存源文件），探针会拿到与游戏运行时**分离的模块实例**——`hasTriggered()` 恒 false、`getItemCount()` 恒 0，形成"游戏实际正常、探针全红"的假失败。
+
+**定性特征**：玩家可见行为正常（对白播放 / 任务推进 / 库存 UI 正确），但模块取证恒 false。
+
+**范式**：事件落库（`triggeredEvents`）与库存断言一律读 **localStorage 存档真相源**（游戏侧每处 `triggerOnce` 后同步 `save()`、库存变更同步落档——EventSystem 时序纪律），模块实例读仅保留作**对照输出**：
+
+```javascript
+// 存档真相源取证：不受 HMR 模块实例分化影响
+async function readSave() {
+  return await page.evaluate(() => {
+    const raw = localStorage.getItem('return_star_save');   // SaveSystem STORAGE_KEY
+    return raw ? JSON.parse(raw) : null;
+  });
+}
+const save = await readSave();
+const marked = save?.gameState?.triggeredEvents?.dryyard_intro === true;
+check('T1 开场演出触发（落库·存档取证）', marked === true, `存档=${marked} 模块对照=${mod.hasIntro}`);
+```
+
+**纪律**：
+
+1. 断言以存档为准，模块读放 `console.log` 对照——`存档=true / 模块=false` 同时出现即为双实例实锤证据（probe-dryyard v1.2 修复后对照输出仍全 false，反证游戏实现零 bug）。
+2. 存档嵌套字段一律 `?.` 容错（存档为 null / 字段缺失时失败信息仍可读）。
+3. **二次交互断言勿用 `reset()` 清对白**——`reset()` 不走 `onComplete`，StorySequenceRunner 忙状态未复位会吞掉第二次交互（probe-artshow-aftermath T3 `again:false` 根因）；用 skip 链推完直到关闭（400ms 间隔对齐 skip 防抖），见 `probe-artshow-aftermath.mjs` v1.4。
+
+**范本**：`tests/probes/probe-dryyard.mjs`（v1.2）、`tests/probes/probe-artshow-aftermath.mjs`（v1.4）。
 
 ---
 
@@ -323,6 +405,42 @@ headless 下 `page.mouse.click` 与 `dispatchEvent(new MouseEvent('click'))` 都
 `full-story-run` 完整跑通约 **203s**（2026-08-11 计时），180s 会中途误杀。改剧情 / 新增章节后须**重测真实耗时再同步 timeoutMs**，否则超时阈值本身变成随机失败制造器。
 
 showcase 编排是**严格串行**（`for` + `await runProbe`），**禁止改成并发**。
+
+### 规则 7：采样前先排查竞争消费者（探针失败 ≠ 游戏 Bug）
+
+一次性事件会抢占对白框等目标 UI，导致采样窗口错位。
+
+❌ 采样失败直接归因业务 Bug，去改游戏逻辑
+✅ 先排查目标场景/时段的一次性事件（`triggerOnce` / `triggerOnceIf`）→ 种子存档预标记屏蔽 → 再采样目标对白
+
+> 详细流程与实战案例（`world_hint_rain_mushroom` vs 阿风欢迎）见 §5.4。归因顺序：探针假设 → 竞争消费者 → 业务 Bug。
+
+### 规则 8：不要把单次按键 press 当稳定输入
+
+Phaser JustDown 轮询型按键（J/B/T/R）在长会话 / 焦点 / 帧时序抖动下，单次 press 会偶发漏采样。
+
+❌ `await page.keyboard.press('KeyJ')` 后假设面板必开
+✅ `down → 等 60ms → 采样键状态与门控 → up`（取证模式），再轮询目标状态判定
+
+> 详细模式与双通路适用边界见 §5.5。这是测试侧取证模式，**不改游戏输入实现**。
+
+### 规则 9：UI 交互探针先补齐「操作前置链」，再断言目标行为
+
+游戏内操作普遍存在前置条件链（工具 → 状态 → 数值），断言目标行为前必须把链条补齐，否则操作在**前置检查环节提前 return**，根本到不了被测逻辑——探针失败但产品代码没问题。
+
+❌ 直接调 `tryFarmInteractAt` 断言体力不足提示，玩家无锄头 → 提前返回「还没有锄头」
+✅ 先梳理被测行为的前置链（如 `farm_till`：先查 `old_hoe`（FarmController）→ 再查体力），探针内 `addItem('old_hoe', 1)` 等补齐前置 → 再断言目标行为
+
+> 实战案例：`probe-stamina-ui.mjs` 首跑 5/6，唯一失败即此假故障——补锄头后 6/6。前置链来源：读对应 Controller 的事务顺序注释（如「check → consumeStamina → …」）。
+
+### 规则 10：布局分支类探针必须自证「实际命中的布局分支」
+
+布局判断（如 `isMobileLayout()` = `innerWidth < 800 || isTouchDevice()`，config.ts）依赖 viewport / 设备特征，Puppeteer 模拟参数（isMobile / hasTouch）**不保证命中预期分支**——探针标着「移动端」，实际测的是 PC 格式。
+
+❌ viewport 812×375 + `isMobile: true` 就断言「这是移动端行为」
+✅ ① viewport 宽度设到阈值内（<800，如 792）确保命中移动分支；② 断言分支特征互斥标记（移动分支 HUD 无 WASD 提示 / PC 分支含「WASD/E交互」），命中错误分支时直接报错
+
+> 实战案例：`probe-stamina-ui.mjs`——812 宽时走 PC 分支未被发现，改为 792 宽 + 分支特征断言（防假故障）后闭环。分支特征来源：读 `updateHUD` 等被测函数的分支文案差异。
 
 ---
 
@@ -428,6 +546,8 @@ tests/
 │   ├── probe-ch1-house-tidy.mjs      # 老屋整理（范式参考）
 │   ├── probe-ch1-xiya-old-shadow.mjs # P1-3 夏雅旧日留影（最新范式）
 │   ├── probe-t3-npc-events.mjs       # T3 NPC 三事件（多事件串行范式）
+│   ├── probe-xiya-bloom.mjs          # 花期未至（状态机交互 + 竞争消费者屏蔽 + 按键取证范式，见 §5.4/§5.5）
+│   ├── probe-ch1-afeng-welcome.mjs   # 阿风欢迎（竞争消费者预标记范式，见 §5.4）
 │   └── probe-*.mjs                   # 其余专项探针
 └── reports/                          # 自动生成
     ├── json/<suite>.json

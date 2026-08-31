@@ -1,6 +1,6 @@
 # 任务卡：《秋日晒场》— EventPlan 第二个实例（v1.5，施工）
 
-> 来源：制作人 2026-08-15 五项决策全拍板 + 微调（设计定稿 v1.1）｜状态：🟢 待施工
+> 来源：制作人 2026-08-15 五项决策全拍板 + 微调（设计定稿 v1.1）｜状态：✅ 已施工（2026-08-28 复核确认 + P0 死锁 BUG-FIX，probe-dryyard 33/33 全绿）
 > 命名原则：本任务不是一个"庆典系统"，是在验证「生活循环 → 镇子恢复一种过去的生活 → 永久留下」。**核心立意：不是庆祝丰收，而是证明这里还有人在生活。**
 > ⚠️ 前置：四大核心系统（采集/钓鱼/种植/城镇复兴）已闭环；春日集（`ch1_spring_fair`）、星光艺术展、玉米首次收获（`crop_corn_first_harvest`）已存在。
 
@@ -101,3 +101,5 @@ EventPlan+触发      1
 | 日期 | 版本 | 变更 |
 |---|---|---|
 | 2026-08-15 | v1.0 | 施工任务卡（基于设计定稿 v1.1），待排期施工 |
+| 2026-08-28 | v1.0.1 | 状态回写：代码已完整施工（MapScene 30 个 dryyard 方法 + 探针 T0~T6 全覆盖）。复核中挖出隐性 P0 死锁：傍晚进镇撞上随机日常对白时 `StorySequenceRunner.playing` 占用 → intro 被 playSequence 静默丢弃（`if (playing) return false`），而 triggerOnce 已按「先执行后标记」入库 → dryyardUnlocked 永不解锁 + inDryyardCutscene 卡 true，晒场线整条死锁。修复：[startDryyardIntro](g:\ReturnToStars\src\scenes\MapScene.ts) 开头增加 runner 占用检查 + 1200ms 延后有界重试（22 点窗口关闸兜底）。probe-dryyard.mjs 复验 33/33 全绿。不改 StorySequenceRunner 本体（避免影响 90+ 调用点）。 |
+| 2026-08-29 | v1.0.2 | **S6 批次（制作人验收链补全）**：「回程后的全镇回应」落地——晒场完成后（`dryyard_held` 门禁）NPC 日常台词切「晒场/过日子」分支（`DRYYARD_RESTORED_LINES`：镇长/商店老板/小梅/阿风/老周 各 1 句，老张有晒场专属交互句不入池；优先级 雨天>夜晚>晒场>集市>时段>默认，增量接线不动既有协议）。探针新增 T6 全镇回应双向断言（未办晒场→集市句 / 已办→晒场句）→ **35/35 全绿**。 |

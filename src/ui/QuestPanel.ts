@@ -134,7 +134,7 @@ const SIDE_QUESTS: SideQuestDef[] = [
     id: 'xiya_bloom',
     title: '春深有信·二 花期未至',
     lockHint: '完成「春深有信·一」且集市恢复后，白天在旧广场会遇见夏雅',
-    objective: '陪夏雅一步一步筹办一场小镇春祭',
+    objective: '陪夏雅一步一步收拾一场秋日晒场',
     isUnlocked: (f) => f.xiyaBloomAsked === true,
     isAsked: (f) => f.xiyaBloomAsked === true,
     isDone: (f) => f.xiyaBloomDone === true,

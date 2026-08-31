@@ -504,6 +504,32 @@ const RAIN_LINES: Record<string, DialogueLine[]> = {
   ],
 };
 
+// ============ 第一章 S6：秋日晒场完成后的「全镇生活回应」 ============
+// 施工（2026-08-29，S6 批次；制作人：晒场收尾后"活动结束，生活没有恢复原样"）：
+//   晒场当天演出完成（dryyard_held）后，NPC 日常台词切到"晒场/过日子"分支——
+//   让玩家回镇时直接听见"这里真的开始有人过日子了"，而非赛事总结/世界观说明。
+//   门禁：hasTriggered('dryyard_held')（与 mapFlags.dryyardPerm 同步，EventManager 跨系统共享）。
+//   优先级：雨天 > 夜晚 > 晒场完成 > 集市恢复 > 时段生活句 > 默认（晒场是比集市更新的终态生活状态；
+//   雨日/夜晚保留原当日氛围）。老张有晒场专属交互台词（放一放/晒个三五天），不入本池；
+//   神秘少女无第一章生活戏份，不入本池。台词遵守 D-017（具体情境 + 说话缺陷 + 不连续漂亮）。
+const DRYYARD_RESTORED_LINES: Record<string, DialogueLine[]> = {
+  elder: [
+    { speaker: '镇长', color: '#c8b898', text: '晒场又晒起来了。风吹过来，都是干菜和粮食的味道。' },
+  ],
+  shopkeeper: [
+    { speaker: '商店老板', color: '#8ac8a0', text: '东头晒场上晒满了东西，路过的都要停一步看看。' },
+  ],
+  gardener: [
+    { speaker: '花匠小梅', color: '#a0d888', text: '晒场那边晒的都是今年的新收成，看着就心里踏实。' },
+  ],
+  adventurer: [
+    { speaker: '阿风', color: '#88b8e8', text: '晒场摆了满满一地收成，这才是过日子该有的样。' },
+  ],
+  carpenter: [
+    { speaker: '木匠老周', color: '#c89860', text: '晒架立起来的时候我在场。有人接着用，就没白修。' },
+  ],
+};
+
 /**
  * 获取某 NPC 当天的一句随机生活台词（无状态，seed = day + npcId hash）
  * @param npcId NPC id（miner/gardener/adventurer）
@@ -516,13 +542,16 @@ export function getDailyNpcLine(npcId: string, day: number, location?: string): 
   // 第一章 P1：夜晚 + 章节≥1 时优先切到「夜晚灯光回忆点」生活感分支（氛围层，不覆盖集市语义）
   // 第一章 P1 时段切片：小梅按当前所在场景对口吻不同的生活句（farm=上午照料 / forest=下午采撷）
   // 天气扩面第二刀：雨日（当前正在下雨，WeatherSystem 同源）切「雨天生活台词」分支
-  //   优先级：雨天 > 夜晚 > 集市恢复 > 时段场景生活句 > 默认生活句（只替换原本走通用生活句那一挡）
+  // 第一章 S6（2026-08-29）：晒场完成（dryyard_held）后切「全镇生活回应」分支
+  //   优先级：雨天 > 夜晚 > 晒场完成 > 集市恢复 > 时段场景生活句 > 默认生活句
   const isRaining = getWeather(day) === 'rain' && isCurrentlyRaining();
   const rainPool = isRaining ? RAIN_LINES[npcId] : null;
   const nightPool = isNight() && getChapter() >= 1 ? NIGHT_LINES[npcId] : null;
+  const dryyardPool = hasTriggered('dryyard_held') ? DRYYARD_RESTORED_LINES[npcId] : null;
   const periodPool = npcId === 'gardener' && location ? GARDENER_PERIOD_LINES[location] : null;
   let pool = rainPool ??
     nightPool ??
+    dryyardPool ??
     (isRestored('marketSquare')
       ? MARKET_RESTORED_LINES[npcId]
       : periodPool && periodPool.length > 0

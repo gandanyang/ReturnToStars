@@ -1,11 +1,11 @@
 {
   "suite": "save",
-  "timestamp": "2026-08-17T16:18:47.478Z",
+  "timestamp": "2026-08-29T02:15:46.860Z",
   "git": {
-    "hash": "aac2c53",
+    "hash": "d74b21f",
     "branch": "main"
   },
-  "duration": 10631,
+  "duration": 8587,
   "summary": {
     "total": 10,
     "passed": 10,
@@ -17,61 +17,61 @@
       "name": "清档后从标题开始",
       "ok": true,
       "detail": "scene=title",
-      "ts": 5689
+      "ts": 3562
     },
     {
       "name": "进入车站场景",
       "ok": true,
       "detail": "scene=station",
-      "ts": 7705
+      "ts": 5568
     },
     {
       "name": "存档写入 localStorage",
       "ok": true,
       "detail": "day=2",
-      "ts": 8524
+      "ts": 6391
     },
     {
       "name": "存档 storyStep=done",
       "ok": true,
       "detail": "step=done",
-      "ts": 8524
+      "ts": 6391
     },
     {
       "name": "存档有 inventory",
       "ok": true,
       "detail": "has items",
-      "ts": 8524
+      "ts": 6391
     },
     {
       "name": "存档有 radish_seed",
       "ok": true,
       "detail": "count=10",
-      "ts": 8524
+      "ts": 6391
     },
     {
       "name": "刷新后存档仍在",
       "ok": true,
       "detail": "day=2",
-      "ts": 10071
+      "ts": 8099
     },
     {
       "name": "刷新后 storyStep 一致",
       "ok": true,
       "detail": "before=done after=done",
-      "ts": 10071
+      "ts": 8099
     },
     {
       "name": "刷新后 day 一致",
       "ok": true,
       "detail": "before=2 after=2",
-      "ts": 10071
+      "ts": 8099
     },
     {
       "name": "刷新后 inventory 一致",
       "ok": true,
       "detail": "seeds: before=10 after=10",
-      "ts": 10071
+      "ts": 8099
     }
   ]
 }

@@ -164,7 +164,23 @@ export class StorySequenceRunner {
           this.hooks.updateHUD();
         }
       },
-      seq.onChoice,
+      seq.onChoice
+        ? (index: number) => {
+            // BUG-FIX（P0-1）：selectOption 选中选项后只 close+onChoice、不触发 onComplete，
+            // 若直接透传 onChoice，本序列的 playing 永不释放 → 此后所有 playStory 静默失效
+            // （例：床上睡觉选择后全游戏对话被吞）。玩家做出选择即结束本序列。
+            // 顺序不可反：onChoice 分支内可能立即 playStory 开新序列（playSequence 会重新置 playing）。
+            this.playing = false;
+            this.currentSequenceId = null;
+            if (this.hooks.onDialogueEnd) {
+              this.hooks.onDialogueEnd();
+            }
+            if (this.hooks.updateHUD) {
+              this.hooks.updateHUD();
+            }
+            seq.onChoice?.(index);
+          }
+        : undefined,
     );
 
     return true;

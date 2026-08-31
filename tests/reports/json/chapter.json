@@ -1,11 +1,11 @@
 {
   "suite": "chapter",
-  "timestamp": "2026-08-12T18:17:12.662Z",
+  "timestamp": "2026-08-29T02:16:09.212Z",
   "git": {
-    "hash": "532b643",
+    "hash": "d74b21f",
     "branch": "main"
   },
-  "duration": 22496,
+  "duration": 12584,
   "summary": {
     "total": 11,
     "passed": 11,
@@ -17,67 +17,67 @@
       "name": "新游戏从标题开始",
       "ok": true,
       "detail": "scene=title",
-      "ts": 3080
+      "ts": 3051
     },
     {
       "name": "初始章节 = 0",
       "ok": true,
       "detail": "chapter=0",
-      "ts": 3081
+      "ts": 3052
     },
     {
       "name": "进入车站场景",
       "ok": true,
       "detail": "scene=station",
-      "ts": 5100
+      "ts": 5065
     },
     {
       "name": "初始 storyStep = station_intro",
       "ok": true,
       "detail": "step=station_intro",
-      "ts": 5100
+      "ts": 5066
     },
     {
       "name": "教程全部步骤推进成功",
       "ok": true,
       "detail": "",
-      "ts": 5109
+      "ts": 5076
     },
     {
       "name": "教程完成 (storyStep=done)",
       "ok": true,
       "detail": "",
-      "ts": 5109
+      "ts": 5077
     },
     {
       "name": "questState 可设为 completed",
       "ok": true,
       "detail": "state=completed",
-      "ts": 5112
+      "ts": 5078
     },
     {
       "name": "观星完成标记生效",
       "ok": true,
       "detail": "",
-      "ts": 5113
+      "ts": 5079
     },
     {
       "name": "存档中有章节状态",
       "ok": true,
       "detail": "",
-      "ts": 8240
+      "ts": 8224
     },
     {
       "name": "存档 storyStep = observatory_complete",
       "ok": true,
       "detail": "step=observatory_complete",
-      "ts": 8240
+      "ts": 8224
     },
     {
       "name": "刷新后 storyStep 保持",
       "ok": true,
       "detail": "step=observatory_complete",
-      "ts": 12154
+      "ts": 12223
     }
   ]
 }

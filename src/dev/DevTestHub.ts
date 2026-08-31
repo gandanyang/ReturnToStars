@@ -22,7 +22,8 @@ import { setLevel, setXp } from '../data/FarmProgress';
 import { setItemCount, addItem, type ItemType } from '../data/Inventory';
 import { setStamina, MAX_STAMINA } from '../data/Stamina';
 import { getAllCropEntries, setCrop } from '../data/FarmState';
-import { save, getPlayerData } from '../systems/SaveSystem';
+import { save, getPlayerData, setPendingFlagOverride } from '../systems/SaveSystem';
+import type { MapSceneFlags } from '../scenes/MapScene';
 
 // ============ Seed 类型 ============
 
@@ -47,6 +48,9 @@ interface DevSeed {
   level: number;
   xp: number;
   inventory: Partial<Record<ItemType, number>>;
+  /** 2026-08-28：mapFlags 覆盖（DevTestHub → SaveSystem override 通道）。
+   *  仅覆盖种子声明的 dryyard 字段，未声明的字段随存档默认值。 */
+  mapFlags?: Partial<MapSceneFlags>;
 }
 
 // ============ Seed 定义 ============
@@ -262,6 +266,189 @@ const DEV_TEST_SEEDS: DevSeed[] = [
     level: 2, xp: 150,
     inventory: { old_hoe: 1, old_watering_can: 1, old_axe: 1, radish_seed: 5 },
   },
+  // ── 秋日晒场（EventPlan 第二实例 · 2026-08-28）──
+  // 前置链：ch1_spring_fair（春日集）+ crop_corn_first_harvest（玉米首收）→ dryyardUnlocked
+  // 触发：进 town 傍晚（17:00-22:00）靠近晒场 → 当天演出 → dryyardPerm 永久变化
+  {
+    id: 'ch1_dryyard_prep',
+    group: '秋日晒场',
+    label: '秋日晒场·筹备中',
+    description: '春日集+玉米首收已完成，进镇傍晚触发开场演出（老张提起晒场）',
+    chapter: CHAPTER_1,
+    storyStep: 'observatory_complete',
+    day: 8, hour: 9, minute: 0,
+    events: [
+      'ch1_awakening', 'ch1_bed_done', 'ch1_lamp_done', 'ch1_desk_done', 'ch1_radio_done',
+      'ch1_house_tidy_done', 'ch1_elder_visit',
+      'ch1_market_cleared', 'ch1_market_stall_1', 'ch1_market_stall_2', 'ch1_market_stall_3',
+      'ch1_spring_fair', 'crop_corn_first_harvest',
+    ],
+    restores: ['farmWarm', 'oldHouse', 'marketSquare'],
+    townIntroDone: true,
+    scene: 'town', spawnX: 656, spawnY: 262,
+    coins: 920,
+    questState: 'completed',
+    level: 3, xp: 400,
+    inventory: { old_hoe: 1, old_watering_can: 1, old_axe: 1, radish_seed: 5 },
+    mapFlags: { dryyardUnlocked: false },
+  },
+  {
+    id: 'ch1_dryyard_ready',
+    group: '秋日晒场',
+    label: '秋日晒场·三类准备齐',
+    description: '晒场恢复+人际三时代+收成齐备，傍晚进镇可直接触发当天演出（17点后靠近晒场）',
+    chapter: CHAPTER_1,
+    storyStep: 'observatory_complete',
+    day: 10, hour: 18, minute: 0,
+    events: [
+      'ch1_awakening', 'ch1_bed_done', 'ch1_lamp_done', 'ch1_desk_done', 'ch1_radio_done',
+      'ch1_house_tidy_done', 'ch1_elder_visit',
+      'ch1_market_cleared', 'ch1_market_stall_1', 'ch1_market_stall_2', 'ch1_market_stall_3',
+      'ch1_spring_fair', 'crop_corn_first_harvest',
+      'dryyard_intro', 'dryyard_laozhang_craft', 'dryyard_xiya_photo', 'dryyard_afeng_help',
+    ],
+    restores: ['farmWarm', 'oldHouse', 'marketSquare'],
+    townIntroDone: true,
+    scene: 'town', spawnX: 656, spawnY: 262,
+    coins: 920,
+    questState: 'completed',
+    level: 3, xp: 420,
+    inventory: { old_hoe: 1, old_watering_can: 1, old_axe: 1, radish_seed: 5, corn: 3, qinghe_crucian: 1 },
+    mapFlags: {
+      dryyardUnlocked: true,
+      dryyardEnvStage: 3,        // 晒架→竹席晒篮→玉米串辣椒串 全完成
+      dryyardMaterialsDone: true, // 「今年的收成」已摆出
+      dryyardHeld: false,        // 尚未办当天演出
+      dryyardPerm: false,
+    },
+  },
+  {
+    id: 'ch1_dryyard_perm',
+    group: '秋日晒场',
+    label: '秋日晒场·青禾晒场',
+    description: '当天演出已完成，永久变化「青禾晒场」落地（白天老张照看晒架）',
+    chapter: CHAPTER_1,
+    storyStep: 'observatory_complete',
+    day: 11, hour: 11, minute: 0,
+    events: [
+      'ch1_awakening', 'ch1_bed_done', 'ch1_lamp_done', 'ch1_desk_done', 'ch1_radio_done',
+      'ch1_house_tidy_done', 'ch1_elder_visit',
+      'ch1_market_cleared', 'ch1_market_stall_1', 'ch1_market_stall_2', 'ch1_market_stall_3',
+      'ch1_spring_fair', 'crop_corn_first_harvest',
+      'dryyard_intro', 'dryyard_laozhang_craft', 'dryyard_xiya_photo', 'dryyard_afeng_help',
+      'dryyard_held',
+    ],
+    restores: ['farmWarm', 'oldHouse', 'marketSquare'],
+    townIntroDone: true,
+    scene: 'town', spawnX: 656, spawnY: 262,
+    coins: 920,
+    questState: 'completed',
+    level: 3, xp: 440,
+    inventory: { old_hoe: 1, old_watering_can: 1, old_axe: 1, radish_seed: 5 },
+    mapFlags: {
+      dryyardUnlocked: true,
+      dryyardEnvStage: 3,
+      dryyardMaterialsDone: true,
+      dryyardHeld: true,
+      dryyardPerm: true,         // 青禾晒场永久变化已落地
+    },
+  },
+
+  // ============ 第二章《故人远来》（2026-08-31 补，配合 probe-ch2-return.mjs 8/8 验收）============
+  // 前置链（探针踩坑沉淀）：灯塔已亮（lighthouseLit，节拍1 前置）+ 青禾码头已修（qinghe_pier_repaired，
+  // 否则码头交互点距老船长仅 14px 会抢先拦截）+ 秋日晒场全链（第一章章末）。
+  // 门控说明：ch2 门控读 EventManager 模块内存（hasTriggered），events 数组直接给 ch2_* 即生效；
+  // mapFlags 走 override 通道入档，scene.start 后 init 恢复实例字段（视觉状态）。
+  {
+    id: 'ch2_clock_ready',
+    group: '第二章',
+    label: '故人远来·修钟前',
+    description: '灯塔闲聊已过（节拍1），进镇广场修老钟（节拍2，夏雅身世只揭一层）',
+    chapter: CHAPTER_1,
+    storyStep: 'observatory_complete',
+    day: 12, hour: 10, minute: 0,
+    events: [
+      'ch1_awakening', 'ch1_bed_done', 'ch1_lamp_done', 'ch1_desk_done', 'ch1_radio_done',
+      'ch1_house_tidy_done', 'ch1_elder_visit',
+      'ch1_market_cleared', 'ch1_market_stall_1', 'ch1_market_stall_2', 'ch1_market_stall_3',
+      'ch1_spring_fair', 'crop_corn_first_harvest',
+      'dryyard_intro', 'dryyard_laozhang_craft', 'dryyard_xiya_photo', 'dryyard_afeng_help', 'dryyard_held',
+      'lighthouseLit', 'ch2_lighthouse_talked',
+    ],
+    restores: ['farmWarm', 'oldHouse', 'marketSquare'],
+    townIntroDone: true,
+    scene: 'town', spawnX: 330, spawnY: 150,
+    coins: 920,
+    questState: 'completed',
+    level: 4, xp: 520,
+    inventory: { old_hoe: 1, old_watering_can: 1, old_axe: 1, radish_seed: 5 },
+    mapFlags: { ch2LighthouseTalked: true },
+  },
+  {
+    id: 'ch2_pier_ready',
+    group: '第二章',
+    label: '故人远来·老船长靠岸',
+    description: '老钟已修（节拍2），19 点进青禾码头看老船长（节拍3），玩到 20 点码头夜谈自动触发（节拍5 全章高潮）；旅人首遇已过',
+    chapter: CHAPTER_1,
+    storyStep: 'observatory_complete',
+    day: 13, hour: 19, minute: 0,
+    events: [
+      'ch1_awakening', 'ch1_bed_done', 'ch1_lamp_done', 'ch1_desk_done', 'ch1_radio_done',
+      'ch1_house_tidy_done', 'ch1_elder_visit',
+      'ch1_market_cleared', 'ch1_market_stall_1', 'ch1_market_stall_2', 'ch1_market_stall_3',
+      'ch1_spring_fair', 'crop_corn_first_harvest',
+      'dryyard_intro', 'dryyard_laozhang_craft', 'dryyard_xiya_photo', 'dryyard_afeng_help', 'dryyard_held',
+      'lighthouseLit', 'ch2_lighthouse_talked', 'ch2_clock_fixed', 'qinghe_pier_repaired',
+    ],
+    restores: ['farmWarm', 'oldHouse', 'marketSquare'],
+    townIntroDone: true,
+    scene: 'qinghe_river', spawnX: 74, spawnY: 330,
+    coins: 920,
+    questState: 'completed',
+    level: 4, xp: 560,
+    inventory: { old_hoe: 1, old_watering_can: 1, old_axe: 1, radish_seed: 5 },
+    mapFlags: {
+      ch2LighthouseTalked: true,
+      ch2ClockFixed: true,       // 老钟已修（摆锤在走 + 整点报时）
+      ch2StrangerSeen: 1,        // 旅人首遇已过，傍晚进镇可遇第 2/3 次
+    },
+  },
+  {
+    id: 'ch2_perm',
+    group: '第二章',
+    label: '故人远来·夜谈之后',
+    description: '夜谈+夏雅秘密已完成（节拍5/6），21 点夜降农场西侧看海平线黑点（节拍7，第三章唯一硬钩子）',
+    chapter: CHAPTER_1,
+    storyStep: 'observatory_complete',
+    day: 14, hour: 21, minute: 0,
+    events: [
+      'ch1_awakening', 'ch1_bed_done', 'ch1_lamp_done', 'ch1_desk_done', 'ch1_radio_done',
+      'ch1_house_tidy_done', 'ch1_elder_visit',
+      'ch1_market_cleared', 'ch1_market_stall_1', 'ch1_market_stall_2', 'ch1_market_stall_3',
+      'ch1_spring_fair', 'crop_corn_first_harvest',
+      'dryyard_intro', 'dryyard_laozhang_craft', 'dryyard_xiya_photo', 'dryyard_afeng_help', 'dryyard_held',
+      'lighthouseLit', 'ch2_lighthouse_talked', 'ch2_clock_fixed', 'qinghe_pier_repaired',
+      'ch2_pier_repaired', 'ch2_night_talk', 'ch2_xiya_secret',
+    ],
+    restores: ['farmWarm', 'oldHouse', 'marketSquare'],
+    townIntroDone: true,
+    // ⚠️ 出生点 (100,200)：避开 farm 全部出口触发区——house 门(x80-128,y288-336)、
+    //    西侧灯塔口(x36-64,y160-208，lighthouseLit 后按预埋链解锁)——否则出生即被传走
+    scene: 'farm', spawnX: 100, spawnY: 200,
+    coins: 920,
+    questState: 'completed',
+    level: 4, xp: 600,
+    inventory: { old_hoe: 1, old_watering_can: 1, old_axe: 1, radish_seed: 5 },
+    mapFlags: {
+      ch2LighthouseTalked: true,
+      ch2ClockFixed: true,
+      ch2PierRepaired: true,
+      ch2StrangerSeen: 3,        // 旅人三次已全部见过
+      ch2NightTalkDone: true,
+      ch2XiyaSecretDone: true,
+      ch2BlackDotSeen: false,    // 黑点未看——降落在西侧即触发（第三章钩子）
+    },
+  },
 ];
 
 // ============ 核心逻辑 ============
@@ -293,9 +480,10 @@ function devSave(): void {
     } as never);
     return;
   }
-  // 无活跃玩家：保留存档现有 player 字段（缺档则给安全默认），不覆盖为 0,0,''
+  // 无活跃玩家：保留存档现有 player 字段，不覆盖为 0,0,''
+  // BUG-FIX（P1-6）：无档时不落盘（状态修改无处附着，避免写入 (0,0,'farm') 假档污染下次进档）
   const existing = getPlayerData();
-  save(existing ?? { x: 0, y: 0, scene: 'farm', facing: 'down' });
+  if (existing) save(existing);
 }
 
 /**
@@ -339,6 +527,12 @@ export function applyDevSeed(seedId: string): { scene: string; spawnX: number; s
   // 7. 标记镇介绍（2026-08-14：Dev Hub 跳档 = 模拟玩家已到该进度，
   //    首次进镇的 TOWN_INTRO_DIALOGUE 不再重播——种子档不需要开场介绍）
   markCh1TownIntroDone();
+
+  // 7.5 mapFlags 覆盖（2026-08-28：秋日晒场种子档注入 dryyard 状态。
+  //    save() 时通过 SaveSystem 的 override 通道消费——无活跃 MapScene 也能入档。）
+  if (seed.mapFlags) {
+    setPendingFlagOverride({ flags: { ...seed.mapFlags } });
+  }
 
   // 8. 存档（走现有 SaveSystem）
   save({

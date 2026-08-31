@@ -11,7 +11,29 @@
 > 第0章 Demo 已冻结（D-021）。第一章不追求地图扩大/系统数量，重点建立「玩家行为 → 世界变化 → 情感反馈」循环。
 > 最高指导：`docs/第一章开发总纲.md`。
 >
-> **架构基线：MapScene 重构 P0~P7 已完成并冻结（2026-08-27）**。8 个领域模块抽离完成，InteractionRouter + StorySequenceRunner 建立统一交互/对话入口。后续内容开发在当前架构上进行，不再主动推进 P8（CutsceneGuard 列为候选，由实际痛点驱动）。
+> **架构基线：MapScene 重构 P0~P7 + P8 已完成并冻结（2026-08-27）**。9 个领域模块抽离完成，InteractionRouter + StorySequenceRunner 建立统一交互/对话入口；P8 CutsceneGuard 统一 Cutscene 门控（5 旗标 + window lock，探针 27/27），专项归档见 `docs/MapScene重构-P8归档-CutsceneGuard统一门控.md`。后续内容开发在当前架构上进行。
+
+---
+
+## 🆕 最新批次（2026-08-30 ZCode 会话：全绿基线已建立，等制作人两步解锁）
+
+> 详细归档：`docs/reports/会话工作总结-2026-08-30-走查修复落档.md`（总结+经验）+
+> `docs/reports/工作区改动交接清单-v1.0-2026-08-30.md`（逐文件清单+可直接复制的提交命令）+
+> `docs/reports/游玩剧情路线-v1.0-2026-08-30.md`（通关路线对照，试玩排查用）。
+
+**一句话状态：代码债清零、28 探针近 400 断言全绿、第二章施工在工作区完成——现在卡在制作人侧两个动作，不要在解锁前继续改代码。**
+
+| 待制作人动作 | 内容 | 就绪物 |
+|---|---|---|
+| ① 提交收口 | 交接清单 §二 两段逐路径命令（提交 1=在途第二章施工；提交 2=本轮修复+探针；MapScene/main/DailyQuestSystem 为混合文件随提交 2 走），建议打 tag `v0.7-ch2-wip` | 全绿基线在手，可整批入库 |
+| ② 语音试听 | `tmp/voice_retrial_20260830/` 四条（station_04/garden_01/garden_02/**adv_01 三选一 take**）→ 确认后 `python tools/apply_voice_retrial.py --fix-sidecar --adv-take <N> --apply` → probe-voice / probe-bug039-voice-sync 回归 → 问题追踪试玩-07/12 闭环 | 接入脚本 dry-run 已验证、旧文件自动备份 |
+| ③ 实机试玩 | 钓鱼 Phase 1 手感 4 问（辅助数据 `debug.fishingStats()`：甩竿/成功/失败构成/取消/咬钩反应时长）+ Action Time 一天节奏 + BUG-037/039 真机复测 + 第二章剧情节奏 | 昼夜清单 v1.1 已就绪 |
+
+本会话已完成（全在未提交工作区）：**走查修复**（P0×2：标题页黑屏守卫 / 春日集永久锁屏；P1：triggerOnce 存档时序×3、Skip 绕过选项、返回键缺面板、村长来访演出覆盖、危险 setTimeout；P2 清债 8 项）；**P1 体验债**（触屏交互半径 ≥34px、BGM/语音异步竞态令牌、钓鱼捕虫让位+主动取消）；**试玩埋点** `debug.fishingStats()`；**探针跟随重构修复**（fishing-edge / life-loop-day L1 / music×3 静音前置）——探针债清零。回归：`tsc` 0 错误，28 探针近 400 断言全绿（含 full-story 48/48、save-restore 24/24、xiya-bloom 43/43、ch2-return 8/8）；存档零变更（零 SAVE_VERSION 动、零字段增删）。
+
+**纪律提醒（本会话经验，已写进总结 §五）**：模块抽离的 DoD 必须含"探针/QA/Debug API 同步迁移核对"（probe-fishing-edge 调旧 startFishing、probe-life-loop-day 读旧 rainActive、音乐探针被静音默认误伤——三起同源）；自动演出统一范式 = 入口占用守卫（忙时不标记）+ 忙时重试 + 超限收尾，旗标一律走 CutsceneGuard（create 开头 reset 兜底）。**解锁前冻结代码改动**，避免破坏全绿基线。
+
+---
 
 ### 架构基线快照（2026-08-27，冻结）
 
@@ -36,6 +58,7 @@
 | FarmController | 农场玩法域 |
 | InteractionRouter | 交互决策（Gate + Target Resolve） |
 | StorySequenceRunner | 剧情编排 |
+| CutsceneGuard (P8) | Cutscene 统一门控（5 旗标 + window lock + GateSnapshot 聚合） |
 
 ### 当前施工（2026-08-27 状态）
 
@@ -65,6 +88,8 @@
 
 ### 当前焦点（进行中）
 
+> ⚡ **焦点刷新（2026-08-30）**：《秋日晒场》演出已在途实装（`probe-dryyard` 35/35）——下方"再做《秋日晒场》"条目已过时。当前唯一焦点 = 🆕 最新批次表中的**制作人两步解锁（提交 + 语音试听）→ 实机试玩**；解锁前冻结代码改动。
+>
 > 🎯 **执行优先级（v1.5 制作人拍板，2026-08-15 复核）**：收口当前钓鱼手感 / 补反馈等级→心语·一等收尾 → 修小体验债务 → **再做《秋日晒场》**（章末收束）。执行列同步方向：`自然资源与生活制作系统` 蓝图已出，当前聚焦**P0 采集深化**。
 
 1. **钓鱼手感收口**：🟢 **Phase 1 已实现待试玩**（2026-08-19 复核：代码 `fishingState` 状态机已落地 + `probe-fishing-phase1` **34/34**，含 08-17 偶发崩溃修复；范围已扩至多鱼种=青禾鲫/河虾/鲤鱼/黄昏鱼/河鳗，见任务卡 T8）；**下一步=制作人实机试玩（S6 老河堤）按手感验收 4 问定 Phase 2 打磨**；施工规范 `钓鱼MVP-设计与施工规范-v0.1.md`；任务卡 `任务-钓鱼Phase1-纯手感原型-v0.1.md`（状态已同步 ✅）。
@@ -150,7 +175,7 @@
 
 ## 上一批次（已完成）
 
-- 2026-08-27：**MapScene 重构 P0~P7 正式归档** — 8 个领域模块抽离完成（CameraDirector/UIBus/WeatherDirector/WorldDecorator/FishingController/FarmController/InteractionRouter/StorySequenceRunner），`playStory()` 统一全部 80 处对白入口，InteractionRouter 完成交互决策分离，104/104 探针全通过；架构冻结，后续在当前基线进入第一章内容开发
+- 2026-08-27：**MapScene 重构 P0~P7 正式归档 + P8 收尾** — 8 个领域模块抽离完成（CameraDirector/UIBus/WeatherDirector/WorldDecorator/FishingController/FarmController/InteractionRouter/StorySequenceRunner），`playStory()` 统一全部 80 处对白入口，InteractionRouter 完成交互决策分离，104/104 探针全通过；制作人点名启动 **P8 CutsceneGuard**（`887f298`）：统一 Cutscene 门控 5 旗标 + window lock、GateSnapshot 补全、专项探针 27/27（归档 `docs/MapScene重构-P8归档-CutsceneGuard统一门控.md`）；架构冻结，后续在当前基线进入第一章内容开发
 - 2026-08-13：三阶段小型体验链冻结（`c7b21e5`）；夏雅配音 IndexTTS-2 全量重录 76 + 18 条；春深有信语音接入 + P1 花田反馈；衔接设计 v1.1；Phase3 美术 §一~§四；出口重定位
 - 2026-08-12：解除 Alpha Freeze，进入第一章开发阶段（D-027）；集市广场恢复 Sprint 3
 - 2026-08-11：BUG-072/073 对白调度守卫 + 灯塔远景撤除 + 花田支线（小梅）+ 售货机可出售（`5df95cc`）
