@@ -64,6 +64,8 @@ async function setMusicBoxTrack(k) {
 
 try {
   await page.goto(BASE, { waitUntil: 'networkidle2' });
+  // 探针环境前置（2026-08-30）：显式开声，消除静音默认探针债（同 probe-sfx-performance 范式）
+  await page.evaluate(() => localStorage.setItem('return_star_sound_on', '1'));
   await sleep(2500);
   await page.keyboard.press('Enter');
   await sleep(1200);

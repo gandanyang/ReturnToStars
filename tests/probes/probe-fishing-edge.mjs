@@ -180,7 +180,7 @@ try {
   await cleanup();
   await moveTo(SPOT.x, SPOT.y + 5);
   // 启动钓鱼 → casting → waiting
-  await page.evaluate(() => window.__game.scene.getScene('town').startFishing());
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.startFishing());
   await sleep(100);
   info = await fishInfo();
   check('E4a startFishing → casting', info.state === 'casting', `state=${info.state}`);
@@ -190,13 +190,13 @@ try {
   check('E4b casting 0.8s 后 → waiting', info.state === 'waiting', `state=${info.state}`);
 
   // 直接调 enterFakeBite（绕过随机）
-  await page.evaluate(() => window.__game.scene.getScene('town').enterFakeBite());
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.enterFakeBite());
   await sleep(100);
   info = await fishInfo();
   check('E4c enterFakeBite → fakeBite', info.state === 'fakeBite', `state=${info.state}`);
 
   // 直接调 onFishingFail('early')
-  await page.evaluate(() => window.__game.scene.getScene('town').onFishingFail('early'));
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.onFishingFail('early'));
   await sleep(100);
   info = await fishInfo();
   check('E4d onFishingFail(early) → fail', info.state === 'fail', `state=${info.state}`);
@@ -207,9 +207,9 @@ try {
   // ============ E3 收竿窗口提示时序 ============
   await cleanup();
   await moveTo(SPOT.x, SPOT.y + 5);
-  await page.evaluate(() => window.__game.scene.getScene('town').startFishing());
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.startFishing());
   await sleep(900); // 直接进 waiting
-  await page.evaluate(() => window.__game.scene.getScene('town').enterRealBite());
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.enterRealBite());
   await sleep(150); // 等提示渲染
   info = await fishInfo();
   let reelHintShown = await domIncludes('收竿');
@@ -231,27 +231,30 @@ try {
   );
   await sleep(800); // 等成功反馈
 
-  // ============ E5 casting/waiting 期间按 E 被忽略 ============
+  // ============ E5 casting/waiting 期间按 E = 主动取消（2026-08-30 行为变更） ============
+  // 旧契约：casting/waiting 按被忽略，玩家误触只能干等 2~5s 咬钩流程。
+  // 新契约：立即取消回 idle（enterWaiting 的 delayedCall 自带 state 守卫，取消安全）。
   await cleanup();
   await moveTo(SPOT.x, SPOT.y + 5);
-  await page.evaluate(() => window.__game.scene.getScene('town').startFishing());
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.startFishing());
   await sleep(100);
-  // casting 期间按 E
+  // casting 期间按 E → 取消
   const retCasting = await tryFish();
   info = await fishInfo();
   check(
-    'E5a casting 期间按 E 被忽略（返回 false + 状态不变）',
-    retCasting === false && info.state === 'casting',
+    'E5a casting 期间按 E 主动取消（返回 true + 回 idle）',
+    retCasting === true && info.state === 'idle',
     `ret=${retCasting} state=${info.state}`,
   );
 
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.startFishing());
   await sleep(900); // 进 waiting
-  // waiting 期间按 E
+  // waiting 期间按 E → 取消
   const retWaiting = await tryFish();
   info = await fishInfo();
   check(
-    'E5b waiting 期间按 E 被忽略（返回 false + 状态不变）',
-    retWaiting === false && info.state === 'waiting',
+    'E5b waiting 期间按 E 主动取消（返回 true + 回 idle）',
+    retWaiting === true && info.state === 'idle',
     `ret=${retWaiting} state=${info.state}`,
   );
 
@@ -283,9 +286,9 @@ try {
   await waitScene('town');
   await sleep(800);
   await moveTo(SPOT.x, SPOT.y + 5);
-  await page.evaluate(() => window.__game.scene.getScene('town').startFishing());
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.startFishing());
   await sleep(100);
-  await page.evaluate(() => window.__game.scene.getScene('town').enterRealBite());
+  await page.evaluate(() => window.__game.scene.getScene('town').fishingController.enterRealBite());
   await sleep(100);
 
   // 钓鱼中切 farm（触发 town 的 shutdown → cleanupFishing）
@@ -323,10 +326,15 @@ try {
 
   for (let i = 1; i <= 5; i++) {
     // 固定为基准鱼，专门验证连续成功的状态清理，不把物种随机/鱼苗选择混入本用例。
-    await page.evaluate(() => { window.__game.scene.getScene('town').currentFish = 'qinghe_crucian'; });
-    await page.evaluate(() => window.__game.scene.getScene('town').startFishing());
+    // v1.2：状态机迁至 FishingController 后 startFishing() 内部会 pickCurrentFish() 覆盖，
+    // 所以必须在 startFishing 之后再固定 currentFish（此前设 scene.currentFish 已是无效旧路径）。
+    await page.evaluate(() => {
+      const s = window.__game.scene.getScene('town');
+      s.fishingController.startFishing();
+      s.fishingController.currentFish = 'qinghe_crucian';
+    });
     await sleep(900); // casting → waiting
-    await page.evaluate(() => window.__game.scene.getScene('town').enterRealBite());
+    await page.evaluate(() => window.__game.scene.getScene('town').fishingController.enterRealBite());
     await sleep(150);
     await tryFish(); // 收竿成功
     await sleep(900); // 等成功反馈结束回 idle

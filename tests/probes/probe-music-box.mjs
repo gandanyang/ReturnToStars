@@ -98,6 +98,9 @@ async function waitBadge(key, timeout = 8000) {
 
 try {
   await page.goto(BASE, { waitUntil: 'networkidle2' });
+  // 探针环境前置（2026-08-30）：声音总开关默认静音 → play() 第一步静默 return，
+  // 音乐状态机完全不启动。显式开声（同 probe-sfx-performance 范式）。
+  await page.evaluate(() => localStorage.setItem('return_star_sound_on', '1'));
   await sleep(2500);
   await page.keyboard.press('Enter');
   await sleep(1200);

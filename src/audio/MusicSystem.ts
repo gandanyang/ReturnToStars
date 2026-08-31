@@ -113,6 +113,9 @@ let currentGain: GainNode | null = null;
 let currentKey: string | null = null; // 当前播放曲目（查询用：剧情中途回归补播等）
 let currentVolume = 0.35;
 let pendingKey: string | null = null;
+// BUG-FIX（P1 竞态）：play 的 fetch→decode 为异步链，快速切图时旧解码迟到会覆盖新曲
+// （在青禾镇听农场 BGM）。每次 stopCurrent/play 递增令牌，解码返回后校验，过期即丢弃。
+let playToken = 0;
 let retryBound = false;
 
 // ── 音乐优先级（剧情 > 音乐盒"我的歌" > 地图默认）──
@@ -171,6 +174,7 @@ async function loadAndDecode(key: string): Promise<AudioBuffer | null> {
 
 /** 停止当前播放 */
 function stopCurrent(): void {
+  playToken++; // 使在途的异步解码失效
   pendingKey = null;
   currentKey = null;
   if (currentSource) {
@@ -202,9 +206,11 @@ export const MusicSystem = {
       return;
     }
     stopCurrent();
+    const token = playToken;
 
     const audioBuf = await loadAndDecode(key);
     if (!audioBuf) return;
+    if (token !== playToken) return; // 解码期间发生了新的 play/stop → 本次的已过期，丢弃
 
     // 播放
     try {

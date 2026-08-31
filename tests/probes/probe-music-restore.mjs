@@ -48,6 +48,9 @@ async function run() {
     await page.goto(GAME_URL, { waitUntil: 'networkidle2' });
     await sleep(2500);
     await page.evaluate(() => localStorage.clear());
+    // 探针环境前置（2026-08-30）：clear 会连声音开关一起清掉，重载前显式开声
+    // （return_star_sound_on 默认静音 → play() 第一步静默 return，音乐状态机不启动）
+    await page.evaluate(() => localStorage.setItem('return_star_sound_on', '1'));
     await page.reload({ waitUntil: 'networkidle2' });
     await sleep(3000);
 

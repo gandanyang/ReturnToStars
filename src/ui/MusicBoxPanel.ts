@@ -21,7 +21,6 @@ let subscribed = false;
 
 /** 关闭面板 */
 function closePanel(): void {
-  console.warn('[MBdiag] closePanel open=' + open);
   if (!open) return;
   open = false;
   if (panelEl) panelFadeOut(panelEl, 150);
@@ -146,7 +145,6 @@ export class MusicBoxPanel {
 
   /** 打开音乐盒 */
   open(): void {
-    console.warn('[MBdiag] open()');
     open = true;
     if (panelEl) {
       refresh();

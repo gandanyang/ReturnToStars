@@ -52,6 +52,17 @@ export class CutsceneGuard {
     this.windowLock = false;
   }
 
+  /**
+   * 全量复位（MapScene.create 开头调用）。
+   * CutsceneGuard 实例随场景实例跨 shutdown/create 复用：上一轮演出若未走到
+   * onComplete（scene restart / 切图打断），旗标会带进新一轮 create 造成永久锁屏。
+   * create 意味着上一轮演出链（delayedCall/tween 均已销毁）不可能再闭合，复位是安全的。
+   */
+  public reset(): void {
+    this.active.clear();
+    this.windowLock = false;
+  }
+
   /** 任意场景 cutscene 激活？ */
   public isAnyActive(): boolean {
     return this.active.size > 0;

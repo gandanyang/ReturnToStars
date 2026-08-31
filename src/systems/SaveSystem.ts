@@ -113,6 +113,28 @@ export interface SaveData {
 /** 上一次加载时遇到的不匹配版本号（用于 UI 提示） */
 let lastIncompatibleVersion: string | null = null;
 
+/**
+ * DevTestHub 专用：种子档在无活跃 MapScene 实例时注入 mapFlags 的覆盖通道。
+ * - 正常游戏流程永不触发（SeededFlagOverride 类型只被 DevTestHub 使用）。
+ * - DevTestHub.applyDevSeed 在 save() 前调用，确保 dryyard 等 flag 随存档入档。
+ * - 一次注入即消费（save 后自动清空），不残留污染后续存档。
+ * - 语义：种子声明的字段覆盖实例值；未声明的字段保留实例现有值（必填字段不丢）。
+ */
+export interface SeededFlagOverride {
+  flags: Partial<MapSceneFlags>;
+}
+let _pendingFlagOverride: SeededFlagOverride | null = null;
+/** @internal DevTestHub 专用 —— 正常游戏流程禁止调用 */
+export function setPendingFlagOverride(po: SeededFlagOverride): void {
+  _pendingFlagOverride = po;
+}
+/** save() 内部消费：返回 override flags（若有）并清空 */
+function consumePendingFlagOverride(): Partial<MapSceneFlags> | null {
+  const po = _pendingFlagOverride;
+  _pendingFlagOverride = null;
+  return po ? po.flags : null;
+}
+
 /** 格式化时间为可读字符串 */
 function formatSavedAt(date: Date): string {
   const y = date.getFullYear();
@@ -189,7 +211,19 @@ export function save(player: {
       },
       album: getAlbumSaveData(),
       natureDiscovery: getNatureDiscoverySaveData(),
-      mapFlags: MapScene.getCurrentFlags() ?? undefined,
+      // DevTestHub 种子覆盖优先，与活跃实例 flag 合并（种子声明字段优先，缺省保留实例值）
+      // 类型说明：运行时与 JSON 载入路径一致——MapScene.init 消费时每个字段都有 ?? 默认值兜底，
+      // 缺必填字段可安全吸收；此处仅需满足存档结构类型。
+      mapFlags: (() => {
+        const override = consumePendingFlagOverride();
+        const inst = MapScene.getCurrentFlags();
+        if (!override) return inst ?? undefined;
+        const merged = { ...(inst ?? {}), ...override } as MapSceneFlags;
+        // DevTestHub 种子路径：同一会话内 scene.start 复用 MapScene 实例，存档新值不会自动覆盖实例属性。
+        // 与 load() 读档行为对齐——把合并结果挂到 pending 通道，新场景 init 时 consume 恢复。
+        setPendingMapFlags(merged);
+        return merged;
+      })(),
       gameState: getGameEventSaveData(),
       chapter: getChapterSaveData(),
     };
@@ -294,8 +328,11 @@ function sanitize(data: SaveData): void {
   data.world.xp = num(data.world.xp, 0);
   data.world.stamina = num(data.world.stamina, 100);
   // 每日任务：progress 非数值 → 0
-  if (data.world.dailyQuest) {
+  // BUG-FIX（P1-3）：quests 缺失/非数组时 for-of 抛 TypeError → 被 load() 的 catch 吞掉 → 整档静默丢弃；
+  // 数组内混入 null 时对 null 赋属性同样崩溃。此处双重防御（Array.isArray + 跳过 null 项）。
+  if (data.world.dailyQuest && Array.isArray(data.world.dailyQuest.quests)) {
     for (const q of data.world.dailyQuest.quests) {
+      if (!q) continue;
       q.progress = num(q.progress, 0);
       q.completed = !!q.completed;
       q.claimed = !!q.claimed;
@@ -359,8 +396,10 @@ export function apply(data: SaveData): void {
   if (data.world.dailyQuest) restoreDailyQuests(data.world.dailyQuest);
   // 农场：土地 / 作物 / 树木
   clearAllTiles();
-  restoreTileEntries(data.farm.tiles as [string, TileState][]);
-  restoreCropEntries(data.farm.crops as [string, CropData][]);
+  // BUG-FIX（P1-4）：tiles/crops 子字段缺失（存档截断/手改档）时 for-of 抛 TypeError →
+  // apply 在场景 create 中裸抛 → 黑屏且内存态污染一半。与下方 trees 的 ?? [] 兜底对齐。
+  restoreTileEntries((data.farm.tiles as [string, TileState][]) ?? []);
+  restoreCropEntries((data.farm.crops as [string, CropData][]) ?? []);
   restoreTreeEntries((data.farm.trees as [string, TreeState][]) ?? []);
   // FEATURE-037 决策 5：优先顶层 worldRestore；旧档仅 farm.restore（M1-3 garden）→ 一次性迁移合并
   //   （worldRestore 存在时以其为准；两者皆无 → 全部未恢复；迁移不回退 farm.restore）
@@ -378,7 +417,8 @@ export function apply(data: SaveData): void {
   // MapScene 一次性 flag（暂存，等 MapScene.create 消费）
   if (data.mapFlags) setPendingMapFlags(data.mapFlags);
   // 背包
-  restoreAllInventory(data.player.inventory);
+  // BUG-FIX（P1-4）：inventory 字段缺失时 restoreAllInventory 内部对 undefined 取下标崩溃 → 黑屏
+  restoreAllInventory(data.player.inventory ?? {});
   // FEATURE-039：恢复锁定状态（旧档无此字段默认空数组）
   restoreLockedItems(data.player.lockedItems ?? []);
   // 归星录·相簿：恢复已解锁照片（旧档无 album 字段默认空）
@@ -392,9 +432,15 @@ export function apply(data: SaveData): void {
   // 玩家位置（由 MapScene 读取后设置 spawn）
 }
 
-/** 是否存在存档 */
+/** 是否存在存档（P0：裸访问在 localStorage 被禁环境（隐私模式/iframe）直接抛 SecurityError
+ * → TitleScene.create 未捕获 → 开局黑屏；与 save/load 主链路的 try-catch 纪律对齐） */
 export function hasSave(): boolean {
-  return localStorage.getItem(STORAGE_KEY) !== null;
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== null;
+  } catch (err) {
+    console.warn('[SaveSystem] hasSave() 存储访问失败，按无存档处理', err);
+    return false;
+  }
 }
 
 /** 获取存档中的玩家数据（用于决定出生点） */
@@ -407,8 +453,12 @@ export function getPlayerData(): { x: number; y: number; scene: string; facing: 
 export function deleteSave(): void {
   // BUG-046 修复：标记自动存档被抑制，防止 deleteSave 后的 reload 触发残留 beforeunload 重新写入存档
   _autoSaveSuppressed = true;
-  localStorage.removeItem(STORAGE_KEY);
-  console.log('[SaveSystem] 存档已删除');
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    console.log('[SaveSystem] 存档已删除');
+  } catch (err) {
+    console.warn('[SaveSystem] deleteSave() 存储访问失败', err);
+  }
 }
 
 /** 自动存档抑制标志（BUG-046：删档后阻止 beforeunload 重新写入） */

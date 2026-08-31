@@ -284,6 +284,9 @@ export class StoryDialogue {
     if (!this.isOpen() || this.completed) return;
     // FEATURE-040：剧情回顾面板打开期间冻结，不允许跳过
     if (this.historyPanel?.isOpen()) return;
+    // 选项行必须做出选择，不允许跳过（与 advance 语义一致，BUG-FIX：Skip 按钮曾可绕过
+    // 强制选择直接 close+onComplete，观星夜/睡觉分支选择可被误跳）
+    if (this.isOptionLine()) return;
     // 防抖：Skip 按钮 pointerdown + click 双绑定，同一物理点击会触发两次；
     // 若首次 skip 的 onComplete 同步打开下一段对话，第二次会误关新对话并二次触发 onComplete。
     const now = Date.now();
@@ -509,6 +512,14 @@ export class StoryDialogue {
       });
       btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(255,255,255,0.16)'; });
       btn.addEventListener('mouseleave', () => { btn.style.background = 'rgba(255,255,255,0.06)'; });
+      // 触屏兼容：Android WebView 中 click 偶发不触发（同 Skip/剧情回顾按钮，真机反馈"跳过按钮没功能"）；
+      // 睡觉选项（睡到天亮/休息到傍晚）此前只挂 click → 真机点不动选项 = "床睡不了觉"。
+      // pointerdown 立即响应 + click 兜底；幂等由 selectOption 的 isOpen 守卫 +
+      // 无动画 close（立即 display='none'）保证，不会二次触发 onChoice。
+      btn.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        this.selectOption(i);
+      });
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.selectOption(i);

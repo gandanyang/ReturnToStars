@@ -147,10 +147,14 @@ function createInstance(t: DailyQuestTemplate): DailyQuestInstance {
 /** 引导任务 ID（挖矿/砍树，首次初始化固定出现，未完成时跨天保留） */
 const GUIDE_QUEST_IDS = new Set(['mine_1', 'woodcut_2']);
 
+/** 今日是否已投放/恢复过任务（防重入：修复"坏档清空 dailyQuests 后同日被重刷"的
+ * 防重入失效——原条件依赖 dailyQuests.length>0，list 被 filter(Boolean) 清空时破防） */
+let questsReadyForDay = false;
+
 /** 刷新每日任务（隔天调用；引导任务在教程完成后才投放，未完成时跨天保留） */
 export function refreshDailyQuests(): void {
   const day = getTime().day;
-  if (day === currentDay && dailyQuests.length > 0) return; // 同一天不重复刷新
+  if (questsReadyForDay && day === currentDay) return; // 同一天不重复刷新（不看列表长度）
   const isFirstInit = dailyQuests.length === 0; // 从未初始化（首次进入地图场景）
   // B-1（制作人拍板 2026-08-03）：晚间 NPC 回家，不生成新 talk 任务
   const isEvening = getTime().hour >= 18;
@@ -158,6 +162,7 @@ export function refreshDailyQuests(): void {
   // 保留未领奖的引导任务 + 已完成未领奖的任务（避免过夜丢失奖励）；领奖后消失
   const keepGuide = dailyQuests.filter((q) => (GUIDE_QUEST_IDS.has(q.id) || q.completed) && !q.claimed);
   currentDay = day;
+  questsReadyForDay = true;
   if (isFirstInit) {
     // 首次：教程完成后才固定投放引导任务（挖矿/砍树）；
     // 教程未完成时玩家还没有斧头/未解锁矿洞，提前投放会导致"按E无法推进任务"
@@ -389,8 +394,15 @@ export function getDailyQuestSaveData(): DailyQuestSaveData {
 
 /** 恢复存档数据 */
 export function restoreDailyQuests(data: DailyQuestSaveData): void {
-  currentDay = data.currentDay;
-  dailyQuests = data.quests.map((sq) => {
+  // BUG-FIX（P1-4）：坏档防御——data 缺失 / currentDay 非数值 / quests 非数组 / 数组含 null 时
+  // 不再抛 TypeError 或污染模块态（sanitize 修复后此点为纵深防御，防非 load 路径直接调用崩溃）
+  if (!data) return;
+  currentDay = typeof data.currentDay === 'number' && Number.isFinite(data.currentDay)
+    ? data.currentDay
+    : 1;
+  const quests = Array.isArray(data.quests) ? data.quests : [];
+  dailyQuests = quests.map((sq) => {
+    if (!sq) return null!;
     const tpl = QUEST_POOL.find((t) => t.id === sq.id);
     if (!tpl) return null!;
     const inst = createInstance(tpl);
@@ -399,4 +411,6 @@ export function restoreDailyQuests(data: DailyQuestSaveData): void {
     inst.claimed = sq.claimed;
     return inst;
   }).filter(Boolean);
+  // 恢复也视为"今日已就绪"：即使坏档把列表清空，同日也不再重刷（防重复领奖）
+  questsReadyForDay = quests.length > 0;
 }

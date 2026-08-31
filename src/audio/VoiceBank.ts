@@ -36,11 +36,35 @@ function normalize(text: string): string {
 // ── Web Audio 播放状态（防 IDM 下载弹窗） ──
 let currentSource: AudioBufferSourceNode | null = null;
 let currentGain: GainNode | null = null;
-let pendingSource: AudioBufferSourceNode | null = null;
-let pendingGain: GainNode | null = null;
+// BUG-FIX（P1 竞态）：play 的 fetch→decode 为异步链且无请求令牌，快进对话时旧句解码迟到
+// 会叠在新句上出声且 stop() 停不掉。每次 stop 递增令牌，解码返回后校验，过期即丢弃。
+let playToken = 0;
 
 /** 已发起过预加载的音频 URL → AudioBuffer（避免重复加载同一文件） */
 const preloadCache = new Map<string, AudioBuffer>();
+/** LRU 上限：超限淘汰最久未使用的条目（无上限时长对话流程在低内存安卓 WebView 上持续增长） */
+const PRELOAD_CACHE_LIMIT = 40;
+
+/** LRU 读：命中时重新插入刷新新近度 */
+function cacheGet(url: string): AudioBuffer | undefined {
+  const buf = preloadCache.get(url);
+  if (buf !== undefined) {
+    preloadCache.delete(url);
+    preloadCache.set(url, buf);
+  }
+  return buf;
+}
+
+/** LRU 写：超限淘汰最旧条目（Map 迭代按插入序 = 最旧在前） */
+function cacheSet(url: string, buf: AudioBuffer): void {
+  if (preloadCache.has(url)) preloadCache.delete(url);
+  preloadCache.set(url, buf);
+  while (preloadCache.size > PRELOAD_CACHE_LIMIT) {
+    const oldest = preloadCache.keys().next().value;
+    if (oldest === undefined) break;
+    preloadCache.delete(oldest);
+  }
+}
 
 /** 全局手势解锁：首次交互时恢复 AudioContext */
 function unlockAudio(): void {
@@ -110,13 +134,14 @@ export class VoiceBank {
       return;
     }
     VoiceBank.stop();
+    const token = playToken;
 
     // 使用 Web Audio API 播放（防 IDM 下载弹窗）
     const ctx = getCtx();
-    
+
     // 尝试从预加载缓存获取 AudioBuffer
-    let audioBuf = preloadCache.get(url);
-    
+    const audioBuf = cacheGet(url);
+
     if (audioBuf) {
       // 缓存命中，直接播放
       VoiceBank.playBuffer(ctx, audioBuf, inner, volume);
@@ -129,7 +154,8 @@ export class VoiceBank {
         })
         .then(arrayBuf => ctx.decodeAudioData(arrayBuf))
         .then(audioBuf => {
-          preloadCache.set(url, audioBuf);
+          if (token !== playToken) return; // 解码期间已有新请求 → 本句过期，丢弃
+          cacheSet(url, audioBuf);
           VoiceBank.playBuffer(ctx, audioBuf, inner, volume);
         })
         .catch(err => {
@@ -201,8 +227,8 @@ export class VoiceBank {
     for (const m of matches) {
       // 优先使用标准化后的音频（音量统一 -16 LUFS）；P0 瘦身后 wav→ogg
       const url = 'audio/voice_normalized/' + m.file.replace(/\.wav$/i, '.ogg');
-      if (preloadCache.has(url)) continue;
-      
+      if (cacheGet(url)) continue;
+
       // fetch + decode 后缓存（防 IDM：URL 加时间戳）
       fetch(antiIDM(url))
         .then(resp => {
@@ -211,7 +237,7 @@ export class VoiceBank {
         })
         .then(arrayBuf => ctx.decodeAudioData(arrayBuf))
         .then(audioBuf => {
-          preloadCache.set(url, audioBuf);
+          cacheSet(url, audioBuf);
         })
         .catch(() => { /* 忽略加载失败 */ });
     }
@@ -219,6 +245,7 @@ export class VoiceBank {
 
   /** 停止当前语音（切换台词/关闭对话/场景切换时调用） */
   static stop(): void {
+    playToken++; // 使在途的异步解码失效（竞态守卫）
     if (currentSource) {
       try {
         currentSource.stop();
@@ -229,17 +256,6 @@ export class VoiceBank {
     if (currentGain) {
       try { currentGain.disconnect(); } catch { /* ignore */ }
       currentGain = null;
-    }
-    if (pendingSource) {
-      try {
-        pendingSource.stop();
-        pendingSource.disconnect();
-      } catch { /* ignore */ }
-      pendingSource = null;
-    }
-    if (pendingGain) {
-      try { pendingGain.disconnect(); } catch { /* ignore */ }
-      pendingGain = null;
     }
   }
 }

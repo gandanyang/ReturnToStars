@@ -94,14 +94,15 @@ function createDom(): void {
     const pressOption = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
+      if (!open) return; // 防双触发：closePanel 后同一手势的合成 click 不得再次进入
       if (onWait) {
         closePanel();
         onWait(opt.targetHour);
       }
     };
+    // BUG-FIX（P2）：原 pointerdown+mousedown+click 三重绑定且无 open 守卫，一次点击
+    // 触发两次 onWait（doWait→fadeWaitTransition 双调度）。只留 pointerdown（触屏/鼠标统一）。
     btn.addEventListener('pointerdown', pressOption);
-    btn.addEventListener('mousedown', pressOption);
-    btn.addEventListener('click', pressOption);
     card.appendChild(btn);
   }
 

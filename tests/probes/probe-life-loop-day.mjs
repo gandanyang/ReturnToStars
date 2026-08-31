@@ -178,14 +178,17 @@ try {
   await enterGame('farm');
   await sleep(1500);
 
-  // ── L1 清晨 farm：雨日 → 雨幕/雨粒子 ──
-  await page.evaluate(() => window.debug.setTime(10, 30)); // 雨窗 10:00-16:00
-  await sleep(4000); // 等待 hourly 天气检查触发 startRain
+  // ── L1 清晨 farm：雨日 → 雨幕/粒子 ──
+  await page.evaluate(() => window.debug.setTime(10, 30)); // 雨窗 10:00-16:00；跨小时触发 hourly 天气检查
+  await sleep(4000); // 等待 startRain 完成
+  // 2026-08-30 修复：P3 天气迁移后 rain 状态在 WeatherDirector（scene.rainActive/rainOverlay
+  // 已不存在，旧读法自迁移起恒 false）——改走公开 API isRaining / hasRainVisuals
   const rain = await page.evaluate(() => {
     const s = window.__game.scene.getScene('farm');
-    return { active: !!s?.rainActive, overlay: !!s?.rainOverlay };
+    const wd = s?.weatherDirector;
+    return { active: !!wd?.isRaining, overlay: !!wd?.hasRainVisuals };
   });
-  check('L1 雨日清晨 farm 雨幕可见（rainActive + overlay）', rain.active && rain.overlay, JSON.stringify(rain));
+  check('L1 雨日清晨 farm 雨幕可见（isRaining + hasRainVisuals）', rain.active && rain.overlay, JSON.stringify(rain));
   await page.screenshot({ path: join(SHOT_DIR, 'life-loop-01-farm-rain.png') });
 
   // ── L2 上午 farm：小梅在 farm（日程 07:00→farm） ──

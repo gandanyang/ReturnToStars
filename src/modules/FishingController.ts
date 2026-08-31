@@ -139,6 +139,25 @@ export class FishingController {
   private hooks: FishingHooks;
   private isMobile: boolean;
 
+  // ═══════════════ 实机试玩埋点（会话级，不入档；window.debug.fishingStats 读取） ═══════════════
+  /** 甩竿次数 */
+  private statCasts = 0;
+  /** 成功收获次数 */
+  private statSuccesses = 0;
+  /** 过早收竿失败次数 */
+  private statFailsEarly = 0;
+  /** 咬钩窗口超时失败次数 */
+  private statFailsTimeout = 0;
+  /** 主动取消次数 */
+  private statCancels = 0;
+  /** 最近一次咬钩→收竿反应时长 ms（成功口径） */
+  private statReactionMsLast = 0;
+  /** 反应时长累计/计数（求平均） */
+  private statReactionMsSum = 0;
+  private statReactionCount = 0;
+  /** 进入 realBite 的时间戳（算反应时长用） */
+  private realBiteAt = 0;
+
   constructor(
     scene: Phaser.Scene,
     config: FishingConfig,
@@ -170,12 +189,34 @@ export class FishingController {
   }
 
   /**
+   * 实机试玩会话统计（不入档，window.debug.fishingStats 读取）。
+   * 服务于手感验收 4 问的客观数据面：连钓节奏（casts vs successes）、
+   * 失败构成（过早/超时）、取消率、咬钩反应时长（判断 0.8s 窗口松紧）。
+   */
+  public getStats(): {
+    casts: number; successes: number; failsEarly: number; failsTimeout: number;
+    cancels: number; reactionMsLast: number; reactionMsAvg: number; state: FishingState;
+  } {
+    return {
+      casts: this.statCasts,
+      successes: this.statSuccesses,
+      failsEarly: this.statFailsEarly,
+      failsTimeout: this.statFailsTimeout,
+      cancels: this.statCancels,
+      reactionMsLast: this.statReactionMsLast,
+      reactionMsAvg: this.statReactionCount > 0 ? Math.round(this.statReactionMsSum / this.statReactionCount) : 0,
+      state: this.state,
+    };
+  }
+
+  /**
    * 启动钓鱼：idle → casting
    * 原 MapScene.startFishing() 物理搬迁
    * 时序锁定：state→hideHint→pickFish→视觉隐藏→音效→视觉创建→delayedCall
    */
   public startFishing(): void {
     this.state = 'casting';
+    this.statCasts++;
     this.hideFishingInteractHint();
     this.pickCurrentFish();
     // 通知 MapScene 隐藏钓点常驻水面标识（通过外部接口或事件）
@@ -184,7 +225,11 @@ export class FishingController {
 
     // 创建钓鱼视觉容器（浮漂 + 鱼线）
     const spot = this.spots[this.hooks.getMapKey()];
-    if (!spot) return;
+    if (!spot) {
+      // 防死态：无钓点数据立即回 idle，不留无退出路径的 casting
+      this.state = 'idle';
+      return;
+    }
     const container = this.scene.add.container(spot.floatPos.x, spot.floatPos.y).setDepth(5);
     // 浮漂（红白色小圆点）
     const float = this.scene.add.ellipse(0, 0, 6, 6, 0xffffff, 1);
@@ -233,7 +278,8 @@ export class FishingController {
 
   /**
    * 钓鱼交互（tryFishingInteract 委托）。
-   * idle→启动；非 idle→收竿判定（realBite 成功 / fakeBite 失败 / 其它忽略）
+   * idle→启动；realBite→收竿成功；fakeBite→过早失败；
+   * casting/waiting→主动取消；success/fail 过渡期忽略。
    * @returns 是否消耗了交互输入
    */
   public tryFishingInteract(): boolean {
@@ -250,7 +296,15 @@ export class FishingController {
       this.onFishingFail('early');
       return true;
     }
-    // casting / waiting / success / fail 期间按 E 忽略
+    // casting / waiting：主动取消（BUG-FIX：此前被忽略，玩家误触钓鱼只能干等 2~5s
+    // 咬钩流程走完；enterWaiting 的 delayedCall 自带 state!=='waiting' 守卫，取消安全）
+    if (this.state === 'casting' || this.state === 'waiting') {
+      this.hooks.clearAction();
+      this.statCancels++;
+      this.forceCancelFishing();
+      return true;
+    }
+    // success / fail 过渡期按 E 忽略（各自 delayedCall 很快回 idle）
     return false;
   }
 
@@ -274,6 +328,7 @@ export class FishingController {
    * MapScene 外部持有 fishingSpotWaterMark 引用，通过此方法控制。
    * 为保持 P5c 独立性，返回"应该隐藏"信号，由 MapScene 执行。
    */
+  /** 钓点水面标识隐藏判定（startFishing 由 MapScene 外部执行） */
   public shouldHideWaterMark(): boolean {
     return this.state === 'casting' || this.state === 'waiting' ||
       this.state === 'fakeBite' || this.state === 'realBite';
@@ -400,6 +455,7 @@ export class FishingController {
    */
   private enterRealBite(): void {
     this.state = 'realBite';
+    this.realBiteAt = Date.now();
     this.hooks.playSfx('fish_real_bite');
     // 浮漂明显下沉
     const float = this.fishingVisuals?.getAt(0) as Phaser.GameObjects.Ellipse | null;
@@ -428,6 +484,14 @@ export class FishingController {
    */
   private onFishingSuccess(): void {
     this.state = 'success';
+    // 试玩埋点：反应时长（咬钩→收竿）
+    if (this.realBiteAt > 0) {
+      this.statReactionMsLast = Date.now() - this.realBiteAt;
+      this.statReactionMsSum += this.statReactionMsLast;
+      this.statReactionCount++;
+      this.realBiteAt = 0;
+    }
+    this.statSuccesses++;
     this.hideFishingReelHint();
     this.hooks.playSfx('fish_success');
 
@@ -597,6 +661,7 @@ export class FishingController {
    */
   private onFishingFail(reason: 'early' | 'timeout'): void {
     this.state = 'fail';
+    if (reason === 'early') this.statFailsEarly++; else this.statFailsTimeout++;
     this.hideFishingReelHint();
 
     // 失败反馈：视觉差异化

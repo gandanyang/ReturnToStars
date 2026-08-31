@@ -69,7 +69,7 @@ import {
 import { InputManager } from '../systems/InputManager';
 import * as AmbienceSystem from '../systems/AmbienceSystem';
 import { triggerTag } from '../systems/GuiXingRecordSystem';
-import { triggerOnce, triggerOnceIf, hasTriggered } from '../systems/EventManager';
+import { triggerOnce, triggerOnceIf, hasTriggered, markTriggered } from '../systems/EventManager';
 import { CHAPTER_1, setChapter, isChapterAtLeast } from '../systems/ChapterSystem';
 import { unlockPhoto, isPhotoUnlocked, PHOTO_DATABASE } from '../data/PhotoAlbum';
 import { MusicBoxPanel } from '../ui/MusicBoxPanel';
@@ -90,7 +90,7 @@ import { PhotoAlbumPanel } from '../ui/PhotoAlbumPanel';
 import { openDiscoveryPanel, isDiscoveryPanelOpen, discoveryPanelHandleEscape } from '../ui/DiscoveryPanel';
 import { openHudMenu, isHudMenuOpen, setHudMenuItems, hudMenuHandleEscape, menuIsMobile } from '../ui/HudMenuPanel';
 import { ResidentBoardPanel } from '../ui/ResidentBoardPanel';
-import { openMailbox, showFirstMailLetter, isMailboxOpen as isMailboxPanelOpen } from '../ui/MailboxPanel';
+import { openMailbox, showFirstMailLetter, closeMailbox, isMailboxOpen as isMailboxPanelOpen } from '../ui/MailboxPanel';
 import { getRequestById, isRequestDone } from '../systems/ResidentRequestSystem';
 import {
   getStoryStep, setStoryStep, advanceStory, isTutorialDone,
@@ -130,6 +130,7 @@ import {
 import { hasSave, load, apply, save, getLastIncompatibleVersion, clearIncompatibleVersion, SAVE_VERSION, isAutoSaveSuppressed } from '../systems/SaveSystem';
 import { play, isSoundEnabled, setSoundEnabled } from '../systems/AudioSystem';
 import { MusicSystem } from '../audio/MusicSystem';
+import { VoiceBank } from '../audio/VoiceBank';
 import {
   getRobots,
   getRobotAt,
@@ -148,6 +149,16 @@ import { FarmController, type FarmHooks } from '../modules/FarmController';
 import { InteractionRouter, type GateSnapshot, type InteractionCandidate, type ResolvedTarget } from '../modules/InteractionRouter';
 import { StorySequenceRunner } from '../modules/StorySequenceRunner';
 import { CutsceneGuard } from '../modules/CutsceneGuard';
+
+/**
+ * 移动端交互半径补偿（体验债务修复）：canTry/try* 距离门控里的交互半径，
+ * 触屏设备统一放大到 ≥34px（原 20~28px 在虚拟摇杆下需毫米级停靠，真机反馈点不到）。
+ * 桌面（含探针回归）行为不变。用法：`dx * dx + dy * dy <= R2(28)`。
+ */
+const R2 = (r: number): number => {
+  const boosted = isTouchDevice() ? Math.max(r, 34) : r;
+  return boosted * boosted;
+};
 
 /** MapScene 一次性/会话级 flag（需随存档持久化，防止读档后重复触发） */
 export interface MapSceneFlags {
@@ -231,6 +242,16 @@ export interface MapSceneFlags {
   dryyardMaterialsDone?: boolean; // 资源准备完成（「今年的收成」已摆出）
   dryyardHeld?: boolean;          // 当天演出已触发（傍晚晒场→夜晚长桌→灯塔）
   dryyardPerm?: boolean;          // 永久变化已落地（青禾晒场）
+  /** 第二章《故人远来》（2026-08-28 制作人拍板 v1.0 节拍表）：人线七节拍状态
+   *  复用 mapFlags + triggerOnce 范式（对齐 dryyard/artShow），不升 SAVE_VERSION。
+   *  谜团预算：仅 1 主悬念（夏雅为何认识那盏灯）+ 1 远景钩子（海平线黑点）。 */
+  ch2LighthouseTalked?: boolean;  // 节拍1 村民开始注意灯塔（一次性闲聊，无新演出）
+  ch2ClockFixed?: boolean;        // 节拍2 老钟修好（行为状态，老钟报时）
+  ch2PierRepaired?: boolean;      // 节拍3 码头来了老船长（旧船靠岸完成，码头添生活）
+  ch2StrangerSeen?: number;       // 节拍4 旅人已见次数 0-3（跨天累计；看见即可，不追不等）
+  ch2NightTalkDone?: boolean;     // 节拍5 码头夜谈完成（全章情绪高潮）
+  ch2XiyaSecretDone?: boolean;    // 节拍6 夏雅秘密（主悬念留白）
+  ch2BlackDotSeen?: boolean;      // 节拍7 海平线黑点已看（第三章唯一硬钩子）
   /** 邮箱系统（2026-08-15 制作人拍板）：grandpa_gift_opened 后解锁；信件随存档持久 */
   mailUnlocked?: boolean;         // 是否解锁（收到爷爷的信后）
   mailLastDay?: number;           // 上次来信的游戏天数（-1=未来过）
@@ -334,6 +355,11 @@ export class MapScene extends Phaser.Scene {
     return this.storySequenceRunner.playRaw(lines, onComplete, onChoice, seqId);
   }
 
+  /** 实机试玩埋点：钓鱼会话统计（window.debug.fishingStats 读取；会话级计数不入档） */
+  public getFishingStats(): ReturnType<FishingController['getStats']> {
+    return this.fishingController.getStats();
+  }
+
   private readonly mapKey: string;
   private player!: Player;
   private wallsLayer!: Phaser.Tilemaps.TilemapLayer;
@@ -343,6 +369,21 @@ export class MapScene extends Phaser.Scene {
   private transitioning = false;
   // create 阶段是否抛错（抛错时显示错误遮罩并停止更新，避免黑屏）
   private createFailed = false;
+
+  /**
+   * 第三章幕一：灯塔出口解锁判定（制作人 2026-08-31 指令"继续制作第三章内容 包括新地图"，
+   * 按方向稿 §七 建议方案执行：门槛=第二章全节拍完成；后续可由制作人调整门槛节点）。
+   * 灯塔未来内容预埋方案 §四 的"第三层开放"落地。
+   */
+  private isLighthouseUnlocked(): boolean {
+    return hasTriggered('ch2_black_dot');
+  }
+
+  /** 出口是否对玩家开放（locked 出口默认关闭；灯塔出口按幕一门禁放行） */
+  private isExitOpen(ex: { locked?: boolean; target: string }): boolean {
+    if (!ex.locked) return true;
+    return ex.target === 'lighthouse' && this.isLighthouseUnlocked();
+  }
   // 农田格子视觉对象（仅 farm 场景使用），key = "col,row"
   private tileRects = new Map<string, TileVisual>();
   // 输入管理器（统一键盘/触屏输入，Player 和交互共用）
@@ -455,6 +496,10 @@ export class MapScene extends Phaser.Scene {
   private seedSwitchBtn: HTMLDivElement | null = null;
   // 作物选择器（预选播种作物，不播种）
   private cropPickerEl: HTMLDivElement | null = null;
+  /** 作物选择器的 ESC 处理器引用（closeCropPicker 统一移除，防泄漏） */
+  private cropPickerEscHandler: ((e: KeyboardEvent) => void) | null = null;
+  /** SHUTDOWN 清理钩子是否已安装（每实例一次，防 events.on 跨 create 累积） */
+  private shutdownHooksInstalled = false;
   // 移动端点击种田：点击操作后的短暂反馈高亮（key = "col,row"，至 tapFlashUntil 过期）
   private tapFlashKey = '';
   private tapFlashUntil = 0;
@@ -585,6 +630,94 @@ export class MapScene extends Phaser.Scene {
   /** 会话级：晒场环境物件已构建到第几阶段（幂等，避免重复 add） */
   private dryyardEnvBuilt = 0;
   private townPlanPanel: HTMLDivElement | null = null;            // 「小镇计划」只读面板
+  // ══════ 第二章《故人远来》（2026-08-28 制作人拍板 v1.0 节拍表 · 7 节拍人线）══════
+  private ch2LighthouseTalked = false;   // 节拍1 村民注意灯塔（一次性闲聊）
+  private ch2ClockFixed = false;         // 节拍2 老钟修好（行为状态）
+  private ch2PierRepaired = false;       // 节拍3 老船长靠岸完成
+  private ch2StrangerSeen = 0;           // 节拍4 旅人已见次数 0-3
+  private ch2NightTalkDone = false;      // 节拍5 夜谈完成
+  private ch2XiyaSecretDone = false;     // 节拍6 夏雅秘密
+  private ch2BlackDotSeen = false;       // 节拍7 黑点已看
+  private ch2CaptainGfx: Phaser.GameObjects.Graphics | null = null;   // 老船长剪影（qinghe_river）
+  private ch2BoatGfx: Phaser.GameObjects.Graphics | null = null;      // 码头旧船 + 船灯
+  private ch2LighthouseGfx: Phaser.GameObjects.Graphics | null = null; // qinghe 远处灯塔（scrollFactor 0）
+  private ch2StrangerGfx: Phaser.GameObjects.Graphics | null = null;  // 旅人剪影（会话级）
+  private ch2StrangerLabel: Phaser.GameObjects.Text | null = null;
+  private ch2StrangerDay = -1;            // 会话级：当天旅人是否已刷（跨天刷新，不追不等）
+  private ch2StrangerAlive = false;       // 本次刷出的旅人是否还在场
+  private ch2StrangerSpawnAt = 0;         // 刷出时刻（>10s 未靠近即消失）
+  private ch2ChimeKeys = new Set<string>(); // 整点报时去重（会话级，跨小时不重复）
+  private ch2NightTalkActive = false;     // 夜谈演出中（防重入）
+  private ch2NightTalkOwed = false;       // 夜谈"欠播"（标记已打未完成；被打断后补播，不入档）
+  private ch2PierLifeGfx: Phaser.GameObjects.GameObject[] = []; // 节拍3 码头生活剪影（修复后常驻）
+  private ch3KeeperGfx: Phaser.GameObjects.Graphics | null = null; // 幕一 执灯人剪影
+  private ch3ArrivalQueued = false; // 幕一 初见演出已入队（防重入；未标记前可重试）
+  private ch3BellGfx: Phaser.GameObjects.Graphics | null = null;  // 幕二 铜铃
+  private ch3TelescopeActive = false;                              // 幕二 望远镜观察模式防重入
+  private ch3KeeperTalkCount = 0;                                  // 幕二 执灯人日常轮换（会话级）
+  private ch3ShipGfx: Phaser.GameObjects.GameObject[] = [];   // 幕三 外来船常驻视觉
+  private ch3StrangerNpcGfx: Phaser.GameObjects.GameObject[] = []; // 幕三 旅人常驻剪影
+  private ch3ShipQueued = false;       // 幕三 靠岸演出已入队（防重入）
+  private ch3ShipOwed = false;         // 幕三 靠岸演出欠播（被打断后补播）
+  private ch3StrangerTalkCount = 0;    // 幕三 旅人日常轮换（会话级）
+  private ch3PhotoPinnedGfx: Phaser.GameObjects.Graphics | null = null; // 幕三后半 照片钉柱（D-012 痕迹）
+  private ch3ArchiveVisual: Phaser.GameObjects.Graphics | null = null; // 幕三后半 B 机位（未拍才显示）
+  private ch3MeetQueued = false;  // 幕三后半 碰面演出已入队
+  private ch3MeetOwed = false;    // 幕三后半 碰面演出欠播
+  private ch3ShardGfx_lh: Phaser.GameObjects.Graphics | null = null; // 幕四 碎片（灯塔内）
+  private ch3ShardGfx_qh: Phaser.GameObjects.Graphics | null = null; // 幕四 碎片（栈板尽头）
+  private ch3ShardGfx_fm: Phaser.GameObjects.Graphics | null = null; // 幕四 碎片（海湾缺口）
+  private ch3FinaleQueued = false;      // 幕四 结算演出已入队
+  private ch3FinaleOpenQueued = false;  // 幕五 归位窗口开启演出已入队
+  private ch3BoardPhotoGfx: Phaser.GameObjects.Graphics | null = null; // 幕三后半 需求板旁小照片
+  private ch3TownReactQueued = false; // 幕三后半 镇民注脚已入队（防重入）
+  private ch3TownReactOwed = false;   // 幕三后半 镇民注脚欠播（被打断后补播）
+  private ch2NightTalkFX: Phaser.GameObjects.GameObject[] = []; // 夜谈灯光（演出期）
+  private ch2Hint: HTMLDivElement | null = null;  // 老钟/老船长靠近提示
+  /** 第二章位置表（静态常量；qinghe 码头即玩家修的青禾码头 pos(88,328) 西侧） */
+  static CH2 = {
+    clock: { x: 330, y: 150 },   // town 广场西南空地（避开集市摊位锚点）
+    market: { x: 408, y: 80 },   // town 集市广场（节拍1 人流处）
+    boat: { x: 62, y: 332 },     // qinghe_river 码头西侧水面（旧船）
+    captain: { x: 74, y: 330 },  // 码头边老船长（蹲修）
+    stranger: [                  // 旅人三次出现点（town/farm 轮换，看见即可）
+      { scene: 'town', x: 344, y: 184 },
+      { scene: 'farm', x: 180, y: 320 },
+      { scene: 'town', x: 486, y: 144 },
+    ],
+    lighthouse: { x: 168, y: 112 }, // qinghe 远处灯塔（scrollFactor 0，入海口方向）
+  };
+  // 第三章 幕一/幕二 灯塔内坐标（lighthouse.json 30x20；TILE_SIZE=16）
+  private static _CH3: {
+    keeper: { x: number; y: number };
+    bell: { x: number; y: number };
+    ship: { x: number; y: number };
+    strangerNpc: { x: number; y: number };
+    arcTown: { x: number; y: number };
+    arcFarm: { x: number; y: number };
+    arcLh: { x: number; y: number };
+  } | null = null;
+  static get CH3() {
+    if (!MapScene._CH3) {
+      MapScene._CH3 = {
+    keeper: { x: 13.4 * 16, y: 10.2 * 16 }, // 执灯人（塔基旁，setupCh3Keeper 绘制）
+    bell: { x: 17.0 * 16, y: 9.6 * 16 },    // 铜铃（灯室下方檐下，tryCh3BellInteract）
+    ship: { x: 150, y: 352 },               // 幕三 外来船（qinghe_river 码头东南水面）
+    strangerNpc: { x: 120, y: 332 },        // 幕三 旅人（码头常驻，靠岸后）
+    arcTown: { x: 34 * 16, y: 15.5 * 16 },  // 幕三后半 B 机位：集市东南空地
+    arcFarm: { x: 11 * 16, y: 19.5 * 16 },  // 幕三后半 B 机位：farm 老屋门前
+    arcLh: { x: 12 * 16, y: 9.5 * 16 },     // 幕三后半 B 机位：灯塔塔基西侧
+      };
+    }
+    return MapScene._CH3;
+  }
+  /** 幕三后半 三机位定义（场景→事件→注脚；B 拍完收摊，机位撤除） */
+  private static readonly CH3_ARCHIVE = [
+    { mapKey: 'town', ev: 'ch3_archive_town', note: '（三脚架对着重开的集市。标签：集市，第 3 卷。）' },
+    { mapKey: 'farm', ev: 'ch3_archive_farm', note: '（三脚架对着修好的老屋。标签：老屋，第 3 卷。）' },
+    { mapKey: 'lighthouse', ev: 'ch3_archive_lh', note: '（三脚架对着灯塔。标签：灯，第 1 卷。）' },
+  ];
+
   // 第一章 P2 生活采集 Phase 1（2026-08-14 设计稿 v0.1）：
   // 6 种采集物（蒲公英/野莓/野蘑菇/小野花/小树枝/河螺）× farm/town/forest/qinghe_river 四场景手工分布。
   // 河螺为条件资源（仅雨天出现，2026-08-16 天气扩面）；视觉：程序合成小群落（2-4 株），不均匀刷点（§七/§八）；零资产。
@@ -758,6 +891,10 @@ export class MapScene extends Phaser.Scene {
   private set inSpringFairCutscene(v: boolean) { v ? this.cutsceneGuard.begin('spring_fair') : this.cutsceneGuard.end('spring_fair'); }
   private get inSpringFairCutscene() { return this.cutsceneGuard.isActive('spring_fair'); }
   private springFairFX: Phaser.GameObjects.Graphics[] = [];
+  /** 春日集"欠播"标记：triggerOnce 已标记但独白未播出（会话级，不入档；防一次性剧情永久丢失） */
+  private springFairStoryOwed = false;
+  /** 春日集低频重查冷却（ms）：进 town 后仅查一次的话，"白天进镇、天黑未走"会永远错过 */
+  private springFairRescanCooldownMs = 0;
   // Phase 3 修复态 GameObjects（2026-08-13，青禾镇Phase3美术升级-拍板基线-v1.0.md §六）：
   // 路线 C：不扩 tileset，修复态用独立 sprite（增删切换，不碰 tile）。仅 town 场景。
   // 记录所有 Phase 3 挂载的 GameObject（探针验证数量/位置/显隐）
@@ -1009,6 +1146,13 @@ export class MapScene extends Phaser.Scene {
       dryyardMaterialsDone: inst.dryyardMaterialsDone,
       dryyardHeld: inst.dryyardHeld,
       dryyardPerm: inst.dryyardPerm,
+      ch2LighthouseTalked: inst.ch2LighthouseTalked,
+      ch2ClockFixed: inst.ch2ClockFixed,
+      ch2PierRepaired: inst.ch2PierRepaired,
+      ch2StrangerSeen: inst.ch2StrangerSeen,
+      ch2NightTalkDone: inst.ch2NightTalkDone,
+      ch2XiyaSecretDone: inst.ch2XiyaSecretDone,
+      ch2BlackDotSeen: inst.ch2BlackDotSeen,
       mailUnlocked: inst.mailUnlocked,
       mailLastDay: inst.mailLastDay,
       mailNextDay: inst.mailNextDay,
@@ -1083,6 +1227,13 @@ export class MapScene extends Phaser.Scene {
       this.dryyardMaterialsDone = saved.dryyardMaterialsDone ?? false;
       this.dryyardHeld = saved.dryyardHeld ?? false;
       this.dryyardPerm = saved.dryyardPerm ?? false;
+      this.ch2LighthouseTalked = saved.ch2LighthouseTalked ?? false;
+      this.ch2ClockFixed = saved.ch2ClockFixed ?? false;
+      this.ch2PierRepaired = saved.ch2PierRepaired ?? false;
+      this.ch2StrangerSeen = saved.ch2StrangerSeen ?? 0;
+      this.ch2NightTalkDone = saved.ch2NightTalkDone ?? false;
+      this.ch2XiyaSecretDone = saved.ch2XiyaSecretDone ?? false;
+      this.ch2BlackDotSeen = saved.ch2BlackDotSeen ?? false;
       this.mailUnlocked = saved.mailUnlocked ?? false;
       this.mailLastDay = saved.mailLastDay ?? -1;
       this.mailNextDay = saved.mailNextDay ?? -1;
@@ -1101,6 +1252,13 @@ export class MapScene extends Phaser.Scene {
     // 背包/任务面板跨场景清理（防止残留打开态）
     this.backpackPanel?.close();
     this.questPanel?.close();
+    // BUG-FIX（P2）：商店/音乐盒/爷爷包裹面板此前不在清理链——跨场景残留打开态，
+    // 商店面板开着时 panel_open 门控会冻结新场景交互（shop 等 DOM 面板走 UIBus 单例跨场景存活）
+    this.shopPanel?.close();
+    this.musicBoxPanel?.close();
+    this.grandpaGiftPanel?.close();
+    closeMailbox();
+    closeWaitPanel();
     // 重要事件记忆卡（story notification）跨场景清理（防止中途切场景残留）
     hideStoryCard();
     // FEATURE-038 需求板跨场景清理（防止残留打开态）
@@ -1248,6 +1406,12 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
   }
 
   create(): void {
+    // === CutsceneGuard 复位（P0 防锁死）：实例跨 shutdown/create 复用，上一轮被打断的
+    // 演出（restart/切图）旗标若带入本轮 = 交互永久 dialogue_only 锁死。演出链对象
+    // （delayedCall/tween/对白回调）在 shutdown 已全部销毁，此处复位不影响任何在途演出。
+    this.cutsceneGuard.reset();
+    // ch2 夜谈防重入旗标同步复位（ owed 欠播标记保留，供重进 qinghe_river 补播）
+    this.ch2NightTalkActive = false;
     // === P1/P2/P3: 在任何 getter 访问之前初始化三大模块 ===
     // 原因：SHUTDOWN 钩子注册中 stopRain() 等可能间接访问 panel getter；
     //      station 等场景的 createScene 中 setup* 方法也可能访问 getter。
@@ -1328,7 +1492,12 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
       presentFryReleaseChoice: () => this.presentFryReleaseChoice(),
       releaseCurrentFish: () => this.fishingController.releaseCurrentFish(),
       keepCurrentFry: () => this.fishingController.keepCurrentFry(),
-      onFishingEnded: () => this.fishingSpotWaterMark?.setVisible(true),
+      onFishingEnded: () => {
+        // 老姜修行完成后，钓点引导浮漂不再恢复；钓鱼本身仍可继续。
+        if (!hasTriggered('laojiang_practice_done')) {
+          this.fishingSpotWaterMark?.setVisible(true);
+        }
+      },
     };
     this.fishingController = new FishingController(
       this, fishingConfig, fishKinds, fishingSpots, fishingHooks, isMobileLayout(),
@@ -1386,8 +1555,13 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
       // ── P6c: 生命周期操作钩子（数据操作 + 事务顺序控制）──
       getItemCount: (itemId) => getItemCount(itemId as ItemType),
       consumeStamina: (opType) => {
+        if (!isTutorialDone()) return true;
         const cost = getActionStaminaCost(opType as 'farm_till' | 'farm_plant' | 'farm_water' | 'farm_harvest');
-        return consumeStamina(cost);
+        if (!consumeStamina(cost)) {
+          this.showDialogueText('体力不足，干不动了……先睡一觉吧！');
+          return false;
+        }
+        return true;
       },
       setTileState: (col, row, state) => setTileState(col, row, state),
       setCrop: (col, row, crop) => setCrop(col, row, crop),
@@ -1485,21 +1659,27 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
     };
     this.farmController = new FarmController(this, farmHooks);
     // 农场清理（shutdown 时销毁温暖状态等）
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => this.farmController.cleanup(), this);
-    // 场景停止/切换时清理 DOM 残留（提示条/种子选择器等），防止跨场景泄漏
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, this.cleanupSceneDom, this);
-    // 场景切换时停止环境音（防止上一场景环境音残留到下一场景——P0 防黑屏/残留）
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => AmbienceSystem.stop(), this);
-    // 场景切换时 BGM 策略（2026-08-10 音乐跨图连续）：仅停止"地图默认曲"；
-    // 若在播音乐盒"我的歌"或剧情曲则保留（新场景 playSceneBgm 同曲幂等命中→跨场景连续不打断）
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (MusicSystem.isSceneDefaultPlaying()) MusicSystem.stop();
-    }, this);
-    // E-09 消磨时间：场景切换关闭等待面板（防残留）
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => closeWaitPanel(), this);
-    // 天气系统：场景切换时停止雨天效果
-    // P3: 天气清理（迁移到 WeatherDirector）
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => this.weatherDirector.cleanup(), this);
+    // BUG-FIX（P2 泄漏）：Phaser shutdown 不移除 scene 事件监听，场景实例复用时每次
+    // create() 的 events.on 都会追加一批闭包（farm↔town 反复切换持续累积）。
+    // 全部处理器均为惰性解引用 this.X（调用时读当前字段），每实例只装一次是安全的。
+    if (!this.shutdownHooksInstalled) {
+      this.shutdownHooksInstalled = true;
+      this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => this.farmController?.cleanup(), this);
+      // 场景停止/切换时清理 DOM 残留（提示条/种子选择器等），防止跨场景泄漏
+      this.events.on(Phaser.Scenes.Events.SHUTDOWN, this.cleanupSceneDom, this);
+      // 场景切换时停止环境音（防止上一场景环境音残留到下一场景——P0 防黑屏/残留）
+      this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => AmbienceSystem.stop(), this);
+      // 场景切换时 BGM 策略（2026-08-10 音乐跨图连续）：仅停止"地图默认曲"；
+      // 若在播音乐盒"我的歌"或剧情曲则保留（新场景 playSceneBgm 同曲幂等命中→跨场景连续不打断）
+      this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
+        if (MusicSystem.isSceneDefaultPlaying()) MusicSystem.stop();
+      }, this);
+      // E-09 消磨时间：场景切换关闭等待面板（防残留）
+      this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => closeWaitPanel(), this);
+      // 天气系统：场景切换时停止雨天效果
+      // P3: 天气清理（迁移到 WeatherDirector）
+      this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => this.weatherDirector?.cleanup(), this);
+    }
     // 兜底：create 阶段任何未预期的异常（贴图缺失/地图数据异常等）都不允许演变成黑屏，
     // 统一捕获并显示错误遮罩 + 刷新按钮
     try {
@@ -1856,7 +2036,10 @@ if (!this.textures.exists('tree_big')) this.load.image('tree_big', 'assets/sprit
       // 西侧海湾已撤除（2026-08-11 制作人反馈"灯塔影子效果不好"）：石墙堵回，灯塔不可见；
       // 2026-08-14 灯塔"世界回应"线（制作人拍板）：春日集后远处灯塔亮起（不拆墙、不开放入口）
       this.setupLighthouseDistant();
-      // 未来开放时恢复海湾+灯塔远景（见 docs/design/灯塔未来内容预埋方案-v1.0.md 恢复点）
+      // 第三章幕一（制作人 2026-08-31 拍板开工）：灯塔出口开放 → 重建海湾缺口视觉
+      if (this.isLighthouseUnlocked()) this.setupFarmWestGap();
+      if (this.isLighthouseUnlocked()) this.setupCh3ArchiveTripod();
+      this.setupCh3Shards(); // 幕四碎片（farm=海湾缺口，段3 后可见）
     }
 
 // 镇长家室内氛围（暖炉辉光/浮尘/门口柔光，零资源纯代码）
@@ -1873,6 +2056,18 @@ this.setupGatherMushroomDrying();
       this.setupLighthouseExploration();
       // 视觉打磨（2026-08-10 制作人"功能可用→展示级"）：塔身层次/灯室强化/海岸环境/故事感/光影
       this.setupLighthouseVisuals();
+      // 第三章幕一：开放后执灯人在塔内 + 首次进入演出
+      if (this.isLighthouseUnlocked()) {
+        if (!hasTriggered('ch3_gap_first')) {
+          // 缺口首走时刻（地图开放与剧情开放的合龙点）：石墙的口子→亮着的灯塔
+          triggerOnce('ch3_gap_first', () => {});
+          showMemoryMoment('（石墙开了一口。路走到头，是那座亮着的灯塔。）');
+        }
+        this.setupCh3Keeper();
+      this.setupCh3ArchiveTripod();
+      this.setupCh3Shards(); // 幕四碎片（灯塔内，碰面后可见）
+        this.tryCh3LighthouseArrival();
+      }
     }
 
     // 青禾镇氛围（炊烟/窗灯/落叶，零资源纯代码）
@@ -1880,6 +2075,10 @@ this.setupGatherMushroomDrying();
       this.setupTownAmbience();
       // Phase 2 衰败态叙事物件补完（歪斜镇牌/空招牌/瓦砾，纯代码 Graphics，舞台块定义 S1/S2/S4）
       this.setupTownPhase2Details();
+      if (this.isLighthouseUnlocked()) this.setupCh3ArchiveTripod();
+      this.setupCh3Shards(); // 幕四碎片（town 无碎片，幂等）
+      // 第三章幕三后半：照片传到镇上（注脚常驻）
+      if (hasTriggered('ch3_town_react')) this.setupCh3BoardPhoto();
       // Phase 3 修复态 GameObjects（路灯/招牌/长椅/窗灯/花坛，拍板基线 §六）
       this.setupPhase3Restoration();
       // T3 小梅「小梅花」：小镇花圃种花互动点（一次性，读档恢复已开花视觉）
@@ -1919,6 +2118,8 @@ this.setupArtShow();
 this.setupDryyard();
 // 秋日晒场：玉米首收 + 春日集后，傍晚进 town 软触发开场演出（镇民讨论→老张提起晒场，见 tryDryyardIntro）
 this.time.delayedCall(1600, () => this.tryDryyardIntro());
+// 第二章《故人远来》节拍2：广场老钟（修好前后两态；ch2ClockFixed 后整点报时）
+this.setupCh2Clock();
 // 种植升级 v2：萝卜赠予后的河边腌萝卜罐（世界留下痕迹）
 this.setupCropLifeLeftovers();
 // 居民需求系统升级：镇长灯笼 / 阿风小灶 / 老姜鱼篓（交付后世界变化）
@@ -1933,6 +2134,14 @@ this.setupReqFishBasket();
     if (this.mapKey === 'qinghe_river') {
       // 河畔氛围（水波光斑/芦苇/萤火虫，零资产纯代码）
       this.setupQingheRiverAmbience();
+      // 第三章幕三：来船已靠岸 → 常驻视觉重建（船 + 旅人）
+      if (hasTriggered('ch3_ship_arrived')) { this.setupCh3Ship(); this.setupCh3StrangerNpc(); }
+      // 幕三后半恢复：三机位已拍完但碰面未播（上次切图打断）→ 重新入队
+      if (this.ch3ArchiveDoneCount() === 3 && !hasTriggered('ch3_captain_meet') && !this.ch3MeetQueued) {
+        this.ch3QueueCaptainMeet();
+      }
+      if (hasTriggered('ch3_b_photo')) this.setupCh3PhotoPinned();
+      this.setupCh3Shards(); // 幕四碎片（qinghe=栈板尽头，段2 后可见）
       // 钓鱼点（河岸码头旁）
       this.setupFishingSpot();
       // 码头修复交互点（木材×20 → 码头出现；Stage 1 垂直切片）
@@ -1947,6 +2156,10 @@ this.setupReqFishBasket();
       this.setupQingheOldMan();
       // NPC 剧情覆盖日程：河畔夏雅（16-18 时看水）
       this.setupRiversideXiya();
+      // 第二章《故人远来》：远处灯塔远景（scrollFactor 0，入海口方向，与 farm 灯塔同一座）
+      this.setupCh2LighthouseDistant();
+      // 第二章《故人远来》节拍3：老船长旧船靠岸（ch2ClockFixed 后出现；修好前=破船+修船剪影）
+      this.setupCh2Captain();
     }
 
     // gate 庄园大门美术升级（生活杂物/小动物/夜间门灯，零资源纯代码；教程逻辑零触碰）
@@ -2432,6 +2645,18 @@ this.setupFieldLife();
     // 种子切换冷却递减
     if (this.seedSwitchCooldown > 0) this.seedSwitchCooldown -= dtMs;
 
+    // 春日集低频重查（BUG-FIX 错过窗口）：原实现只在进 town 后 1 秒查一次——玩家
+    // 白天/傍晚进镇、天黑了还没走，就永远错过这次性演出。每 60 真实秒重查一次
+    // （含 springFairStoryOwed 补播路径），条件不满足时零成本返回。
+    if (this.mapKey === 'town') {
+      if (this.springFairRescanCooldownMs > 0) {
+        this.springFairRescanCooldownMs -= dtMs;
+      } else {
+        this.springFairRescanCooldownMs = 60000;
+        this.trySpringFairSequence();
+      }
+    }
+
     // 观星点显隐 + 呼吸动画（主线完成 + 夜晚时显示）
     this.updateStargaze();
     // 星空闪烁动画
@@ -2533,6 +2758,21 @@ this.setupFieldLife();
     // 小镇计划·秋日晒场：征集筐/晒场夏雅/永久期老张靠近提示 + 当天演出触发检测
     this.checkDryyardProximity();
     this.checkDryyardAuto();
+    // 第二章《故人远来》：节拍1 村民注意灯塔 / 节拍4 旅人随缘 / 节拍5 夜谈触发 / 节拍7 黑点
+    this.checkCh2LighthouseTalked();
+    this.checkCh2Stranger();
+    this.checkCh3LhStage1(); // 灯塔叙事链·阶段1：玻璃被擦过（亮灯后→节拍1 前，farm 西侧）
+    this.checkCh3ShipArrival(); // 第三章幕三：来船靠岸（黑点已见 + 灯塔开放后）
+    this.checkCh3TownReact(); // 第三章幕三后半：照片传到镇上（注脚级，不决定走向）
+    this.checkCh3ShardsDone();   // 幕四：碎片集齐 → 灯室结算
+    this.checkCh3FinaleOpen();   // 幕五：归位窗口开启（夜 21+）
+    this.checkCh3CaptainMeet();  // 幕三后半：碰面（armed → 码头播放）
+    this.checkCh2NightTalk();
+    this.checkCh2BlackDot();
+    // 第二章节拍2：老钟整点报时（ch2ClockFixed 后，轻提示不叠屏）
+    this.checkCh2ClockChime();
+    // 第二章：老钟/老船长靠近提示（共用一条 DOM）
+    this.checkCh2ProximityHint();
     // 阶段3 光照：town 黄昏暖光按小时切换（小时内幂等）
     this.updateTownDuskOverlay();
     // 钓鱼 Phase 1 靠近提示（仅 town 场景，S6 老河堤钓点附近 + 非钓鱼中 + 无对话）
@@ -2594,7 +2834,8 @@ this.setupFieldLife();
     const exits = MAP_EXITS[this.mapKey] ?? [];
     for (const ex of exits) {
       // 锁定出口（未来内容预埋）：不触发切换，玩家到此处只是"过不去"
-      if (ex.locked) continue;
+      // 第三章幕一：灯塔出口按制作人指令解锁（门槛=第二章全节拍完成，可调整）
+      if (!this.isExitOpen(ex)) continue;
       // 玩家中心点是否落在出口区域内
       if (
         this.player.x >= ex.x &&
@@ -2760,7 +3001,7 @@ this.setupFieldLife();
     
     const dx = this.player.x - this.elderHouseHint.sprite.x;
     const dy = this.player.y - this.elderHouseHint.sprite.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
     
     // 显示提示并切换到镇长家场景
     this.showDialogueText('镇长不在镇上，去镇长家看看？');
@@ -2957,7 +3198,7 @@ this.setupFieldLife();
 
   /** 发放爷爷的归星包裹（纪念物 + 启动资源；一次性 triggerOnce 入档，防重复领取） */
   private grantGrandpaGift(): void {
-    triggerOnce('grandpa_gift_opened', () => {
+    const granted = triggerOnce('grandpa_gift_opened', () => {
       addItem('grandpa_letter', 1);
       addItem('dried_fish', 1);
       addItem('flower_seedling', 1);
@@ -2972,8 +3213,10 @@ this.setupFieldLife();
       this.updateHUD();
       this.updateQuestHUD();
       this.showDialogueText('（你收好了爷爷留下的东西。信纸很旧，字迹很稳。）');
-      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing });
     });
+    // EventSystem.md 时序纪律：save 必须在 triggerOnce 返回之后（fn 内 save 快照缺当前 key，
+    // 异常终止路径读档后可重复领取奖励）；走守卫入口 saveAtPlayer（B3/B4 纪律）
+    if (granted) this.saveAtPlayer();
   }
 
   /**
@@ -3771,14 +4014,14 @@ this.setupFieldLife();
   /**
    * 钓鱼交互入口（tryInteract 调用）。
    * - idle 状态 + 靠近钓点 → 启动钓鱼循环
-   * - 钓鱼中按 E → 收竿判定（成功 / 过早失败）
+   * - 钓鱼中按 E → 收竿判定（成功 / 过早失败 / casting·waiting 主动取消）
    */
   private tryFishingInteract(): boolean {
     if (!MapScene.FISHING_SPOTS[this.mapKey]) return false;
 
-    // 钓鱼中：按 E = 收竿判定 (委托给 FishingController)
+    // 钓鱼中：按 E = 收竿判定 / 取消 (委托给 FishingController)
     if (this.fishingState !== 'idle') {
-      // 仅 realBite / fakeBite 状态收竿有效（其它状态忽略）
+      // realBite/fakeBite 收竿；casting/waiting 主动取消
       // FishingController.tryFishingInteract() 内部已实现此逻辑
       return this.fishingController.tryFishingInteract();
     }
@@ -5155,6 +5398,7 @@ this.setupFieldLife();
     this.hideQinghePavilionHint();
     this.hideQingheChatterHint();
     this.hideQingheOldManHint();
+    this.hideCh2Hint();
     // 2026-08-16 兜底：无论上面某个提示是否漏清/引用丢失/成孤儿节点，
     // 只要还挂在 document.body 上的底部交互提示一律强制移除，根治「一直停在屏幕上」。
     document.querySelectorAll<HTMLElement>('.hint-interact').forEach((el) => el.remove());
@@ -6226,7 +6470,7 @@ this.setupFieldLife();
     if (getItemCount('tomato') <= 0) return false;
     const dx = this.player.x - this.dawnXiya.x;
     const dy = this.player.y - this.dawnXiya.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
     cleanup();
     setItemCount('tomato', getItemCount('tomato') - 1);
     triggerOnce('crop_tomato_xiya_seen', () => {
@@ -6249,7 +6493,7 @@ this.setupFieldLife();
     if (hasTriggered('crop_field_alive_xiya')) return false;
     const dx = this.player.x - this.dawnXiya.x;
     const dy = this.player.y - this.dawnXiya.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
     cleanup();
     triggerOnce('crop_field_alive_xiya', () => {
 
@@ -6522,13 +6766,15 @@ this.setupFieldLife();
     this.inputManager.clearAction();
     // 需求板引导任务：打开一次即完成；首次打开标记 board_quest_done（防后续重复投放）
     onDQOpenBoard();
-    triggerOnce('board_quest_done', () => {
+    const firstOpen = triggerOnce('board_quest_done', () => {});
+    // EventSystem.md 时序纪律：save 在 triggerOnce 返回之后，快照才含当前 key
+    if (firstOpen) {
       save({
         x: this.player.x, y: this.player.y,
         scene: this.mapKey, facing: this.player.facing,
         dailyQuest: getDailyQuestSaveData(),
       });
-    });
+    }
     this.residentBoardPanel.open();
     return true;
   }
@@ -6636,7 +6882,7 @@ this.setupFieldLife();
     if (getTime().hour < 6 || getTime().hour >= 8) return false;
     const dx = this.player.x - this.dawnXiya.x;
     const dy = this.player.y - this.dawnXiya.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
 
     // 钓鱼 Phase 4：夏雅看到鱼才产生偶遇（发现时刻）——背包有青禾鲫且未换过 → 交换优先
     if (this.tryXiyaFishExchange(() => {
@@ -6811,6 +7057,10 @@ this.setupFieldLife();
     if (!isHouseTidyComplete()) return;
     if (hasTriggered('ch1_elder_visit')) return;
     if (this.elderVisitDone) return;
+    // BUG-FIX（P1）：对白/演出被占用时窗口期不触发（同 startArtShow 范式）——
+    // ch1_elder_visit 在演出开始前就标记，若 1.2s 敲门延迟内对白被别的剧情占用，
+    // play 会静默覆盖打开中的对白 → endVisit 永不执行 → 村长精灵残留、选择不入档。
+    if (this.storyDialogue?.isOpen() || this.storySequenceRunner?.isPlaying?.()) return;
     // 2026-08-14 触发放宽（制作人拍板）：整理完成 + 下次进老屋即触发。
     // 原逻辑要求「20 点后且整理完成隔天」（t.hour<20 / t.day<=ch1ElderVisitDay 拦截），
     // 玩家白天整理完 → 睡觉跨天 → 永远到不了"夜晚+老屋"状态，镇长上门经常触发不了。
@@ -6829,36 +7079,55 @@ this.setupFieldLife();
         fontSize: '13px', color: '#c8b898',
         stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5).setDepth(6);
-      // ③ 敲门声后 1.2s 自动播对白
-      this.time.delayedCall(1200, () => {
-        if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
-        // 收尾（幂等）：村长离开 → 存档（含 ch1_elder_visit / ch1ElderChoice，时序纪律见 docs/dev/EventSystem.md）。
-        // 注意：StoryDialogue 选项行被点击后只回调 onChoice、不回调 onComplete（观星夜同范式），
-        // 因此清理+存档必须在 onChoice 内也执行，否则村长精灵残留、选择不入档、读档重复触发。
-        let ended = false;
-        const endVisit = (): void => {
-          if (ended) return;
-          ended = true;
-          this.clearElderVisit();
-          this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
-        };
-        this.storyDialogue!.play(
-          [
-            { speaker: '镇长', color: '#c8b898', text: '今晚路过，看见你屋里的灯亮着。' },
-            { speaker: '林澈', color: '#7eb8da', text: '……镇长？这么晚了，怎么过来了？' },
-            { speaker: '镇长', color: '#c8b898', text: '以前镇上的灯，也是这样一点一点亮起来的。' },
-            { speaker: '镇长', color: '#c8b898', text: '最近有人开始问，集市还能不能重新开起来。' },
-            { speaker: '', color: '#aaaaaa', text: '', options: ['如果能帮上忙，我愿意试试。', '我还没想好。'] },
-          ],
-          () => endVisit(), // Skip 路径
-          (index: number) => {
-            // ⑤ 记录态度：'help' 愿意帮忙 / 'unsure' 还没想好（随 flags 入档，集市恢复时消费）
-            this.ch1ElderChoice = index === 0 ? 'help' : 'unsure';
-            endVisit();     // 正常选项路径：选项行不回调 onComplete，须在此收尾
-          },
-        );
-      });
+      // ③ 敲门声后 1.2s 自动播对白（忙则每秒重试，上限 30 次；延迟窗口内的占用在
+      // 入口守卫之外仍可能发生——如整点日常事件对白恰好插入）
+      this.time.delayedCall(1200, () => this.queueElderVisitDialogue());
     });
+  }
+
+  /**
+   * 村长来访对白入队：对白/演出被占用时每秒重试（上限 30 次），超限放弃播对白但
+   * 仍走 endVisit 收尾（清精灵+存档，宁可丢演出不可残留僵尸村长/丢选择入档）。
+   * 修复：此前忙时直接 play 会静默覆盖打开中的对白 → endVisit 永不执行。
+   */
+  private queueElderVisitDialogue(attempts = 0): void {
+    if (!this.scene.isActive()) return;
+    if (this.storyDialogue?.isOpen() || this.storySequenceRunner?.isPlaying?.()) {
+      if (attempts < 30) {
+        this.time.delayedCall(1000, () => this.queueElderVisitDialogue(attempts + 1));
+        return;
+      }
+      console.warn('[MapScene] 村长来访对白 30s 未获得播放权，放弃演出走收尾');
+      this.clearElderVisit();
+      this.saveAtPlayer();
+      return;
+    }
+    if (!this.storyDialogue) this.storyDialogue = new StoryDialogue();
+    // 收尾（幂等）：村长离开 → 存档（含 ch1_elder_visit / ch1ElderChoice，时序纪律见 docs/dev/EventSystem.md）。
+    // 注意：StoryDialogue 选项行被点击后只回调 onChoice、不回调 onComplete（观星夜同范式），
+    // 因此清理+存档必须在 onChoice 内也执行，否则村长精灵残留、选择不入档、读档重复触发。
+    let ended = false;
+    const endVisit = (): void => {
+      if (ended) return;
+      ended = true;
+      this.clearElderVisit();
+      this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
+    };
+    this.storyDialogue!.play(
+      [
+        { speaker: '镇长', color: '#c8b898', text: '今晚路过，看见你屋里的灯亮着。' },
+        { speaker: '林澈', color: '#7eb8da', text: '……镇长？这么晚了，怎么过来了？' },
+        { speaker: '镇长', color: '#c8b898', text: '以前镇上的灯，也是这样一点一点亮起来的。' },
+        { speaker: '镇长', color: '#c8b898', text: '最近有人开始问，集市还能不能重新开起来。' },
+        { speaker: '', color: '#aaaaaa', text: '', options: ['如果能帮上忙，我愿意试试。', '我还没想好。'] },
+      ],
+      () => endVisit(), // Skip 路径
+      (index: number) => {
+        // ⑤ 记录态度：'help' 愿意帮忙 / 'unsure' 还没想好（随 flags 入档，集市恢复时消费）
+        this.ch1ElderChoice = index === 0 ? 'help' : 'unsure';
+        endVisit();     // 正常选项路径：选项行不回调 onComplete，须在此收尾
+      },
+    );
   }
 
   /** 村长来访演出清理：移除精灵/标签，恢复玩家操作 */
@@ -6906,13 +7175,13 @@ this.setupFieldLife();
     if (!isCurrentlyRaining()) return;
     if (this.storyDialogue?.isOpen()) return;
     this.rainForestHintDone = true;
-    triggerOnce('world_hint_rain_forest_entrance', () => {
+    const hinted = triggerOnce('world_hint_rain_forest_entrance', () => {
       this.showDialogueText(RAIN_FOREST_ENTRANCE_HINT_DIALOGUE[0].text);
-      save({
-        x: this.player.x, y: this.player.y,
-        scene: this.mapKey, facing: this.player.facing,
-      } as any);
     });
+    // EventSystem.md 时序纪律：save 在 triggerOnce 返回之后，快照才含当前 key
+    if (hinted) {
+      this.saveAtPlayer();
+    }
   }
 
   /**
@@ -7034,7 +7303,7 @@ this.setupFieldLife();
     if (getTime().hour < 18 || getTime().hour >= 20) return false;
     const dx = this.player.x - this.eveningXiya.x;
     const dy = this.player.y - this.eveningXiya.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
 
     // 钓鱼 Phase 4：夏雅看到鱼才产生偶遇（发现时刻）——与清晨路径一致，交换优先
     if (this.tryXiyaFishExchange(() => {
@@ -7120,7 +7389,7 @@ this.setupFieldLife();
     if (getTime().hour < 16 || getTime().hour >= 18) return false;
     const dx = this.player.x - this.riversideXiya.x;
     const dy = this.player.y - this.riversideXiya.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
 
     this.riversideXiyaDay = getTime().day;
     this.riversideXiya.destroy();
@@ -8782,7 +9051,7 @@ this.setupFieldLife();
     const exits = MAP_EXITS[this.mapKey] ?? [];
     for (const ex of exits) {
       // 锁定出口（未来内容预埋）：不显示箭头，避免引导玩家去"去不了"的地方
-      if (ex.locked) continue;
+      if (!this.isExitOpen(ex)) continue;
       const targetName = MAP_NAMES[ex.target] ?? ex.target;
       const cx = ex.x + ex.w / 2;
       const cy = ex.y + ex.h / 2;
@@ -9272,7 +9541,7 @@ this.setupFieldLife();
     if (!this.xiyaSprite || !this.xiyaSprite.visible) return false;
     const dx = this.player.x - this.xiyaSprite.x;
     const dy = this.player.y - this.xiyaSprite.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
 
     if (getStoryStep() === 'arrive_manor') {
       setStoryStep('xiya_talk');
@@ -9493,6 +9762,7 @@ this.setupFieldLife();
     const exits = MAP_EXITS[this.mapKey] ?? [];
     const hasExitOnEdge = (edge: 'top' | 'bottom' | 'left' | 'right'): boolean => {
       for (const ex of exits) {
+        if (!this.isExitOpen(ex)) continue;
         switch (edge) {
           case 'top':    if (ex.y <= wb.y + M) return true; break;
           case 'bottom': if (ex.y + ex.h >= wb.bottom - M) return true; break;
@@ -9556,12 +9826,14 @@ this.setupFieldLife();
       document.body.appendChild(fade);
     }
     fade.style.opacity = '0.68';
-    window.setTimeout(() => {
+    // BUG-FIX（P1）：改走 delayedCall + isActive 守卫——裸 setTimeout 在切图/重启后回调迟到，
+    // 会在已销毁场景上调 updateHUD（B3/B4 延迟回调存档守卫纪律）
+    this.time.delayedCall(420, () => {
       setTime(destHour, 0);
       refreshSchedule(); // NPC 位置按新时间刷新
-      this.updateHUD();
+      if (this.scene.isActive()) this.updateHUD();
       if (fade) fade.style.opacity = '0';
-    }, 420);
+    });
   }
 
   private showDialogueText(text: string): void {
@@ -10165,14 +10437,14 @@ this.setupFieldLife();
     }
     if (isMobileLayout()) {
       if (this.mapKey === 'farm') {
-        this.hudAreaDom.innerHTML = `${name} ${day} ${lv} | ${seedInfo} ${coins} ${diamonds}`;
+        this.hudAreaDom.innerHTML = `${name} ${day} ${lv} | ${stamina} ${seedInfo} ${coins} ${diamonds}`;
       } else {
         this.hudAreaDom.innerHTML = `${name} ${day} ${lv} | ${stamina} ${coins} ${diamonds}`;
       }
     } else {
       if (this.mapKey === 'farm') {
         this.hudAreaDom.innerHTML =
-          `${name} | ${day} | ${lv} | WASD/E交互 | R切换:${seedInfo} | ${coins} | ${diamonds} | 出口切换`;
+          `${name} | ${day} | ${lv} | ${stamina} | WASD/E交互 | R切换:${seedInfo} | ${coins} | ${diamonds} | 出口切换`;
       } else {
         this.hudAreaDom.innerHTML = `${name} | ${day} | ${lv} | ${stamina} | WASD 移动 | ${coins} | ${diamonds} | 出口切换`;
       }
@@ -10375,6 +10647,16 @@ this.setupFieldLife();
         id: 'qinghe_pier',
         check: () => this.mapKey === 'qinghe_river' && this.canTryQinghePier(),
       },
+      // 16b. ch2_clock: 第二章·广场老钟（town）
+      {
+        id: 'ch2_clock',
+        check: () => this.canTryCh2Clock(),
+      },
+      // 16c. ch2_captain: 第二章·码头老船长（qinghe_river）
+      {
+        id: 'ch2_captain',
+        check: () => this.canTryCh2Captain(),
+      },
       // 17. qinghe_pavilion: 青禾凉亭
       {
         id: 'qinghe_pavilion',
@@ -10407,9 +10689,34 @@ this.setupFieldLife();
       },
       // 23. lighthouse: 灯塔探索
       {
+        id: 'ch3_archive',
+        check: () => this.isLighthouseUnlocked() && this.canTryCh3Archive(),
+      },
+      {
+        id: 'ch3_keeper',
+        check: () => this.mapKey === 'lighthouse' && this.isLighthouseUnlocked() && this.canTryCh3Keeper(),
+      },
+      {
+        id: 'ch3_bell',
+        check: () => this.mapKey === 'lighthouse' && this.isLighthouseUnlocked() && this.canTryCh3Bell(),
+      },
+      {
+        id: 'ch3_shard',
+        check: () => this.canTryCh3Shard(),
+      },
+      {
+        id: 'ch3_end_ship',
+        check: () => this.canTryCh3EndShip(),
+      },
+      {
+        id: 'ch3_stranger',
+        check: () => this.mapKey === 'qinghe_river' && hasTriggered('ch3_ship_arrived') && this.canTryCh3Stranger(),
+      },
+      {
         id: 'lighthouse',
         check: () => this.mapKey === 'lighthouse' && this.canTryLighthouse(),
       },
+      // 第三章幕二：灯塔三件套深交互（执灯人日常 / 铃铛 / 日志续写与望远镜在 lighthouse 分支内分流）
       // 24. elder_star: 镇长委托
       {
         id: 'elder_star',
@@ -10628,6 +10935,10 @@ this.setupFieldLife();
         return this.tryLaoJiangInteract();
       case 'qinghe_pier':
         return this.tryQinghePierInteract();
+      case 'ch2_clock':
+        return this.tryCh2ClockInteract();
+      case 'ch2_captain':
+        return this.tryCh2CaptainInteract();
       case 'qinghe_pavilion':
         return this.tryQinghePavilionInteract();
       case 'qinghe_chatter':
@@ -10642,6 +10953,18 @@ this.setupFieldLife();
         return this.tryGatherInteract();
       case 'lighthouse':
         return this.tryLighthouseInteract();
+      case 'ch3_archive':
+        return this.tryCh3ArchiveInteract();
+      case 'ch3_keeper':
+        return this.tryCh3KeeperInteract();
+      case 'ch3_bell':
+        return this.tryCh3BellInteract();
+      case 'ch3_shard':
+        return this.tryCh3ShardInteract();
+      case 'ch3_end_ship':
+        return this.tryCh3EndShipInteract();
+      case 'ch3_stranger':
+        return this.tryCh3StrangerInteract();
       case 'elder_star':
         return this.trySideElderStar();
       case 'xiya_gate':
@@ -10847,7 +11170,7 @@ this.setupFieldLife();
     if (this.mapKey !== 'town' || !this.townShop) return false;
     const dx = this.player.x - this.townShop.pos.x;
     const dy = this.player.y - this.townShop.pos.y;
-    if (dx * dx + dy * dy >= 30 * 30) return false;
+    if (dx * dx + dy * dy >= R2(30)) return false;
     const boss = this.npcList.find((n) => n.id === 'shopkeeper');
     if (boss && boss.sprite && !boss.vanished) {
       this.showDialogue(boss);
@@ -10879,7 +11202,7 @@ this.setupFieldLife();
       if (!e.sprite.visible) return false;
       const dx = this.player.x - e.sprite.x;
       const dy = this.player.y - e.sprite.y;
-      return dx * dx + dy * dy < 24 * 24;
+      return dx * dx + dy * dy < R2(24);
     });
     if (nearOre && !this.mineTipShown) {
       this.mineTipShown = true;
@@ -10896,10 +11219,14 @@ this.setupFieldLife();
    */
 
   // --- house_tidy ---
+  // BUG-FIX (P0 床交互)：条件须与执行器 tryHouseTidyInteract 一致（mark 存在 = 未完成 = 可交互）。
+  // 此前写成 !item.mark（只匹配已完成点）：① 未整理时 house_tidy 永不成为候选 → 床点直接走 bed；
+  // ② 整理完成后 mark=null 的点反而命中 → house_tidy 以 #1 优先级抢走交互，而执行器跳过
+  // 已完成点 → 静默返回 false → 床前按 E 无反应（"床睡不了觉"，桌面端同样复现）。
   private canTryHouseTidy(): boolean {
     if (this.mapKey !== 'house') return false;
     for (const item of this.houseTidy) {
-      if (!item.mark) {
+      if (item.mark) {
         const dx = this.player.x - item.pos.x;
         const dy = this.player.y - item.pos.y;
         if (dx * dx + dy * dy < 48 * 48) return true;
@@ -10957,12 +11284,16 @@ this.setupFieldLife();
 
   // --- butterfly ---
   private canTryCatchButterfly(): boolean {
+    // BUG-FIX（P1）：钓鱼中（casting/waiting/realBite/fakeBite）捕虫不抢占——
+    // 候选序里 butterfly 在 fishing 之前，等咬钩 0.8s 收竿窗口内按 E 曾被 24px 内
+    // 的蝴蝶抢走 → 超时判负。钓鱼期间蝴蝶候选一律让位。
+    if (this.fishingState !== 'idle') return false;
     for (const b of this.catchableButterflies) {
       if (b.getData('captured')) continue;
       if (!b.visible) continue;
       const dx = this.player.x - b.x;
       const dy = this.player.y - b.y;
-      if (dx * dx + dy * dy < 24 * 24) return true;
+      if (dx * dx + dy * dy < R2(24)) return true;
     }
     return false;
   }
@@ -11099,7 +11430,7 @@ this.setupFieldLife();
     if (getTime().hour < 16 || getTime().hour >= 18) return false;
     const dx = this.player.x - this.riversideXiya.x;
     const dy = this.player.y - this.riversideXiya.y;
-    return dx * dx + dy * dy <= 28 * 28;
+    return dx * dx + dy * dy <= R2(28);
   }
 
   // --- fishing ---
@@ -11130,7 +11461,7 @@ this.setupFieldLife();
     for (const s of this.lighthouseSpots) {
       const dx = this.player.x - s.x;
       const dy = this.player.y - s.y;
-      if (dx * dx + dy * dy <= 32 * 32) return true;
+      if (dx * dx + dy * dy <= R2(32)) return true;
     }
     return false;
   }
@@ -11150,14 +11481,14 @@ this.setupFieldLife();
     if (getStoryStep() !== 'arrive_manor') return false;
     const dx = this.player.x - this.xiyaSprite.x;
     const dy = this.player.y - this.xiyaSprite.y;
-    return dx * dx + dy * dy <= 28 * 28;
+    return dx * dx + dy * dy <= R2(28);
   }
 
   // --- gate_wall ---
   private canTryGateWall(): boolean {
     const dx = this.player.x - 15 * TILE_SIZE;
     const dy = this.player.y - 9 * TILE_SIZE;
-    return dx * dx + dy * dy < 30 * 30;
+    return dx * dx + dy * dy < R2(30);
   }
 
   // --- dawn_xiya ---
@@ -11166,7 +11497,7 @@ this.setupFieldLife();
     if (getTime().hour < 6 || getTime().hour >= 8) return false;
     const dx = this.player.x - this.dawnXiya.x;
     const dy = this.player.y - this.dawnXiya.y;
-    return dx * dx + dy * dy <= 28 * 28;
+    return dx * dx + dy * dy <= R2(28);
   }
 
   // --- elder_hint ---
@@ -11174,7 +11505,7 @@ this.setupFieldLife();
     if (!this.elderHouseHint || !this.elderHouseHint.sprite.visible) return false;
     const dx = this.player.x - this.elderHouseHint.sprite.x;
     const dy = this.player.y - this.elderHouseHint.sprite.y;
-    return dx * dx + dy * dy <= 28 * 28;
+    return dx * dx + dy * dy <= R2(28);
   }
 
   // --- gardener_plum ---
@@ -11186,7 +11517,7 @@ this.setupFieldLife();
       if (!n.sprite || n.vanished) continue;
       const ndx = this.player.x - n.sprite.x;
       const ndy = this.player.y - n.sprite.y;
-      if (ndx * ndx + ndy * ndy < 24 * 24) return false;
+      if (ndx * ndx + ndy * ndy < R2(24)) return false;
     }
     const T = TILE_SIZE;
     const px = 28 * T + T / 2;
@@ -11209,7 +11540,7 @@ this.setupFieldLife();
     if (this.mapKey !== 'town' || !this.shopMachine) return false;
     const dx = this.player.x - this.shopMachine.pos.x;
     const dy = this.player.y - this.shopMachine.pos.y;
-    return dx * dx + dy * dy < 20 * 20;
+    return dx * dx + dy * dy < R2(20);
   }
 
   // --- resident_board ---
@@ -11226,7 +11557,7 @@ this.setupFieldLife();
     if (getTime().hour < 18 || getTime().hour >= 20) return false;
     const dx = this.player.x - this.eveningXiya.x;
     const dy = this.player.y - this.eveningXiya.y;
-    return dx * dx + dy * dy <= 28 * 28;
+    return dx * dx + dy * dy <= R2(28);
   }
 
   // --- grandpa_note ---
@@ -11235,7 +11566,7 @@ this.setupFieldLife();
     const p = this.grandpaNotePos;
     const dx = this.player.x - p.x;
     const dy = this.player.y - p.y;
-    return dx * dx + dy * dy <= 28 * 28;
+    return dx * dx + dy * dy <= R2(28);
   }
 
   // --- garden_restore ---
@@ -11357,7 +11688,7 @@ this.setupFieldLife();
     if (gardener && gardener.sprite) {
       const ndx = this.player.x - gardener.sprite.x;
       const ndy = this.player.y - gardener.sprite.y;
-      if (ndx * ndx + ndy * ndy < 24 * 24) return false;
+      if (ndx * ndx + ndy * ndy < R2(24)) return false;
     }
     const T = TILE_SIZE;
     const gx = 3 * T + T / 2;
@@ -11381,7 +11712,7 @@ this.setupFieldLife();
     if (!this.gardenXiya || !this.gardenXiya.visible) return false;
     const dx = this.player.x - this.gardenXiya.x;
     const dy = this.player.y - this.gardenXiya.y;
-    return dx * dx + dy * dy <= 28 * 28;
+    return dx * dx + dy * dy <= R2(28);
   }
 
   // --- old_robot ---
@@ -11389,7 +11720,7 @@ this.setupFieldLife();
     if (!this.oldRobot || !this.oldRobot.visible) return false;
     const dx = this.player.x - this.oldRobotPos.x;
     const dy = this.player.y - this.oldRobotPos.y;
-    return dx * dx + dy * dy <= 30 * 30;
+    return dx * dx + dy * dy <= R2(30);
   }
 
   // --- stall_keeper ---
@@ -11418,7 +11749,7 @@ this.setupFieldLife();
     if (this.mapKey !== 'town' || !this.townShop) return false;
     const dx = this.player.x - this.townShop.pos.x;
     const dy = this.player.y - this.townShop.pos.y;
-    return dx * dx + dy * dy < 30 * 30;
+    return dx * dx + dy * dy < R2(30);
   }
 
   // --- old_tree ---
@@ -11433,7 +11764,7 @@ this.setupFieldLife();
     if (!this.shardSprite) return false;
     const dx = this.player.x - this.shardSprite.x;
     const dy = this.player.y - this.shardSprite.y;
-    return dx * dx + dy * dy < 24 * 24;
+    return dx * dx + dy * dy < R2(24);
   }
 
   // --- mine_lamp ---
@@ -11454,7 +11785,7 @@ this.setupFieldLife();
       if (!e.sprite.visible) return false;
       const dx = this.player.x - e.sprite.x;
       const dy = this.player.y - e.sprite.y;
-      return dx * dx + dy * dy < 24 * 24;
+      return dx * dx + dy * dy < R2(24);
     });
     return nearOre;
   }
@@ -11468,7 +11799,7 @@ this.setupFieldLife();
       const cy = pos.row * TILE_SIZE + TILE_SIZE / 2;
       const dx = this.player.x - cx;
       const dy = this.player.y - cy;
-      if (dx * dx + dy * dy < 24 * 24) return true;
+      if (dx * dx + dy * dy < R2(24)) return true;
     }
     return false;
   }
@@ -11638,6 +11969,24 @@ this.setupFieldLife();
         (treesRefreshed ? '已保存 Zzz... 树木也生长恢复了！' : '已保存 Zzz...') +
           (rainMoistened > 0 ? ' 雨水帮忙浇过了农田！' : ''),
       );
+      // 第三章幕五（槽 D2）：归位状态下的"留岛"结局——睡在自家床（行为承载，无选项面板）
+      if (this.ch3FinaleActive()) {
+        this.time.delayedCall(1600, () => {
+          if (!this.scene.isActive()) return;
+          this.playStory(
+            [
+              { speaker: '', color: '#aaaaaa', text: '（躺下之前，你把灯留在窗边——让西边那盏，也能看见这一点光。）' },
+              { speaker: '', color: '#aaaaaa', text: '（今晚，你留在这里。）' },
+              { speaker: '', color: '#aaaaaa', text: '（不是不能走。是想留下的夜晚，比想走的多了一个。）' },
+              { speaker: '', color: '#aaaaaa', text: '（第三章·归位——完）' },
+            ],
+            () => {
+              triggerOnce('ch3_end_stay', () => {});
+              this.saveAtPlayer();
+            },
+          );
+        });
+      }
       // P2：检查是否有成熟作物可收获
       if (this.mapKey === 'farm') {
         const readyCrops = getAllCropEntries().filter(([, c]) => {
@@ -11645,7 +11994,11 @@ this.setupFieldLife();
           return def && getTime().day >= c.plantDay + def.growthDays;
         });
         if (readyCrops.length > 0) {
-          setTimeout(() => this.showDialogueText(`🌱 有 ${readyCrops.length} 块作物成熟了，快去收获吧！`), 1200);
+          // BUG-FIX（P1）：裸 setTimeout 不随 shutdown 清理，切图/重启后回调迟到会解引用旧 player
+          this.time.delayedCall(1200, () => {
+            if (!this.scene.isActive()) return;
+            this.showDialogueText(`🌱 有 ${readyCrops.length} 块作物成熟了，快去收获吧！`);
+          });
         }
         // P2-1 认知补强：已播种未浇水（planted，机器人已先执行浇水）→ 提醒玩家缺水，区分"时间未到"与"缺浇水"
         const dryCrops = getAllCropEntries().filter(([key]) => {
@@ -11653,7 +12006,10 @@ this.setupFieldLife();
           return getTileState(c, r) === 'planted';
         });
         if (dryCrops.length > 0) {
-          setTimeout(() => this.showDialogueText(`💧 有 ${dryCrops.length} 块作物土壤发干，记得浇水！`), 1400);
+          this.time.delayedCall(1400, () => {
+            if (!this.scene.isActive()) return;
+            this.showDialogueText(`💧 有 ${dryCrops.length} 块作物土壤发干，记得浇水！`);
+          });
         }
 
         // 碎片收集进度：睡前内心独白（根据碎片数量显示不同台词）
@@ -11661,7 +12017,10 @@ this.setupFieldLife();
         const progressLines = SHARD_PROGRESS_LINES[shardCount] ?? [];
         if (progressLines.length > 0) {
           const randomLine = progressLines[Math.floor(Math.random() * progressLines.length)];
-          setTimeout(() => showMemoryMoment(randomLine), 2000);
+          this.time.delayedCall(2000, () => {
+            if (!this.scene.isActive()) return;
+            showMemoryMoment(randomLine);
+          });
         }
       }
       // day2 清晨「岛屿的第一声回应」：睡醒（次日 06:00）仍留在 farm 时立即尝试触发
@@ -12672,10 +13031,13 @@ this.setupFieldLife();
     for (const s of this.lighthouseSpots) {
       const dx = this.player.x - s.x;
       const dy = this.player.y - s.y;
-      if (dx * dx + dy * dy > 32 * 32) continue;
+      if (dx * dx + dy * dy > R2(32)) continue;
       console.log(`[Lighthouse] 交互: ${s.label} at (${s.x},${s.y})`);
       // 探索足迹入档（一次性；轻量版无新系统，供未来 P2 剧情/相簿判断）
       triggerOnce(s.key, () => {});
+      // 第三章幕二深交互：日志（续写）与望远镜（观察模式）从"读一句话"升级为行为
+      if (s.key === 'lighthouse_logbook') { this.interactCh3Logbook(); return true; }
+      if (s.key === 'lighthouse_telescope') { this.interactCh3Telescope(); return true; }
       this.showDialogueText(s.text);
       return true;
     }
@@ -12840,6 +13202,462 @@ this.setupFieldLife();
       ).setScrollFactor(0).setDepth(90);
       cool.setBlendMode(Phaser.BlendModes.MULTIPLY);
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // 第二章《故人远来》（2026-08-28 制作人拍板 v1.0 节拍表 · 7 节拍人线）
+  // 护栏：① 节拍1 只做状态递进不制造新演出 ② 夏雅身世只揭一层
+  //       ③ 老船长/旅人严格货位（旅人随缘：看见即可，不追不等不补课）
+  //       ④ 探针全程同步（probe-ch2-return.mjs）
+  // 谜团预算：1 主悬念（夏雅为何认识那盏灯）+ 1 远景钩子（海平线黑点）
+  // ══════════════════════════════════════════════════════════════════
+
+  // ---- 节拍1 · 村民注意灯塔（town，只做状态递进——护栏1：不制造新演出）----
+  private checkCh2LighthouseTalked(): void {
+    if (this.mapKey !== 'town' || hasTriggered('ch2_lighthouse_talked')) return;
+    if (!hasTriggered('lighthouseLit')) return;          // 灯塔亮是既有事实（春日集后已触发）
+    if (this.storyDialogue?.isOpen()) return;
+    const t = getTime();
+    if (t.hour < 8 || t.hour >= 21) return;
+    const m = MapScene.CH2.market;
+    const dx = this.player.x - m.x, dy = this.player.y - m.y;
+    if (dx * dx + dy * dy > 120 * 120) return;           // 集市广场（人流处）
+    this.ch2LighthouseTalked = true;
+    triggerOnce('ch2_lighthouse_talked', () => {
+      this.playStory([
+        { speaker: '阿风', color: '#d8a8b8', text: '西边那塔，这几天好像天天亮。' },
+        { speaker: '老周', color: '#c8b8a0', text: '……嗯。有人回来了。' },
+        { speaker: '', color: '#aaaaaa', text: '（谁也没接话。阿风低头理他的货，老周喝了口茶。像一件平常事。）' },
+      ], () => this.updateHUD());
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+    });
+  }
+
+  // ---- 节拍2 · 广场老钟（town；夏雅身世只揭一层——护栏2）----
+  private setupCh2Clock(): void {
+    if (this.mapKey !== 'town') return;
+    const p = MapScene.CH2.clock;
+    const done = hasTriggered('ch2_clock_fixed');
+    const g = this.add.graphics().setDepth(3);
+    g.fillStyle(0x5b4226, 1); g.fillRect(p.x - 2, p.y - 20, 4, 20);          // 木杆
+    g.fillStyle(done ? 0x8a6a45 : 0x4a3018, 1); g.fillRect(p.x - 9, p.y - 30, 18, 12); // 钟体
+    g.fillStyle(done ? 0xfff0c0 : 0x2e2a3a, 1); g.fillCircle(p.x, p.y - 24, 4);        // 钟面
+    if (done) {
+      g.fillStyle(0x3a3a44, 1); g.fillRect(p.x - 1, p.y - 19, 2, 3);          // 摆锤在走
+    } else {
+      g.fillStyle(0x2e2a3a, 1); g.fillRect(p.x - 1, p.y - 20, 2, 2);          // 摆锤停住
+      // 未修：呼吸光晕提示可交互
+      const glow = this.add.ellipse(p.x, p.y - 22, 34, 26, 0xffd98a, 0.14).setDepth(2);
+      this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.26 }, duration: 1300, yoyo: true, repeat: -1 });
+    }
+  }
+
+  private canTryCh2Clock(): boolean {
+    if (this.mapKey !== 'town' || hasTriggered('ch2_clock_fixed')) return false;
+    const p = MapScene.CH2.clock;
+    const dx = this.player.x - p.x, dy = this.player.y - p.y;
+    if (dx * dx + dy * dy > 40 * 40) return false;
+    return !this.storyDialogue?.isOpen();
+  }
+
+  private tryCh2ClockInteract(): boolean {
+    if (!this.canTryCh2Clock()) return false;
+    this.hideCh2Hint();
+    this.inputManager.clearAction();
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    this.playStory([
+      narrator('（广场的老钟停了很多年。今天钟前人站着夏雅，脚边一把梯子，工具箱摊开。）'),
+      { speaker: '夏雅', color: '#d8a8b8', text: '你来啦。搭把手——扶一下梯子。' },
+      { speaker: '', color: '#aaaaaa', text: '（你扶住梯子。她踩着上去，打开钟面，拿油壶给机芯上了两滴油。）' },
+      { speaker: '夏雅', color: '#d8a8b8', text: '钟摆要上油了。老人们听它报时听惯了，不能让它一直停着。' },
+      { speaker: '林澈', color: '#c8d8f0', text: '你对这钟很熟？' },
+      { speaker: '夏雅', color: '#d8a8b8', text: '……我家以前，也走过船。' },
+      { speaker: '', color: '#aaaaaa', text: '（她说到这儿停了一下，没往下说。手上把钟摆轻轻一推——钟摆走了。）' },
+      { speaker: '夏雅', color: '#d8a8b8', text: '好了。' },
+      { speaker: '', color: '#aaaaaa', text: '（钟面下，钟摆一下一下地摆起来。她站在钟下听了一阵。）' },
+      { speaker: '夏雅', color: '#d8a8b8', text: '……走得真准。' },
+    ], () => {
+      this.ch2ClockFixed = true; markTriggered('ch2_clock_fixed');
+        markTriggered('ch2_clock_fixed');
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      this.updateHUD();
+    });
+    return true;
+  }
+
+  /** 老钟整点报时（ch2ClockFixed 后；轻提示一次，不叠屏） */
+  private checkCh2ClockChime(): void {
+    if (this.mapKey !== 'town' || !this.ch2ClockFixed) return;
+    if (this.storyDialogue?.isOpen()) return;
+    const t = getTime();
+    if (t.minute !== 0) return;
+    const key = `ch2_chime_${t.hour}`;
+    if (this.ch2ChimeKeys.has(key)) return;
+    this.ch2ChimeKeys.add(key);
+    this.time.delayedCall(900, () => {
+      if (!this.scene.isActive()) return;
+      this.showDialogueText('（老钟敲了几下。镇上的人听了，没什么人抬头——像是早就习惯了。）');
+    });
+  }
+
+  // ---- 节拍3 · 老船长旧船靠岸（qinghe_river 玩家修的青禾码头）----
+  private setupCh2Captain(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (!hasTriggered('ch2_clock_fixed')) return;  // 节拍2 完成后才出现（跨场景读模块内存）
+    if (this.ch2CaptainGfx || this.ch2BoatGfx) return; // 幂等
+    const b = MapScene.CH2.boat;
+    const c = MapScene.CH2.captain;
+    // 旧船（船头朝岸，深木色）
+    const boat = this.add.graphics().setDepth(3);
+    boat.fillStyle(0x4a3622, 1); boat.fillEllipse(b.x, b.y, 46, 14);       // 船身
+    boat.fillStyle(0x3a2a18, 1); boat.fillRect(b.x + 10, b.y - 6, 16, 3);  // 船头翘起
+    boat.fillStyle(0x2e2416, 1); boat.fillRect(b.x - 16, b.y - 3, 30, 2);  // 船舷
+    this.ch2BoatGfx = boat;
+    // 船灯（旧船灯，常亮暖黄——"有人回来了"的视觉标记）
+    const lamp = this.add.graphics().setDepth(4);
+    lamp.fillStyle(0x6e4a24, 1); lamp.fillRect(b.x - 12, b.y - 12, 3, 8);
+    lamp.fillStyle(0xffd98a, 0.95); lamp.fillEllipse(b.x - 11, b.y - 14, 5, 6);
+    this.tweens.add({ targets: lamp, alpha: { from: 0.7, to: 1.0 }, duration: 1100, yoyo: true, repeat: -1 });
+    // 老船长剪影（蹲在船边修船；短、硬、不解释）
+    const cap = this.add.graphics().setDepth(5);
+    cap.fillStyle(0x3a4a5a, 1); cap.fillCircle(c.x, c.y - 9, 3.2);        // 头（深蓝灰外套）
+    cap.fillStyle(0x8a7a6a, 1); cap.fillCircle(c.x, c.y - 9, 2.4);        // 肤色
+    cap.fillStyle(0x3a4a5a, 1); cap.fillRect(c.x - 5, c.y - 5, 10, 6);    // 上身（蹲姿）
+    cap.fillStyle(0x2e3a46, 1); cap.fillRect(c.x - 4, c.y - 1, 8, 2);     // 腿（蹲）
+    cap.fillStyle(0x6e4a2c, 1); cap.fillRect(c.x + 2, c.y - 4, 1, 5);     // 手里木楔
+    this.ch2CaptainGfx = cap;
+    this.setupCh2PierLife(); // 修复已完成的老档：进图即有码头生活（幂等）
+    this.add.text(c.x, c.y - 21, '老船长', {
+      fontSize: '11px', color: '#a8b8c8', stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
+    }).setOrigin(0.5).setDepth(5);
+  }
+
+  /**
+   * 节拍3 余韵（拍板基线：之后码头开始有人走动——晾网、搬筐、蹲着抽烟）：
+   * 码头生活剪影 ×2 + 晾网绳，`ch2_pier_repaired` 后常驻（每次进 qinghe_river 重建；
+   * 零资产，春日集人群剪影范式；不解释、无对白——"有人回来了"的可见证据）。
+   */
+  private setupCh2PierLife(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (!hasTriggered('ch2_pier_repaired')) return;
+    this.ch2PierLifeGfx = this.ch2PierLifeGfx.filter((o) => o.active);
+    if (this.ch2PierLifeGfx.length > 0) return; // 幂等
+    const c = MapScene.CH2.captain;
+    // 晾网绳：两根短柱间一条网线（淡，像刚用起来）
+    const net = this.add.graphics().setDepth(3);
+    net.fillStyle(0x6e5a3a, 1);
+    net.fillRect(c.x + 42, c.y - 22, 2, 22);
+    net.fillRect(c.x + 92, c.y - 26, 2, 26);
+    net.lineStyle(1, 0x9a8a6a, 0.7);
+    net.lineBetween(c.x + 43, c.y - 20, c.x + 93, c.y - 24);
+    net.lineStyle(1, 0x9a8a6a, 0.4);
+    net.lineBetween(c.x + 55, c.y - 21, c.x + 55, c.y - 8);
+    net.lineBetween(c.x + 70, c.y - 22, c.x + 70, c.y - 9);
+    net.lineBetween(c.x + 84, c.y - 23, c.x + 84, c.y - 10);
+    this.ch2PierLifeGfx.push(net);
+    // 晾网的人（站立，轻微晃动）
+    const a = this.add.graphics().setDepth(4);
+    a.fillStyle(0x5a4a3a, 1); a.fillCircle(c.x + 60, c.y - 14, 3);
+    a.fillStyle(0x4a3a2c, 1); a.fillRect(c.x + 57, c.y - 11, 6, 11);
+    a.fillStyle(0x3a3026, 1); a.fillRect(c.x + 58, c.y, 2, 5);
+    a.fillStyle(0x3a3026, 1); a.fillRect(c.x + 62, c.y, 2, 5);
+    this.tweens.add({ targets: a, x: c.x + 61.5, duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    this.ch2PierLifeGfx.push(a);
+    // 背筐走过的人（横移循环——"搬筐"）
+    const b = this.add.graphics().setDepth(4);
+    b.fillStyle(0x4a4438, 1); b.fillCircle(c.x + 120, c.y - 12, 3);
+    b.fillStyle(0x3c3428, 1); b.fillRect(c.x + 117, c.y - 9, 6, 10);
+    b.fillStyle(0x6e5a3a, 1); b.fillRect(c.x + 114, c.y - 16, 5, 6);   // 背上的筐
+    b.fillStyle(0x30281e, 1); b.fillRect(c.x + 118, c.y + 1, 2, 4);
+    b.fillStyle(0x30281e, 1); b.fillRect(c.x + 122, c.y + 1, 2, 4);
+    this.tweens.add({ targets: b, x: c.x + 88, duration: 5200, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    this.ch2PierLifeGfx.push(b);
+  }
+
+  // ---- 节拍1 · 远处灯塔（qinghe_river 入海口方向；复用第一章 lighthouseLit 既有状态：只状态递进，不新演出——护栏1）----
+  private setupCh2LighthouseDistant(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (this.ch2LighthouseGfx) return;            // 幂等
+    if (!hasTriggered('lighthouseLit')) return;   // 第一章春日集已点亮（既有事实），未亮不画
+    const p = MapScene.CH2.lighthouse;
+    const g = this.add.graphics().setScrollFactor(0).setDepth(160);
+    g.fillStyle(0x1a2436, 0.9); g.fillRect(p.x - 3, p.y - 34, 6, 34);  // 塔身（远景小）
+    g.fillStyle(0x2a3550, 1); g.fillRect(p.x - 4, p.y - 38, 8, 5);     // 塔顶机房
+    g.fillStyle(0xffe6a0, 1); g.fillEllipse(p.x, p.y - 37, 5, 5);      // 灯火（常亮，持续事实）
+    g.fillStyle(0xffe6a0, 0.18); g.fillCircle(p.x, p.y - 37, 9);       // 光晕
+    this.ch2LighthouseGfx = g;
+  }
+
+  private canTryCh2Captain(): boolean {
+    if (this.mapKey !== 'qinghe_river' || !this.ch2CaptainGfx || hasTriggered('ch2_pier_repaired')) return false;
+    const c = MapScene.CH2.captain;
+    const dx = this.player.x - c.x, dy = this.player.y - c.y;
+    if (dx * dx + dy * dy > 40 * 40) return false;
+    return !this.storyDialogue?.isOpen();
+  }
+
+  private tryCh2CaptainInteract(): boolean {
+    if (!this.canTryCh2Captain()) return false;
+    this.hideCh2Hint();
+    this.inputManager.clearAction();
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    this.playStory([
+      narrator('（码头边靠着一艘旧船。老船长蹲在船边，往船板上抹桐油。）'),
+      { speaker: '老船长', color: '#a8b8c8', text: '修好了，就能再出去一趟。' },
+      { speaker: '林澈', color: '#c8d8f0', text: '您要出海？' },
+      { speaker: '老船长', color: '#a8b8c8', text: '不一定。船不响了，心里才踏实。' },
+      { speaker: '', color: '#aaaaaa', text: '（他说完继续抹他的桐油。你没再问。船头的旧船灯亮着。）' },
+    ], () => {
+      this.ch2PierRepaired = true; markTriggered('ch2_pier_repaired');
+        markTriggered('ch2_pier_repaired');
+      markRestored('ch2_pier_lit'); // 船灯长期挂起（读档保持）
+      this.setupCh2PierLife(); // 节拍3 余韵：码头开始有人走动（拍板基线"晾网、搬筐"）
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      this.updateHUD();
+    });
+    return true;
+  }
+
+  // ---- 节拍4 · 奇怪的旅人（随缘三次；看见即可，不追、不等、不补课——护栏3）----
+  private checkCh2Stranger(): void {
+    if (this.ch2StrangerSeen >= 3) return;
+    if (!hasTriggered('ch2_lighthouse_talked')) return;   // 节拍1 后出现
+    if (this.storyDialogue?.isOpen()) return;
+    const t = getTime();
+    const d = t.day;
+    if (t.hour < 17 || t.hour >= 21) {                   // 只傍晚出现
+      if (this.ch2StrangerAlive) this.despawnCh2Stranger();
+      this.ch2StrangerAlive = false;
+      return;
+    }
+    if (!this.ch2StrangerAlive && this.ch2StrangerDay === d) return; // 当天已刷过且已消失
+    const spot = MapScene.CH2.stranger[Math.min(this.ch2StrangerSeen, 2)];
+    if (spot.scene !== this.mapKey) return;              // 本档位在别的场景，等到了再说
+    if (!this.ch2StrangerAlive) {
+      this.spawnCh2Stranger(spot);
+      this.ch2StrangerDay = d;
+      this.ch2StrangerAlive = true;
+      this.ch2StrangerSpawnAt = this.time.now;
+    }
+    // 靠近（70px 视野内）→ 自动触发台词（看见即可，无需按键）
+    const dx = this.player.x - spot.x, dy = this.player.y - spot.y;
+    if (dx * dx + dy * dy < 70 * 70) {
+      this.triggerCh2StrangerTalk();
+      return;
+    }
+    // 在场超 10 秒未靠近 → 消失（不追不等；明天傍晚同一档再刷）
+    if (this.time.now - this.ch2StrangerSpawnAt > 10000) {
+      this.despawnCh2Stranger();
+      this.ch2StrangerAlive = false;
+    }
+  }
+
+  private spawnCh2Stranger(spot: { scene: string; x: number; y: number }): void {
+    this.despawnCh2Stranger();
+    const g = this.add.graphics().setDepth(5);
+    g.fillStyle(0x2e2a3a, 1); g.fillCircle(spot.x, spot.y - 9, 3.2);    // 头
+    g.fillStyle(0xc8a8e8, 1); g.fillCircle(spot.x, spot.y - 9, 2.4);    // 肤色（浅紫调）
+    g.fillStyle(0x3a3a48, 1); g.fillRect(spot.x - 5, spot.y - 5, 10, 6); // 外套
+    g.fillStyle(0x2e2a3a, 1); g.fillRect(spot.x - 4, spot.y - 1, 8, 2); // 腿
+    this.ch2StrangerGfx = g;
+    this.ch2StrangerLabel = this.add.text(spot.x, spot.y - 21, '生面孔', {
+      fontSize: '11px', color: '#c8a8e8', stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
+    }).setOrigin(0.5).setDepth(5);
+    this.tweens.add({ targets: g, angle: { from: 0, to: 0.5 }, duration: 3200, yoyo: true, repeat: -1 });
+  }
+
+  private despawnCh2Stranger(): void {
+    this.ch2StrangerGfx?.destroy(); this.ch2StrangerGfx = null;
+    this.ch2StrangerLabel?.destroy(); this.ch2StrangerLabel = null;
+  }
+
+  private triggerCh2StrangerTalk(): void {
+    if (!this.ch2StrangerAlive) return;
+    this.ch2StrangerAlive = false;
+    this.despawnCh2Stranger();
+    const n = this.ch2StrangerSeen;
+    let lines: DialogueLine[];
+    if (n === 0) {
+      lines = [
+        { speaker: '生面孔', color: '#c8a8e8', text: '这海，夜里看着挺静的。' },
+        { speaker: '', color: '#aaaaaa', text: '（说完他就走了。像是个闲逛的人。）' },
+      ];
+    } else if (n === 1) {
+      lines = [
+        { speaker: '生面孔', color: '#c8a8e8', text: '今晚月亮落得早。' },
+        { speaker: '', color: '#aaaaaa', text: '（他蹲着逗了会儿猫，起身走了。语气平平，像在说天气。）' },
+      ];
+    } else {
+      lines = [
+        { speaker: '生面孔', color: '#c8a8e8', text: '……你身上，也有那个味道。' },
+        { speaker: '', color: '#aaaaaa', text: '（他停下来看了你一会儿，说完就走了，没回头。）' },
+      ];
+    }
+    this.playStory(lines, () => {
+      this.ch2StrangerSeen = Math.min(3, this.ch2StrangerSeen + 1);
+      save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      this.updateHUD();
+    });
+  }
+
+  // ---- 节拍5/6 · 码头夜谈 + 夏雅秘密（qinghe_river，全章情绪高潮）----
+  private checkCh2NightTalk(): void {
+    if (this.mapKey !== 'qinghe_river' || this.ch2NightTalkActive) return;
+    // BUG-FIX（丢剧情，同春日集范式）：夜谈为"标记先行"，被切图/打断后 owed 补播——
+    // 全章高潮演出不可因一次打断永久丢失（ch2NightTalkActive 无 create 复位的旧实现会锁死）
+    if (this.ch2NightTalkOwed) {
+      if (this.storyDialogue?.isOpen() || this.storySequenceRunner?.isPlaying?.()) return;
+      this.startCh2NightTalk();
+      return;
+    }
+    if (hasTriggered('ch2_night_talk')) return;
+    if (!hasTriggered('ch2_clock_fixed') || !hasTriggered('ch2_pier_repaired')) return;  // 两条人线完成
+    if (this.storyDialogue?.isOpen()) return;
+    const t = getTime();
+    if (t.hour < 18 || t.hour >= 23) return;                    // 夜里
+    const p = MapScene.CH2.captain;
+    const dx = this.player.x - p.x, dy = this.player.y - p.y;
+    if (dx * dx + dy * dy > 180 * 180) return;                  // 码头一带
+    this.startCh2NightTalk();
+  }
+
+  private startCh2NightTalk(): void {
+    if (this.ch2NightTalkActive) return;
+    this.ch2NightTalkActive = true;
+    if (this.ch2NightTalkOwed) {
+      this.runCh2NightTalk(); // 补播路径：已标记过，直接跑
+      return;
+    }
+    const ok = triggerOnce('ch2_night_talk', () => this.runCh2NightTalk());
+    if (!ok) { this.ch2NightTalkActive = false; return; }
+    this.ch2NightTalkOwed = true; // 演出收尾前视为"欠播"——被打断不许丢剧情
+    save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+  }
+
+  private runCh2NightTalk(): void {
+    const narrator = (text: string): DialogueLine => ({ speaker: '', color: COLORS.system, text });
+    // 补播防御：清掉上次中断残留的死 FX 引用
+    this.ch2NightTalkFX = this.ch2NightTalkFX.filter((o) => o.active);
+    const p = MapScene.CH2.captain;
+    // 灯下暖光（对齐秋日晒场长桌暖光范式，零资源）
+    const glow = this.add.ellipse(p.x, p.y - 2, 130, 70, 0xffc878, 0.20).setDepth(4);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: glow, alpha: { from: 0.10, to: 0.26 }, duration: 1600, yoyo: true, repeat: -1 });
+    this.ch2NightTalkFX.push(glow);
+    // 夏雅剪影（夜谈围坐；临时，演出后清理）
+    const xi = this.add.graphics().setDepth(5);
+    xi.fillStyle(0x2e2438, 1); xi.fillCircle(p.x + 22, p.y - 9, 3.2);
+    xi.fillStyle(0xd8b8a8, 1); xi.fillCircle(p.x + 22, p.y - 9, 2.4);
+    xi.fillStyle(0x4a3a58, 1); xi.fillRect(p.x + 18, p.y - 5, 10, 6);
+    xi.fillStyle(0x3a2e46, 1); xi.fillRect(p.x + 19, p.y - 1, 8, 2);
+    this.ch2NightTalkFX.push(xi);
+    const xiLabel = this.add.text(p.x + 22, p.y - 21, '夏雅', {
+      fontSize: '11px', color: '#c8b8e0', stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
+    }).setOrigin(0.5).setDepth(5);
+    this.ch2NightTalkFX.push(xiLabel);
+
+    // 夜谈（情绪高潮：多停顿、递东西、问一句答一句；不解释任何世界观——不解释清单）
+    this.playStory([
+      narrator('（码头边点起一盏灯。老船长、夏雅，还有你，围着灯坐下来。）'),
+      narrator('（海风从河面上吹过来，灯焰晃了晃。没人急着说话。）'),
+      { speaker: '老船长', color: '#a8b8c8', text: '以前这码头，一天好几条船。卸货的、进货的、走亲戚的。' },
+      { speaker: '老船长', color: '#a8b8c8', text: '后来船少了。再后来，大家宁愿在城里，也不回来。' },
+      { speaker: '老船长', color: '#a8b8c8', text: '你爷爷当年想修这条道。没修成。' },
+      { speaker: '', color: '#aaaaaa', text: '（他看向夏雅。停了一会儿。）' },
+      { speaker: '老船长', color: '#a8b8c8', text: '你爸那年也是，船都订好了。' },
+      { speaker: '夏雅', color: '#c8b8e0', text: '……嗯。搬出去过两年。' },
+      { speaker: '林澈', color: '#c8d8f0', text: '……怎么又回来了？' },
+      { speaker: '夏雅', color: '#c8b8e0', text: '这儿有人认识我。' },
+      narrator('（半天没人说话。夏雅从包里掏出那把旧扳手，递过来。）'),
+      { speaker: '夏雅', color: '#c8b8e0', text: '搬走那天，我把我爸锁在工具箱里的这个带出来了。' },
+      { speaker: '夏雅', color: '#c8b8e0', text: '总觉得，哪天还会用上。' },
+      { speaker: '林澈', color: '#c8d8f0', text: '这扳手是不锈钢的？' },
+      { speaker: '夏雅', color: '#c8b8e0', text: '嗯。' },
+      narrator('（你把它还给她。谁都没再说话。过了一会儿——）'),
+      { speaker: '老船长', color: '#a8b8c8', text: '你们还愿意回来，这岛就没白等。' },
+    ], () => {
+      // 节拍6 · 夏雅秘密（同夜延续：主悬念留白）
+      this.playStory([
+        narrator('（人散了。夏雅没走，站在码头边，朝西边望。）'),
+        { speaker: '林澈', color: '#c8d8f0', text: '……夏雅？' },
+        { speaker: '夏雅', color: '#c8b8e0', text: '灯亮了。' },
+        { speaker: '林澈', color: '#c8d8f0', text: '嗯。' },
+        { speaker: '夏雅', color: '#c8b8e0', text: '那盏灯……我好像认识它。' },
+        { speaker: '林澈', color: '#c8d8f0', text: '……什么意思？' },
+        { speaker: '夏雅', color: '#c8b8e0', text: '没事。可能小时候见过。走了。' },
+        narrator('（她走了两步，又停下来。）'),
+        { speaker: '夏雅', color: '#c8b8e0', text: '你早点睡。' },
+      ], () => {
+        this.ch2NightTalkDone = true; markTriggered('ch2_night_talk');
+        markTriggered('ch2_night_talk');
+        this.ch2XiyaSecretDone = true; markTriggered('ch2_xiya_secret');
+        markTriggered('ch2_xiya_secret');
+        for (const o of this.ch2NightTalkFX) o.destroy();
+        this.ch2NightTalkFX = [];
+        this.ch2NightTalkActive = false;
+        this.ch2NightTalkOwed = false;
+        markRestored('ch2_pier_lit');
+        save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+        this.updateHUD();
+      });
+    });
+  }
+
+  // ---- 节拍7 · 海平线黑点（farm，第三章唯一硬钩子；无台词）----
+  private checkCh2BlackDot(): void {
+    if (this.mapKey !== 'farm' || hasTriggered('ch2_black_dot')) return;
+    if (!hasTriggered('ch2_night_talk')) return;
+    if (this.storyDialogue?.isOpen()) return;
+    const t = getTime();
+    if (t.hour >= 20 || t.hour < 5) {
+      if (this.player.x > 140) return;   // 农场西侧（灯塔远景方向）
+      this.ch2BlackDotSeen = true;
+      triggerOnce('ch2_black_dot', () => {
+        // 海平线黑点（淡入淡出，无台词；叠在灯塔远景上层）
+        const c = this.add.container(190, 150).setScrollFactor(0).setDepth(161);
+        const dot = this.add.circle(0, 0, 3.5, 0x0a0a14, 1);
+        dot.setBlendMode(Phaser.BlendModes.ADD);
+        c.add(dot);
+        c.setAlpha(0);
+        this.tweens.add({
+          targets: c, alpha: { from: 0, to: 1 }, duration: 2600, hold: 4200, yoyo: true,
+          onComplete: () => c.destroy(),
+        });
+        save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+      });
+    }
+  }
+
+  // ---- 靠近提示（老钟 / 老船长共用一条 DOM，避免叠屏）----
+  private checkCh2ProximityHint(): void {
+    if (this.storyDialogue?.isOpen()) { this.hideCh2Hint(); return; }
+    if (this.canTryCh2Clock() || this.canTryCh2Captain()) {
+      this.showCh2Hint(this.hintText('按 [E] 搭把手', '点击「交互」搭把手'));
+    } else {
+      this.hideCh2Hint();
+    }
+  }
+
+  private showCh2Hint(text: string): void {
+    if (this.ch2Hint) return;
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'fixed', bottom: '180px', left: '50%',
+      transform: 'translateX(-50%)', color: '#ffd98a', fontSize: '13px',
+      background: 'rgba(0,0,0,0.65)', padding: '6px 16px', borderRadius: '6px',
+      zIndex: '400', pointerEvents: 'none', textShadow: '0 0 4px rgba(0,0,0,0.8)',
+    });
+    hint.textContent = text;
+    hint.classList.add('hint-interact'); // 兜底清扫标记（hideAllInteractHints 强制移除残留）
+    document.body.appendChild(hint);
+    this.ch2Hint = hint;
+  }
+
+  private hideCh2Hint(): void {
+    if (this.ch2Hint) { this.ch2Hint.remove(); this.ch2Hint = null; }
   }
 
   /** 码头修复交互点：木材×20 → 码头出现（Stage 1；triggerOnce 持久化，读档恢复） */
@@ -13333,6 +14151,766 @@ this.setupFieldLife();
    *    未来链路：城市复兴 → 执灯人归来 → 灯塔重新点灯 → 开放灯塔（届时恢复点亮逻辑）。
    * 昼夜判定与 farm 远景一致：create 时按当前时间，scene.restart 重建。
    */
+  /**
+   * 第三章幕一：farm 西侧海湾缺口视觉重建（零资产纯代码；灯塔未来内容预埋方案 §四 恢复点）。
+   * farm.json Walls rows10-13/col0 已打通（本批次），本方法只补"墙外是海"的可见性。
+   */
+  private setupFarmWestGap(): void {
+    if (this.mapKey !== 'farm') return;
+    const T = TILE_SIZE;
+    const gap = this.add.graphics().setDepth(1);
+    // 海水（西边缘外，rows 10-13 对应 y 160-224）
+    gap.fillStyle(0x3a6a8a, 1);
+    gap.fillRect(-6, 9.6 * T, 22, 4.8 * T);
+    gap.fillStyle(0x4a7a9a, 1);
+    gap.fillRect(-6, 9.6 * T, 22, 1.6 * T);
+    // 沙滩过渡 + 浪线（潮汐呼吸）
+    gap.fillStyle(0xcbb88a, 1);
+    gap.fillRect(10, 9.7 * T, 8, 4.6 * T);
+    const foam = this.add.graphics().setDepth(2);
+    foam.fillStyle(0xcfeeff, 0.55);
+    foam.fillRect(9, 10.1 * T, 9, 2);
+    foam.fillRect(9, 11.4 * T, 9, 2);
+    foam.fillRect(9, 12.9 * T, 9, 2);
+    this.tweens.add({ targets: foam, alpha: { from: 0.7, to: 0.3 }, duration: 2100, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+  }
+
+  /** 第三章幕一：执灯人（灯塔方案 §七 预留 NPC；身份不进谜团预算——拍板 §七.6）。
+   *  静态剪影 + 标签，不接日程系统（零新系统）；对白见 tryCh3LighthouseArrival（方向稿未定稿）。 */
+  private setupCh3Keeper(): void {
+    if (this.mapKey !== 'lighthouse') return;
+    if (this.ch3KeeperGfx) return; // 幂等（create 复用实例）
+    const T = TILE_SIZE;
+    const kx = 13.4 * T, ky = 10.2 * T; // 塔基旁（塔身 x 208-272 之西侧，不挡出口通道）
+    const k = this.add.graphics().setDepth(5);
+    k.fillStyle(0x4a4438, 1); k.fillCircle(kx, ky - 12, 3.2);          // 头
+    k.fillStyle(0x8a7a6a, 1); k.fillCircle(kx, ky - 12, 2.4);          // 肤色
+    k.fillStyle(0x5a5a48, 1); k.fillRect(kx - 5, ky - 9, 10, 12);      // 上身（工装）
+    k.fillStyle(0x3c382e, 1); k.fillRect(kx - 4, ky + 3, 3, 6);        // 腿
+    k.fillStyle(0x3c382e, 1); k.fillRect(kx + 2, ky + 3, 3, 6);
+    k.fillStyle(0xd8c8a0, 1); k.fillRect(kx + 5, ky - 6, 2, 8);        // 手里的除尘布
+    this.ch3KeeperGfx = k;
+    // 铜铃（檐下小钟；幕二交互物）
+    const b = MapScene.CH3.bell;
+    const bell = this.add.graphics().setDepth(4);
+    bell.fillStyle(0x6e5a3a, 1); bell.fillRect(b.x - 1, b.y - 10, 2, 4);   // 挂绳
+    bell.fillStyle(0xb8a05a, 1); bell.fillEllipse(b.x, b.y - 3, 8, 9);     // 钟体
+    bell.fillStyle(0x8a7440, 1); bell.fillRect(b.x - 4, b.y - 4, 8, 2);    // 钟口沿
+    bell.fillStyle(0x6e5a2a, 1); bell.fillCircle(b.x, b.y + 1, 1.5);       // 钟舌
+    this.ch3BellGfx = bell;
+    this.add.text(kx, ky - 22, '执灯人', {
+      fontSize: '11px', color: '#ffe6a0', stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
+    }).setOrigin(0.5).setDepth(5);
+  }
+
+  /**
+   * 第三章幕一：首次走进灯塔的演出（方向稿台词，未定稿——定稿权在制作人）。
+   * 占用范式：忙时每秒重试（上限 30 次），超限放弃本次、保留触发机会（update 每帧重查直至播成）。
+   */
+  private tryCh3LighthouseArrival(): void {
+    if (this.mapKey !== 'lighthouse' || !this.isLighthouseUnlocked()) return;
+    if (hasTriggered('ch3_lighthouse_arrival') || this.ch3ArrivalQueued) return;
+    if (this.storyDialogue?.isOpen() || this.storySequenceRunner?.isPlaying?.()) return;
+    this.ch3ArrivalQueued = true;
+    this.time.delayedCall(1400, () => this.queueCh3ArrivalDialogue());
+  }
+
+  private queueCh3ArrivalDialogue(attempts = 0): void {
+    if (!this.scene.isActive()) { this.ch3ArrivalQueued = false; return; } // shutdown：未标记，重进重试
+    if (this.storySequenceRunner?.isPlaying?.() || this.storyDialogue?.isOpen()) {
+      if (attempts < 30) {
+        this.time.delayedCall(1000, () => this.queueCh3ArrivalDialogue(attempts + 1));
+      } else {
+        this.ch3ArrivalQueued = false; // 超限：未标记，玩家下次进灯塔重新触发（不丢演出）
+      }
+      return;
+    }
+    const ok = this.playStory(
+      [
+        { speaker: '', color: '#aaaaaa', text: '（塔内比想象中亮。灯室的暖光，落在旋转的阶梯上。）' },
+        { speaker: '', color: '#aaaaaa', text: '（一个背影正在给灯罩除尘。听见脚步，没有回头。）' },
+        { speaker: '执灯人', color: '#ffe6a0', text: '……门没锁，就是给愿意上来的人留的。' },
+        { speaker: '林澈', color: '#c8d8f0', text: '您是……？' },
+        { speaker: '执灯人', color: '#ffe6a0', text: '（把抹布搭到肩上）守灯的。你爷爷那时候，这灯就亮着。' },
+        { speaker: '执灯人', color: '#ffe6a0', text: '（顿了顿）现在，又亮了。' },
+        { speaker: '', color: '#aaaaaa', text: '（他没再说话。灯室的光，慢慢扫过海面。）' },
+      ],
+      () => {
+        triggerOnce('ch3_lighthouse_arrival', () => {});
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
+        this.ch3ArrivalQueued = false;
+      },
+    );
+    if (!ok) {
+      // 理论不可达（已查过占用）；防御：一秒后重试
+      this.time.delayedCall(1000, () => this.queueCh3ArrivalDialogue(attempts + 1));
+    }
+  }
+
+  // ═════ 第三章幕二 · 执灯人三件套深交互（D-012 范式：完成→留下痕迹，不解释奖励） ═════
+  // 台词均为方向稿（未定稿）；日志续写内容刻意留白不碰真相（碎片骨架纪律）。
+
+  /** 幕四：日记深读（渐进解锁——段1 随碰面后首读；段2/段3 由碎片进度解锁；指引下一碎片位置） */
+  private interactCh3Diary(): void {
+    if (!hasTriggered('ch3_diary_2')) {
+      this.playStory(
+        [
+          { speaker: '', color: '#aaaaaa', text: '（你翻开旧页。里面夹着一张手绘的海图，角上标着一个记号——栈板尽头。）' },
+          { speaker: '', color: '#aaaaaa', text: '（下一行写着：星星落进浪里，也捡得回来。）' },
+        ],
+        () => {
+          triggerOnce('ch3_diary_2', () => {});
+          this.saveAtPlayer();
+        },
+      );
+      return;
+    }
+    if (!hasTriggered('ch3_diary_3')) {
+      this.playStory(
+        [
+          { speaker: '', color: '#aaaaaa', text: '（再往后翻，字迹老了些——「西墙开一口子吧。路是人走出来的，墙是人守出来的。」）' },
+          { speaker: '', color: '#aaaaaa', text: '（页脚还有一个未画完的小图——海湾缺口的形状。）' },
+        ],
+        () => {
+          triggerOnce('ch3_diary_3', () => {});
+          this.saveAtPlayer();
+        },
+      );
+      return;
+    }
+    this.showDialogueText('（日记停在这一页。剩下的，好像要去把散落的星屑凑齐了才读得下去。）');
+  }
+
+  /** 航海日志·续写：爷爷笔迹停在多年前；玩家可留下一行（三选一互斥，triggerOnce 承载，零新字段） */
+  private interactCh3Logbook(): void {
+    // 幕五（槽 D2）：归位活动期 → 桥结局（把日志留在灯塔——连接行为）
+    if (this.ch3FinaleActive()) { this.tryCh3EndBridge(); return; }
+    // 幕四：碰面后 → 日记深读流程（段2/段3 渐进解锁）
+    if (hasTriggered('ch3_captain_meet')) { this.interactCh3Diary(); return; }
+    const writtenA = hasTriggered('ch3_log_line_a');
+    const writtenB = hasTriggered('ch3_log_line_b');
+    if (writtenA || writtenB) {
+      const line = writtenA ? '今天，灯还亮着。' : '风很好，海也平。';
+      this.showDialogueText(`（日志摊在最后一页。你写下的那行还在——「${line}」墨迹很新。）`);
+      return;
+    }
+    this.playStory(
+      [
+        { speaker: '', color: '#aaaaaa', text: '一本泛黄的航海日志，夹着海风的咸味。最后一页写着——「等星星落下来，就带你去灯塔。」' },
+        { speaker: '', color: '#aaaaaa', text: '（铅笔就夹在页脚。墨迹停在很多年前。）' },
+        { speaker: '', color: '#aaaaaa', text: '（要写点什么吗？）', options: ['「今天，灯还亮着。」', '「风很好，海也平。」', '（不写。轻轻放回）'] },
+      ],
+      undefined,
+      (index: number) => {
+        if (index === 0) {
+          triggerOnce('ch3_log_line_a', () => {});
+          this.playStory([{ speaker: '', color: '#aaaaaa', text: '（你写下了这句。墨迹很新，压着旧年的字。）' }]);
+        } else if (index === 1) {
+          triggerOnce('ch3_log_line_b', () => {});
+          this.playStory([{ speaker: '', color: '#aaaaaa', text: '（你写下了这句。像一句给以后的人的天气报。）' }]);
+        } else {
+          this.playStory([{ speaker: '', color: '#aaaaaa', text: '（你把铅笔放了回去。有些页，该留给写它的人。）' }]);
+        }
+      },
+    );
+  }
+
+  /** 老望远镜·观察模式：透镜视野看海（夜：黑点方向；昼：海岸线）。纯视觉，无对白解释。 */
+  private interactCh3Telescope(): void {
+    if (this.ch3TelescopeActive) return;
+    this.ch3TelescopeActive = true;
+    const night = getTime().hour >= 18 || getTime().hour < 6;
+    this.cameras.main.zoomTo(1.9, 900);
+    const vig = this.add.graphics().setScrollFactor(0).setDepth(300);
+    const cx = 512, cy = 384, r = 200;
+    vig.fillStyle(0x06090f, 0.82);
+    vig.fillRect(0, 0, 1024, cy - r);
+    vig.fillRect(0, cy + r, 1024, 384 - cy + r);
+    vig.fillRect(0, cy - r, cx - r, 2 * r);
+    vig.fillRect(cx + r, cy - r, 1024 - cx - r, 2 * r);
+    vig.lineStyle(3, 0x1a1410, 0.9);
+    vig.strokeCircle(cx, cy, r);
+    const line = night
+      ? (hasTriggered('ch2_black_dot')
+          ? '（镜筒压低，对准海平线。那个黑点还在老地方——一动不动。）'
+          : '（镜筒缓缓扫过夜海。远处只有浪，和浪里的星光。）')
+      : '（白天的海面亮得晃眼。青禾镇的海岸线，你从没看得这么清楚过。）';
+    this.playStory(
+      [{ speaker: '', color: '#aaaaaa', text: line }],
+      () => {
+        this.cameras.main.zoomTo(1, 700);
+        this.time.delayedCall(750, () => { vig.destroy(); this.ch3TelescopeActive = false; });
+      },
+    );
+  }
+
+  /** 执灯人日常交互：轮换短句（行动型角色）；日志续写后追加一句 D-012 半句话 */
+  private canTryCh3Keeper(): boolean {
+    if (!this.ch3KeeperGfx) return false;
+    const k = MapScene.CH3.keeper;
+    const dx = this.player.x - k.x, dy = this.player.y - k.y;
+    return dx * dx + dy * dy <= R2(40);
+  }
+
+  private tryCh3KeeperInteract(): boolean {
+    this.inputManager.clearAction();
+    const lines = [
+      '（他朝你点了下头，继续擦灯罩。）',
+      '灯油不缺。缺的是来看海的人。',
+      '（他把抹布叠好）你常来，灯就多个人看。',
+    ];
+    const i = Math.min(this.ch3KeeperTalkCount, lines.length - 1);
+    this.ch3KeeperTalkCount++;
+    if (this.ch3KeeperTalkCount === 4 && (hasTriggered('ch3_log_line_a') || hasTriggered('ch3_log_line_b'))) {
+      // D-012 半句话：看到玩家续写的日志后（一次性插入，不打乱轮换）
+      this.showDialogueText('执灯人：……（他瞥了一眼日志上你的字）字不错。');
+      return true;
+    }
+    this.showDialogueText(`执灯人：${lines[i]}`);
+    return true;
+  }
+
+  /** 铜铃（灯塔方案预留）：敲响 → 夜里黑点方向的回应光。行为交互，无奖励。 */
+  private canTryCh3Bell(): boolean {
+    if (!this.ch3BellGfx) return false;
+    const b = MapScene.CH3.bell;
+    const dx = this.player.x - b.x, dy = this.player.y - b.y;
+    return dx * dx + dy * dy <= R2(34);
+  }
+
+  private tryCh3BellInteract(): boolean {
+    this.inputManager.clearAction();
+    play('harvest_first'); // 风铃质感（程序合成，零资产）
+    const night = getTime().hour >= 18 || getTime().hour < 6;
+    if (night && hasTriggered('ch2_black_dot')) {
+      this.showDialogueText('（铃声荡出去，很久才散。远处海面上，好像有光应了一下。）');
+    } else if (night) {
+      this.showDialogueText('（铃声荡进夜里，散在浪声里。）');
+    } else {
+      this.showDialogueText('（铃声很轻，被风接走了。）');
+    }
+    return true;
+  }
+
+  // ═════ 第三章幕三 · 来船靠岸 + 商业化冲突开局（方向稿；来船性质/幕后留白不解答） ═════
+
+  /**
+   * 幕三后半 · 镇民反应注脚（D-012 注脚级；**不决定提案走向**——走向属幕五前拍板项）：
+   * 照片传到镇上（B 钉在需求板旁）→ 玩家进 town 广场触发一次注脚演出：
+   * 镇长（收束者）/ 夏雅（"被看见也没不好，但这岛不是拍给人看的"）/ B（"不催"）。
+   * 触发：ch3_b_photo + 进 town 需求板区 + 对白空闲；占用规范（重试不丢）。
+   */
+  private checkCh3TownReact(): void {
+    if (this.mapKey !== 'town' || this.ch3TownReactQueued) return;
+    if (hasTriggered('ch3_town_react')) return;
+    if (!hasTriggered('ch3_b_photo')) return;
+    if (this.storyDialogue?.isOpen() || this.storySequenceRunner?.isPlaying?.()) return;
+    const T = TILE_SIZE;
+    const dx = this.player.x - (32 * T + T / 2), dy = this.player.y - (16 * T + T / 2);
+    if (dx * dx + dy * dy > 150 * 150) return;
+    this.ch3TownReactQueued = true;
+    this.time.delayedCall(1100, () => this.startCh3TownReact());
+  }
+
+  private startCh3TownReact(): void {
+    if (this.ch3TownReactOwed) { this.runCh3TownReact(); return; }
+    const ok = triggerOnce('ch3_town_react', () => this.runCh3TownReact());
+    if (!ok) { this.ch3TownReactQueued = false; return; }
+    this.ch3TownReactOwed = true; // 被打断不丢注脚（同 owed 范式）
+  }
+
+  private runCh3TownReact(): void {
+    this.setupCh3BoardPhoto();
+    this.playStory(
+      [
+        { speaker: '', color: '#aaaaaa', text: '（需求板旁边，多了一张钉起来的照片——码头，老船，和一个举着相机的身影。）' },
+        { speaker: '旅人', color: '#c8e0d8', text: '（正往照片上按图钉）借你们板子一角。回头再贴新的。' },
+        { speaker: '镇长', color: '#c8b898', text: '（背着手看了半天）……让镇子自己慢慢想。这事，急不得。' },
+        { speaker: '夏雅', color: '#d8a8b8', text: '被看见，也没什么不好。不过——这岛不是拍给人看的。' },
+        { speaker: '旅人', color: '#c8e0d8', text: '我没打算催。' },
+        { speaker: '', color: '#aaaaaa', text: '（谁也没把话说满。照片就钉在那儿，风吹得它轻轻响。）' },
+      ],
+      () => {
+        this.ch3TownReactOwed = false;
+        this.ch3TownReactQueued = false;
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
+      },
+    );
+  }
+
+  /** 幕三后半常驻视觉：需求板旁钉着的小照片（D-012 痕迹，create 重建） */
+  private setupCh3BoardPhoto(): void {
+    if (this.mapKey !== 'town') return;
+    if (this.ch3BoardPhotoGfx) return;
+    const T = TILE_SIZE;
+    const px = 32 * T + T / 2 + 14, py = 16 * T + T / 2 - 6;
+    const g = this.add.graphics().setDepth(4);
+    g.fillStyle(0xf0e8d0, 1); g.fillRect(px - 5, py - 6, 10, 8);
+    g.lineStyle(1, 0x3a3026, 1); g.strokeRect(px - 5, py - 6, 10, 8);
+    g.fillStyle(0x8a7440, 1); g.fillRect(px - 1, py - 8, 2, 3); // 图钉
+    this.ch3BoardPhotoGfx = g;
+  }
+
+  /**
+   * 灯塔叙事链·阶段1（灯塔区域生产方案 §三：有人在重新在意它）：
+   * 亮灯首映后、第二章村民注意（节拍1）前，玩家路过 farm 西侧 → 一次性细节
+   * "玻璃好像被人擦过了"。不解释谁擦的（执灯人伏笔，D-012 注脚级）。
+   */
+  private checkCh3LhStage1(): void {
+    if (this.mapKey !== 'farm' || this.player.x > 6 * TILE_SIZE) return;
+    if (!hasTriggered('lighthouse_lit_seen') || hasTriggered('ch2_lighthouse_talked')) return;
+    if (hasTriggered('ch3_lh_stage1') || this.storyDialogue?.isOpen()) return;
+    triggerOnce('ch3_lh_stage1', () => {});
+    this.showDialogueText('（远处灯塔的玻璃……好像被人擦过了。谁会去擦它呢。）');
+  }
+
+  /** 触发：黑点已见 + 灯塔已开放 + 夜 19-23 + 玩家在码头一带（目击靠岸） */
+  private checkCh3ShipArrival(): void {
+    if (this.mapKey !== 'qinghe_river' || this.ch3ShipQueued) return;
+    if (hasTriggered('ch3_ship_arrived')) return;
+    if (!hasTriggered('ch2_black_dot') || !hasTriggered('ch3_lighthouse_arrival')) return;
+    if (this.storyDialogue?.isOpen() || this.storySequenceRunner?.isPlaying?.()) return;
+    const t = getTime();
+    if (t.hour < 19 || t.hour >= 23) return;
+    const p = MapScene.CH2.captain;
+    const dx = this.player.x - p.x, dy = this.player.y - p.y;
+    if (dx * dx + dy * dy > 220 * 220) return;
+    this.ch3ShipQueued = true;
+    this.time.delayedCall(1200, () => this.startCh3ShipArrival());
+  }
+
+  private startCh3ShipArrival(): void {
+    if (this.ch3ShipOwed) { this.runCh3ShipArrival(); return; }
+    const ok = triggerOnce('ch3_ship_arrived', () => this.runCh3ShipArrival());
+    if (!ok) { this.ch3ShipQueued = false; return; }
+    this.ch3ShipOwed = true; // 演出收尾前视为欠播（被打断不丢剧情，同夜谈范式）
+  }
+
+  private runCh3ShipArrival(): void {
+    // ① 灯火由远及近（黑点方向 → 码头），然后靠岸视觉
+    const ship = MapScene.CH3.ship;
+    const glow = this.add.graphics().setDepth(4);
+    glow.fillStyle(0xffe6a0, 0.9);
+    glow.fillCircle(430, 372, 2.5);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: glow, x: ship.x, y: ship.y - 6, duration: 2600, ease: 'Sine.inOut' });
+    this.time.delayedCall(2700, () => {
+      glow.destroy();
+      this.setupCh3Ship();
+      this.setupCh3StrangerNpc();
+      // ② 对白（方向稿，未定稿；不解释船的性质——谜面留给玩家）
+      this.playStory(
+        [
+          { speaker: '', color: '#aaaaaa', text: '（夜里。海平线上那个黑点，动了。）' },
+          { speaker: '', color: '#aaaaaa', text: '（一点灯火由远及近——是一艘船。比老船新得多。）' },
+          { speaker: '', color: '#aaaaaa', text: '（船靠了岸。旅人从船上跳下来，肩上多了一台相机。）' },
+          { speaker: '旅人', color: '#c8e0d8', text: '我说过我会回来。这次带着相机。' },
+          { speaker: '旅人', color: '#c8e0d8', text: '这座岛……值得被外面的人看见。我想把它记下来——照片、文字，都行。' },
+          { speaker: '老船长', color: '#a8b8c8', text: '看归看。别踩坏栈板。' },
+          { speaker: '旅人', color: '#c8e0d8', text: '放心，我不捣乱。我只是想……让更多人知道这里。' },
+          { speaker: '', color: '#aaaaaa', text: '（船没走，就停在老船旁边。船是什么来头，没人问，他也没说。）' },
+        ],
+        () => {
+          this.ch3ShipOwed = false;
+          this.ch3ShipQueued = false;
+          markRestored('ch3_ship_docked');
+          this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
+        },
+      );
+    });
+  }
+
+  /** 幕三常驻视觉：外来船（比老船新，舷灯冷白——与老船灯暖黄对照："新与旧并排"） */
+  private setupCh3Ship(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (this.ch3ShipGfx.length > 0) { this.ch3ShipGfx = this.ch3ShipGfx.filter((o) => o.active); if (this.ch3ShipGfx.length) return; }
+    const s = MapScene.CH3.ship;
+    const g = this.add.graphics().setDepth(3);
+    g.fillStyle(0x2a3440, 1); g.fillEllipse(s.x, s.y, 56, 16);        // 船身（更修长）
+    g.fillStyle(0x1e2830, 1); g.fillRect(s.x + 14, s.y - 8, 20, 4);   // 船楼
+    g.fillStyle(0xbcc8d0, 1); g.fillRect(s.x + 20, s.y - 12, 2, 6);   // 桅杆
+    this.ch3ShipGfx.push(g);
+    const lamp = this.add.graphics().setDepth(4);
+    lamp.fillStyle(0xcfe8ff, 0.9); lamp.fillEllipse(s.x + 12, s.y - 14, 4, 4); // 舷灯（冷白）
+    lamp.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: lamp, alpha: { from: 0.5, to: 1.0 }, duration: 1300, yoyo: true, repeat: -1 });
+    this.ch3ShipGfx.push(lamp);
+  }
+
+  /** 幕三常驻：旅人（码头；相机挂在胸前。候选 ch3_stranger 日常交互） */
+  private setupCh3StrangerNpc(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (this.ch3StrangerNpcGfx.length > 0) { this.ch3StrangerNpcGfx = this.ch3StrangerNpcGfx.filter((o) => o.active); if (this.ch3StrangerNpcGfx.length) return; }
+    const s = MapScene.CH3.strangerNpc;
+    const g = this.add.graphics().setDepth(5);
+    g.fillStyle(0x3c4a44, 1); g.fillCircle(s.x, s.y - 13, 3.2);        // 头
+    g.fillStyle(0x9a8a7a, 1); g.fillCircle(s.x, s.y - 13, 2.4);        // 肤色
+    g.fillStyle(0x46564e, 1); g.fillRect(s.x - 5, s.y - 10, 10, 13);   // 上身
+    g.fillStyle(0x323e38, 1); g.fillRect(s.x - 4, s.y + 3, 3, 6);      // 腿
+    g.fillStyle(0x323e38, 1); g.fillRect(s.x + 2, s.y + 3, 3, 6);
+    g.fillStyle(0x22282c, 1); g.fillRect(s.x - 2, s.y - 7, 7, 5);      // 胸前相机
+    this.ch3StrangerNpcGfx.push(g);
+    this.add.text(s.x, s.y - 23, '旅人', {
+      fontSize: '11px', color: '#c8e0d8', stroke: '#000000', strokeThickness: 3,
+      backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
+    }).setOrigin(0.5).setDepth(5);
+  }
+
+  private canTryCh3Stranger(): boolean {
+    if (this.ch3StrangerNpcGfx.length === 0) return false;
+    const s = MapScene.CH3.strangerNpc;
+    const dx = this.player.x - s.x, dy = this.player.y - s.y;
+    return dx * dx + dy * dy <= R2(40);
+  }
+
+  private tryCh3StrangerInteract(): boolean {
+    this.inputManager.clearAction();
+    // 阶段化（幕三后半「岛屿记录计划」，方向稿未定稿；谜底零触碰——B 定位来自拍板基线 §1.7 记录者）：
+    // 0-2 次：日常轮换 → 第 4 次：提案（想拍一张"有人在生活"的码头照片）→ 第 5 次：拍照完成
+    // （照片钉柱常驻 + 老船长无注音注脚 + B 冲突留白句）→ 之后：整理照片静态句
+    if (hasTriggered('ch3_b_photo')) {
+      this.showDialogueText('（他在整理这一卷照片。把最好的一张，钉在了柱子上。）');
+      return true;
+    }
+    if (this.ch3StrangerTalkCount === 3 && !hasTriggered('ch3_b_proposal')) {
+      this.ch3StrangerTalkCount++;
+      this.playStory(
+        [
+          { speaker: '旅人', color: '#c8e0d8', text: '我想给码头拍一张照片。得是有人的样子——有人在生活的那种。' },
+          { speaker: '旅人', color: '#c8e0d8', text: '你在这儿忙你的，别管我。生活是演不出来的。' },
+        ],
+        () => {
+          triggerOnce('ch3_b_proposal', () => {});
+          this.saveAtPlayer();
+        },
+      );
+      return true;
+    }
+    if (this.ch3StrangerTalkCount >= 4 && hasTriggered('ch3_b_proposal')) {
+      this.ch3StrangerTalkCount++;
+      this.playStory(
+        [
+          { speaker: '', color: '#aaaaaa', text: '（你在码头边忙你的。咔嚓。）' },
+          { speaker: '旅人', color: '#c8e0d8', text: '（他把照片钉在柱子上）……你看。有人生活的地方，照片自己会说话。' },
+          { speaker: '旅人', color: '#c8e0d8', text: '至于让多少人看见……我想再听听大家的想法。不急。' },
+          { speaker: '', color: '#aaaaaa', text: '（老船长瞥了一眼那张照片，没说什么，嘴角松了一下。）' },
+        ],
+        () => {
+          triggerOnce('ch3_b_photo', () => {});
+          this.setupCh3PhotoPinned();
+          this.saveAtPlayer();
+        },
+      );
+      return true;
+    }
+    const lines = [
+      '（他在拍栈板上的钉子。）现在的人，就爱拍这些。',
+      '照片不会说谎。但挑哪张给人看……是门学问。',
+      '别担心，我不是来买岛的。……现在还不是。',
+    ];
+    const i = Math.min(this.ch3StrangerTalkCount, lines.length - 1);
+    this.ch3StrangerTalkCount++;
+    this.showDialogueText(`旅人：${lines[i]}`);
+    return true;
+  }
+
+  /** 幕三后半常驻视觉：照片钉在码头柱上（D-012 痕迹——"有人生活的地方"被记了下来） */
+  private setupCh3PhotoPinned(): void {
+    if (this.mapKey !== 'qinghe_river') return;
+    if (this.ch3PhotoPinnedGfx) return;
+    const s = MapScene.CH3.strangerNpc;
+    const g = this.add.graphics().setDepth(4);
+    g.fillStyle(0x6e5a3a, 1); g.fillRect(s.x + 34, s.y - 26, 2, 18);   // 柱
+    g.fillStyle(0xf0e8d0, 1); g.fillRect(s.x + 30, s.y - 22, 10, 8);   // 照片
+    g.lineStyle(1, 0x3a3026, 1);
+    g.strokeRect(s.x + 30, s.y - 22, 10, 8);
+    this.ch3PhotoPinnedGfx = g;
+  }
+
+  // ═════ 幕三后半 · 冲突展开（槽 A1：岛民分化，镇长搁置；保留句「船停着，人住着，慢慢看。」） ═════
+
+  /** 当前地图的 B 机位（未拍摄才有） */
+  private ch3ArchiveSpot(): { ev: string; note: string; pos: { x: number; y: number } } | null {
+    if (!this.isLighthouseUnlocked()) return null;
+    for (const a of MapScene.CH3_ARCHIVE) {
+      if (a.mapKey !== this.mapKey) continue;
+      if (hasTriggered(a.ev)) return null; // 拍完收摊
+      return { ev: a.ev, note: a.note, pos: a.mapKey === 'town' ? MapScene.CH3.arcTown
+        : a.mapKey === 'farm' ? MapScene.CH3.arcFarm : MapScene.CH3.arcLh };
+    }
+    return null;
+  }
+
+  private ch3ArchiveDoneCount(): number {
+    return (['ch3_archive_town', 'ch3_archive_farm', 'ch3_archive_lh'] as const)
+      .filter((e) => hasTriggered(e)).length;
+  }
+
+  private canTryCh3Archive(): boolean {
+    const s = this.ch3ArchiveSpot();
+    if (!s) return false;
+    const dx = this.player.x - s.pos.x, dy = this.player.y - s.pos.y;
+    return dx * dx + dy * dy <= R2(34);
+  }
+
+  private tryCh3ArchiveInteract(): boolean {
+    this.inputManager.clearAction();
+    const s = this.ch3ArchiveSpot();
+    if (!s) return false;
+    triggerOnce(s.ev, () => {});
+    this.showDialogueText(`旅人（远处喊）：帮我看看水平泡居中没？${s.note}`);
+    const done = this.ch3ArchiveDoneCount();
+    // 三机位全拍完 → 码头碰面演出（保留句；镇长"灯下再议"= 幕四钩子）
+    if (done === 3) this.ch3QueueCaptainMeet();
+    return true;
+  }
+
+  /** 码头碰面：老船长与 B（克制，不站队）；镇长"灯下再议"= 幕四钩子 */
+  private ch3QueueCaptainMeet(): void {
+    // 碰面应在码头（qinghe_river）：武装后由 update 驱动，玩家到码头且空闲才播
+    if (this.ch3MeetQueued || this.ch3MeetOwed || hasTriggered('ch3_captain_meet')) return;
+    this.ch3MeetQueued = true;
+  }
+
+  /** update 驱动：armed → 玩家在 qinghe_river 码头一带且对白空闲 → 播放碰面 */
+  private checkCh3CaptainMeet(): void {
+    if (!this.ch3MeetQueued || this.ch3MeetOwed || this.ch3AnyEndingDone()) return;
+    if (hasTriggered('ch3_captain_meet')) { this.ch3MeetQueued = false; return; }
+    if (this.mapKey !== 'qinghe_river') return;
+    if (this.storyDialogue?.isOpen() || this.storySequenceRunner?.isPlaying?.()) return;
+    const p = MapScene.CH2.captain;
+    const dx = this.player.x - p.x, dy = this.player.y - p.y;
+    if (dx * dx + dy * dy > 220 * 220) return;
+    const ok = triggerOnce('ch3_captain_meet', () => this.runCh3CaptainMeet());
+    if (!ok) { this.ch3MeetQueued = false; return; }
+    this.ch3MeetOwed = true;
+  }
+
+  private runCh3CaptainMeet(): void {
+    const night = getTime().hour >= 18 || getTime().hour < 6;
+    this.playStory(
+      [
+        { speaker: '', color: '#aaaaaa', text: night
+          ? '（夜里。B 的三个机位，摆满了岛的三个角落。码头上，老船长收起桐油罐。）'
+          : '（B 的三个机位，摆满了岛的三个角落。码头上，老船长收起桐油罐。）' },
+        { speaker: '老船长', color: '#a8b8c8', text: '拍完了？' },
+        { speaker: '旅人', color: '#c8e0d8', text: '拍完了。都在。船、屋、灯……还有人。' },
+        { speaker: '老船长', color: '#a8b8c8', text: '拍这些，做什么用？' },
+        { speaker: '旅人', color: '#c8e0d8', text: '让没来过的人，知道这里在。' },
+        { speaker: '', color: '#aaaaaa', text: '（沉默一阵。浪拍了两下栈板。）' },
+        { speaker: '老船长', color: '#a8b8c8', text: '船停着，人住着，慢慢看。' },
+        { speaker: '', color: '#aaaaaa', text: '（后来镇长听说了照片的事，只说了一句：灯下再议。）' },
+      ],
+      () => {
+        this.ch3MeetOwed = false;
+        this.ch3MeetQueued = false;
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
+      },
+    );
+  }
+
+  /** 幕三后半常驻视觉：B 的三脚架+相机（未拍摄的机位才显示，拍完收摊） */
+  private setupCh3ArchiveTripod(): void {
+    if (this.ch3ArchiveVisual) { this.ch3ArchiveVisual.destroy(); this.ch3ArchiveVisual = null; }
+    const s = this.ch3ArchiveSpot();
+    if (!s) return;
+    const g = this.add.graphics().setDepth(4);
+    g.fillStyle(0x3a3a30, 1);                                  // 三脚架（三条斜腿）
+    g.lineStyle(1.5, 0x3a3a30, 1);
+    g.beginPath();
+    g.moveTo(s.pos.x, s.pos.y - 14); g.lineTo(s.pos.x - 5, s.pos.y + 2);
+    g.moveTo(s.pos.x, s.pos.y - 14); g.lineTo(s.pos.x + 5, s.pos.y + 2);
+    g.moveTo(s.pos.x, s.pos.y - 14); g.lineTo(s.pos.x, s.pos.y + 2);
+    g.strokePath();
+    g.fillStyle(0x22282c, 1); g.fillRect(s.pos.x - 4, s.pos.y - 20, 8, 6); // 相机
+    g.fillStyle(0x9adf6a, 0.8); g.fillCircle(s.pos.x + 4, s.pos.y - 17, 1); // 录制灯
+    this.ch3ArchiveVisual = g;
+  }
+
+  // ═════ 幕四 · 观察日记 + 碎片（槽 B1/C1：碎片×3 渐进发现；谜底方向=C1，正文方向稿未定稿） ═════
+
+  /** 碎片可见性（B1：看见→寻找→理解；渐进解锁） */
+  private ch3ShardVisible(which: 'lh' | 'qh' | 'fm'): boolean {
+    if (!hasTriggered('ch3_captain_meet')) return false;
+    if (hasTriggered('ch3_shard_' + which)) return false; // 已拾取
+    if (which === 'lh') return true;                                   // ① 灯塔内：碰面后即可见
+    if (which === 'qh') return hasTriggered('ch3_diary_2');            // ② 日记段2 指引栈板尽头
+    return hasTriggered('ch3_diary_3');                                // ③ 日记段3 指引海湾缺口
+  }
+
+  private ch3ShardPos(which: 'lh' | 'qh' | 'fm'): { x: number; y: number } {
+    return which === 'lh' ? { x: 250, y: 170 } : which === 'qh' ? { x: 150, y: 336 } : { x: 60, y: 196 };
+  }
+
+  /** 幕四常驻视觉：碎片光点（呼吸；create 重建，已拾取不画） */
+  private setupCh3Shards(): void {
+    // 灯塔内（碰面后可见）
+    if (this.mapKey === 'lighthouse') {
+      if (this.ch3ShardVisible('lh')) {
+        if (this.ch3ShardGfx_lh && this.ch3ShardGfx_lh.active) return;
+        const s = this.ch3ShardPos('lh');
+        this.ch3ShardGfx_lh = this.drawCh3Shard(s.x, s.y);
+      } else if (this.ch3ShardGfx_lh) { this.ch3ShardGfx_lh.destroy(); this.ch3ShardGfx_lh = null; }
+    }
+    // qinghe 栈板尽头（段2 后可见）
+    if (this.mapKey === 'qinghe_river') {
+      if (this.ch3ShardVisible('qh')) {
+        if (this.ch3ShardGfx_qh && this.ch3ShardGfx_qh.active) return;
+        const s = this.ch3ShardPos('qh');
+        this.ch3ShardGfx_qh = this.drawCh3Shard(s.x, s.y);
+      } else if (this.ch3ShardGfx_qh) { this.ch3ShardGfx_qh.destroy(); this.ch3ShardGfx_qh = null; }
+    }
+    // farm 海湾缺口（段3 后可见）
+    if (this.mapKey === 'farm') {
+      if (this.ch3ShardVisible('fm')) {
+        if (this.ch3ShardGfx_fm && this.ch3ShardGfx_fm.active) return;
+        const s = this.ch3ShardPos('fm');
+        this.ch3ShardGfx_fm = this.drawCh3Shard(s.x, s.y);
+      } else if (this.ch3ShardGfx_fm) { this.ch3ShardGfx_fm.destroy(); this.ch3ShardGfx_fm = null; }
+    }
+  }
+
+  /** 碎片光点绘制（蓝白星屑，呼吸） */
+  private drawCh3Shard(x: number, y: number): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics().setDepth(4);
+    g.fillStyle(0x9fd8ff, 0.9); g.fillCircle(x, y, 3);
+    g.fillStyle(0xd8f0ff, 0.5); g.fillCircle(x, y, 6);
+    g.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: g, alpha: { from: 0.45, to: 1 }, duration: 1200, yoyo: true, repeat: -1 });
+    return g;
+  }
+
+
+  private ch3ShardWhichHere(): 'lh' | 'qh' | 'fm' | null {
+    for (const which of ['lh', 'qh', 'fm'] as const) {
+      if (!this.ch3ShardVisible(which)) continue;
+      const s = this.ch3ShardPos(which);
+      const dx = this.player.x - s.x, dy = this.player.y - s.y;
+      if (dx * dx + dy * dy <= R2(34)) return which;
+    }
+    return null;
+  }
+
+  private canTryCh3Shard(): boolean { return this.ch3ShardWhichHere() !== null; }
+
+  private tryCh3ShardInteract(): boolean {
+    this.inputManager.clearAction();
+    const which = this.ch3ShardWhichHere();
+    if (!which) return false;
+    triggerOnce('ch3_shard_' + which, () => {});
+    play('shard');
+    this.setupCh3Shards(); // 拾取后即时消失
+    this.showDialogueText('（星屑入手微凉。像捡起了一句没说完的话。）');
+    this.checkCh3ShardsDone();
+    return true;
+  }
+
+  /** 集齐三片 → 灯室结算演出（C1 方向稿正文，未定稿；约束：不是预言，是相信） */
+  private checkCh3ShardsDone(): void {
+    if (!hasTriggered('ch3_shard_lh') || !hasTriggered('ch3_shard_qh') || !hasTriggered('ch3_shard_fm')) return;
+    if (hasTriggered('ch3_diary_finale') || this.ch3FinaleQueued) return;
+    if (this.mapKey !== 'lighthouse') return; // 结算在灯室发生
+    if (this.storyDialogue?.isOpen() || this.storySequenceRunner?.isPlaying?.()) return;
+    this.ch3FinaleQueued = true;
+    this.time.delayedCall(1200, () => this.runCh3DiaryFinale());
+  }
+
+  private runCh3DiaryFinale(): void {
+    this.playStory(
+      [
+        { speaker: '', color: '#aaaaaa', text: '（三片星屑在灯室里排成一线，像一段没写完的话，被补上了最后一句。）' },
+        { speaker: '执灯人', color: '#ffe6a0', text: '（把日志递还给你）最后一页，是给你留的。' },
+        { speaker: '', color: '#aaaaaa', text: '（那一页只有短短几行——是爷爷的字。）' },
+        { speaker: '', color: '#ffe9c8', text: '「灯不是为哪一艘船点的。是给所有想回来的人留的。我不知道回来的是谁。但只要灯亮着，回来的路上，就不会黑。」' },
+        { speaker: '林澈', color: '#c8d8f0', text: '……原来爷爷不是在等我。' },
+        { speaker: '执灯人', color: '#ffe6a0', text: '他是在等"有人"。' },
+        { speaker: '林澈', color: '#c8d8f0', text: '（想起铭牌上的字）「每日点灯，为归航的人照亮回家的路」——原来这句话，不是写给船的。' },
+        { speaker: '林澈', color: '#c8d8f0', text: '那现在呢？' },
+        { speaker: '执灯人', color: '#ffe6a0', text: '（看了一眼灯）现在，灯等的是下一个十年。' },
+        { speaker: '', color: '#aaaaaa', text: '（光束扫过海面。那一夜，灯塔比任何一夜都亮。）' },
+      ],
+      () => {
+        triggerOnce('ch3_diary_finale', () => {});
+        this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
+      },
+    );
+  }
+
+  // ═════ 幕五 · 归位（槽 D2：三结局行为承载，无选项面板） ═════
+
+  private ch3AnyEndingDone(): boolean {
+    return hasTriggered('ch3_end_stay') || hasTriggered('ch3_end_leave') || hasTriggered('ch3_end_bridge');
+  }
+
+  /** 归位状态：集齐+结算后，某夜 21 点后开启"最后一个行为"窗口 */
+  private checkCh3FinaleOpen(): void {
+    if (!hasTriggered('ch3_diary_finale') || hasTriggered('ch3_finale_open')) return;
+    if (this.ch3FinaleOpenQueued) return;
+    const t = getTime();
+    if (t.hour < 21) return;
+    this.ch3FinaleOpenQueued = true;
+    const ok = triggerOnce('ch3_finale_open', () => {
+      this.playStory(
+        [
+          { speaker: '', color: '#aaaaaa', text: '（光束扫过海面。灯下，那个问题浮了上来：那我呢？我要怎么回来？）' },
+          { speaker: '', color: '#aaaaaa', text: '（三个方向都在脚边——床，船，灯。）' },
+        ],
+        () => this.saveAtPlayer(),
+      );
+    });
+    if (!ok) this.ch3FinaleOpenQueued = false;
+  }
+
+  /** 归位活动期（最后一个行为未做出） */
+  private ch3FinaleActive(): boolean {
+    return hasTriggered('ch3_finale_open') && !this.ch3AnyEndingDone();
+  }
+
+  /** 结局一（返城）：走上外来船 */
+  private canTryCh3EndShip(): boolean {
+    if (!this.ch3FinaleActive() || this.mapKey !== 'qinghe_river') return false;
+    const s = MapScene.CH3.ship;
+    const dx = this.player.x - s.x, dy = this.player.y - s.y;
+    return dx * dx + dy * dy <= R2(40);
+  }
+
+  private tryCh3EndShipInteract(): boolean {
+    this.inputManager.clearAction();
+    this.playStory(
+      [
+        { speaker: '', color: '#aaaaaa', text: '（船板轻轻晃了一下。你跳了上去。）' },
+        { speaker: '旅人', color: '#c8e0d8', text: '（收起相机）我送你一程。正好，拍一张离岸的。' },
+        { speaker: '', color: '#aaaaaa', text: '（船离岸。灯塔的光从你背后扫过来，落在甲板上。）' },
+        { speaker: '林澈', color: '#c8d8f0', text: '我会知道这里在哪里。' },
+        { speaker: '', color: '#aaaaaa', text: '（第三章·归位——完）' },
+      ],
+      () => {
+        triggerOnce('ch3_end_leave', () => {});
+        this.saveAtPlayer();
+      },
+    );
+    return true;
+  }
+
+  /** 结局三（桥）：日志交互在归位期 = 把日志留在灯塔（连接行为），自己不上船、不回家睡 */
+  private tryCh3EndBridge(): boolean {
+    this.playStory(
+      [
+        { speaker: '', color: '#aaaaaa', text: '（你没有上船，也没有回家。你把日志放在了灯室的窗台上——摊开到有爷爷字迹的那页。）' },
+        { speaker: '执灯人', color: '#ffe6a0', text: '（看懂了。他往灯里添了一勺油。）留着吧。以后回来的人，读得到。' },
+        { speaker: '', color: '#aaaaaa', text: '（你走下灯塔，坐在庄园门口。没有睡，看那道光扫到天亮。）' },
+        { speaker: '林澈', color: '#c8d8f0', text: '（轻声）这样，我两边都在。' },
+        { speaker: '', color: '#aaaaaa', text: '（第三章·归位——完）' },
+      ],
+      () => {
+        triggerOnce('ch3_end_bridge', () => {});
+        this.saveAtPlayer();
+      },
+    );
+    return true;
+  }
+
   private setupLighthouseVisuals(): void {
     if (this.mapKey !== 'lighthouse') return;
     const night = getTime().hour >= 18 || getTime().hour < 6;
@@ -13394,11 +14972,27 @@ this.setupFieldLife();
     this.lhRoomGlow.fillStyle(0xffdda0, 1);
     this.lhRoomGlow.fillEllipse(15 * T, 3 * T, 34, 26);
     this.lhRoomGlow.setDepth(2);
-    this.lhRoomGlow.setAlpha(0); // 恒熄灭（预埋状态）
+    // 第三章幕一（制作人 2026-08-31 开工指令）：灯塔开放 → 灯室亮起（预埋恢复点，值按注释取）
+    if (this.isLighthouseUnlocked()) {
+      const litNight = getTime().hour >= 18 || getTime().hour < 6;
+      this.lhRoomGlow.setAlpha(litNight ? 0.35 : 0.06);
+      this.tweens.add({ targets: this.lhRoomGlow, alpha: { from: litNight ? 0.28 : 0.05, to: litNight ? 0.42 : 0.08 }, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    } else {
+    this.lhRoomGlow.setAlpha(0); // 恒熄灯（预埋状态）
+    }
 
     // ===== 3. 光束扫海面（预埋：当前恒不亮；未来灯塔点亮后恢复"夜晚光束"） =====
     // 2026-08-10 制作人方向对齐：现在灯塔=黑，光束属于"未来灯塔亮起"的视觉，
     // 现阶段不创建（lhBeam 恒为 null）。恢复时：night 分支创建此图形 + 呼吸 tween。
+
+    // 【已恢复·第三章幕一】灯塔开放后夜晚创建光束（缓慢摆动扫海面，scrollFactor 0）
+    if (this.isLighthouseUnlocked() && night) {
+      const beam = this.add.graphics().setScrollFactor(0).setDepth(158);
+      beam.fillStyle(0xffe6a0, 0.14);
+      beam.fillTriangle(15 * T, 3 * T, 15 * T + 420, 3 * T + 96, 15 * T + 420, 3 * T - 40);
+      beam.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({ targets: beam, angle: { from: -7, to: 7 }, duration: 5200, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    }
 
     // ===== 4. 海岸环境 =====
     // 浪花（岩石岸线与海交界白线，潮汐呼吸）
@@ -13553,7 +15147,7 @@ this.setupFieldLife();
     const p = this.grandpaNotePos;
     const dx = this.player.x - p.x;
     const dy = this.player.y - p.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
     const note = getGrandpaNote(getTime().day);
     return this.playStory([note], () => {
       this.updateHUD();
@@ -13891,7 +15485,7 @@ this.setupFieldLife();
       if (!b.visible) continue;
       const dx = this.player.x - b.x;
       const dy = this.player.y - b.y;
-      if (dx * dx + dy * dy < 24 * 24) {
+      if (dx * dx + dy * dy < R2(24)) {
         this.tryCatchButterfly(b);
         return true;
       }
@@ -15107,6 +16701,15 @@ this.setupFieldLife();
     if (this.mapKey !== 'town') return;
     if (this.inStargazeCutscene || this.inSpringFairCutscene) return;
     if (this.firstMorningActive) return; // 与其他自动演出互斥（同村长来访范式）
+    if (this.storyDialogue?.isOpen()) return; // 对白打开时窗口期不触发（同 startArtShow 范式）
+    // BUG-FIX（丢剧情）：标记已打但独白未播（上次被占用/切图打断）→ 本次进 town 优先补播
+    if (this.springFairStoryOwed) {
+      this.inSpringFairCutscene = true;
+      this.springFairFX = this.springFairFX.filter((o) => o.active);
+      if (this.springFairFX.length === 0) this.buildSpringFairFX();
+      this.queueSpringFairStory();
+      return;
+    }
     if (!isChapterAtLeast(CHAPTER_1)) return;
     if (!isRestored('marketSquare')) return;
     if (hasTriggered('ch1_spring_fair')) return;
@@ -15117,29 +16720,54 @@ this.setupFieldLife();
 
   /** 春日集演出主体：触发记录 + 灯火/剪影/人声 + 独白 + 钩子 */
   private startSpringFair(): void {
+    // BUG-FIX（P0）：runner 占用时 playStory 会被 playSequence 静默吞掉——本函数是
+    // "标记/存档先行"模式（ch1_spring_fair triggerOnce + save），一旦吞段 = onComplete
+    // 永不执行 → inSpringFairCutscene 永久置位 → 交互/出口全锁死。
+    // 窗口期直接不触发（triggerOnce 未标记，下次进 town 仍会重试；同 startArtShow 范式）。
+    if (this.storySequenceRunner?.isPlaying?.()) return;
     this.inSpringFairCutscene = true;
     const ok = triggerOnce('ch1_spring_fair', () => {
       play('crowd'); // 人群低语（程序合成，零资产）
       this.buildSpringFairFX(); // 灯火呼吸 + 人群剪影
       showMemoryMoment('集市灯火亮起来，老远就能听见有人说话。');
-      setTimeout(() => {
-
-        this.playStory(
-          [
-            { speaker: '', color: '#aaaaaa', text: '（人群里有笑声，有人在喊价钱，有人蹲在摊子前挑东西。）' },
-            { speaker: '镇长', color: '#c8b898', text: '上次这么热闹，还是你爷爷在的时候。……你回来得正是时候。' },
-            { speaker: '', color: '#aaaaaa', text: '（远处的灯塔方向，海面上好像亮了一下。……很快又暗下去。）' },
-          ],
-          () => this.endSpringFair(),
-        );
-      }, 1800);
+      this.time.delayedCall(1800, () => this.queueSpringFairStory());
     });
     if (!ok) {
       this.inSpringFairCutscene = false;
       return;
     }
     // ★ triggerOnce 已返回：ch1_spring_fair 此刻已标记 → 存档（EventSystem.md 时序纪律）
+    this.springFairStoryOwed = true; // 独白播出前视为"欠播"——被占用/切图打断也不许丢剧情
     save({ x: this.player.x, y: this.player.y, scene: this.mapKey, facing: this.player.facing } as any);
+  }
+
+  /**
+   * 春日集独白入队（延迟 1.8s 后调用）：runner/对白被占用则每秒重试。
+   * BUG-FIX（丢剧情）：原实现 10 次耗尽即 endSpringFair 释放旗标——但 ch1_spring_fair
+   * 已标记，剧情就此永久丢失（灯火亮了没人说话）。一次性剧情不可丢：改为无限重试
+   * （delayedCall 随 shutdown 自动销毁，无泄漏），切图/重启后由 springFairStoryOwed
+   * 在下次进 town 时补播（trySpringFairSequence 入口 owed 分支）。
+   */
+  private queueSpringFairStory(attempts = 0): void {
+    if (!this.scene.isActive()) return; // shutdown：owed 保留，重进 town 补播
+    if (this.storySequenceRunner?.isPlaying?.() || this.storyDialogue?.isOpen()) {
+      this.time.delayedCall(1000, () => this.queueSpringFairStory(attempts + 1));
+      return;
+    }
+    const ok = this.playStory(
+      [
+        { speaker: '', color: '#aaaaaa', text: '（人群里有笑声，有人在喊价钱，有人蹲在摊子前挑东西。）' },
+        { speaker: '镇长', color: '#c8b898', text: '上次这么热闹，还是你爷爷在的时候。……你回来得正是时候。' },
+        { speaker: '', color: '#aaaaaa', text: '（远处的灯塔方向，海面上好像亮了一下。……很快又暗下去。）' },
+      ],
+      () => this.endSpringFair(),
+    );
+    if (ok) {
+      this.springFairStoryOwed = false;
+    } else {
+      // 理论不可达（已查过占用）；防御：一秒后重试，绝不走 endSpringFair 丢剧情
+      this.time.delayedCall(1000, () => this.queueSpringFairStory(attempts + 1));
+    }
   }
 
   /** 春日集视觉：摊位灯火呼吸（3 盏暖黄灯）+ 人群剪影 ×3（头圆+身，轻晃动） */
@@ -15686,7 +17314,7 @@ this.setupFieldLife();
     if (!this.gardenXiya || !this.gardenXiya.visible) return false;
     const dx = this.player.x - this.gardenXiya.x;
     const dy = this.player.y - this.gardenXiya.y;
-    if (dx * dx + dy * dy > 28 * 28) return false;
+    if (dx * dx + dy * dy > R2(28)) return false;
 
     this.gardenXiya.destroy();
     this.gardenXiya = null;
@@ -16191,16 +17819,17 @@ this.setupFieldLife();
     }).setShadow(0, 1, '#000000', 2).setOrigin(0.5).setDepth(6);
   }
 
-  /** 花期未至当前段对应的"交互点标签"（S1/S8/E 生成夏雅；其余段生成标记） */
+  /** 花期未至当前段对应的"交互点标签"（S1/S8/E 生成夏雅；其余段生成标记）
+   *  （2026-08-29 口径：晒场系；常量名保留旧命名，仅文本与语义同步） */
   private bloomMarkTextForStage(): { text: string } | null {
     switch (this.xiyaBloomStage) {
       case 1: return { text: '旧布匹' };      // S2 仓库整理
-      case 2: return { text: '花台材料' };    // S3 老集市门口
+      case 2: return { text: '晒架木料' };    // S3 修晒架
       case 3: return { text: '邻居婆婆' };    // S4 误会解释
       case 4: return { text: '日记纸页' };    // S5 老裁缝铺前
       case 5: return { text: '邻居们' };      // S6 广场四处走动
-      case 6: return { text: '春祭摊位' };    // S7 市集广场
-      case 7: return { text: '烟花灯' };      // S8 夜晚前挂灯
+      case 6: return { text: '收成摆设' };    // S7 晒场日傍晚
+      case 7: return { text: '灯笼' };        // S8 夜晚挂灯
       default: return null;
     }
   }
@@ -16213,8 +17842,9 @@ this.setupFieldLife();
     }).setOrigin(0.5).setDepth(4);
   }
 
-  /** 花期未至完成后：旧广场角落出现「春祭记忆小景」
-   *  ——克制视觉：挂饰 + 纸花 + 一小盏暖灯（"夏雅说的'明年春天'，真的来了"）。
+  /** 花期未至完成后：公告板右下出现「晒场生活痕迹」小景（2026-08-29 制作人拍板）
+   *  ——主视觉：竹席 / 晒架 + 少量干菜粮食 + 一盏暖灯（晒场之后留下来的生活痕迹）；
+   *    保留一朵纸花＝"花期未至"的人物记忆物（花退到生活痕迹旁边，不喧宾夺主）。
    *  放在公告板 (32,16) 右下 (34,17)，不挡需求板与任何 NPC。
    */
   private spawnBloomPermVignette(): void {
@@ -16223,23 +17853,32 @@ this.setupFieldLife();
     const px = 34 * T + T / 2;
     const py = 17 * T + T / 2;
     const c = this.add.container(px, py).setDepth(3);
+    // 竹席（晒场主视觉：淡黄席面 + 席纹）
+    const mat = this.add.graphics();
+    mat.fillStyle(0xd8c078, 0.9).fillRoundedRect(-11, -3, 22, 10, 2);
+    mat.lineStyle(1, 0xb89a52, 0.6).lineBetween(-11, 0, 11, 0);
+    mat.lineStyle(1, 0xb89a52, 0.5).lineBetween(-11, 3, 11, 3);
+    // 晒架（立柱 + 横杆，斜靠）
+    const rack = this.add.graphics();
+    rack.lineStyle(2, 0x6e4a24, 1).lineBetween(-9, 8, 9, -6);
+    rack.lineStyle(1.5, 0x8a5a2a, 1).lineBetween(-7, 8, 11, -6);
+    // 干菜 / 粮食（几串小点，晒在架下）
+    const crop = this.add.graphics();
+    crop.fillStyle(0xe0b040, 1).fillCircle(-2, 4, 1.5);  // 玉米
+    crop.fillStyle(0xe0b040, 1).fillCircle(1, 4, 1.5);
+    crop.fillStyle(0x7a9a4a, 1).fillCircle(6, 1, 1.5);   // 干菜
+    crop.fillStyle(0xd8a050, 1).fillCircle(-6, 5, 1.2);  // 萝卜干
     // 暖灯（小圆 + 光晕）
     const lamp = this.add.graphics();
     lamp.fillStyle(0x5c3a20, 1).fillCircle(0, -12, 4);
     lamp.fillStyle(0xffd080, 1).fillCircle(0, -12, 2);
     const glow = this.add.graphics();
     glow.fillStyle(0xffdd99, 0.18).fillCircle(0, -12, 14);
-    // 两朵纸花挂饰
+    // 一朵纸花（花期未至的人物记忆物，留在生活痕迹旁）
     const f1 = this.add.graphics();
-    f1.fillStyle(0xf0a0a0, 1).fillCircle(-8, -2, 3);
-    f1.fillStyle(0xffffff, 1).fillCircle(-8, -2, 1);
-    const f2 = this.add.graphics();
-    f2.fillStyle(0xe8a8c0, 1).fillCircle(6, -6, 3);
-    f2.fillStyle(0xffffff, 1).fillCircle(6, -6, 1);
-    // 彩带
-    const rib = this.add.graphics();
-    rib.lineStyle(1, 0xf0c8c8, 0.8).lineBetween(-10, -16, 10, -16);
-    c.add([glow, lamp, rib, f1, f2]);
+    f1.fillStyle(0xf0a0a0, 1).fillCircle(-8, -8, 3);
+    f1.fillStyle(0xffffff, 1).fillCircle(-8, -8, 1);
+    c.add([glow, lamp, mat, rack, crop, f1]);
     this.bloomPermSprite = c;
   }
 
@@ -16380,7 +18019,7 @@ this.setupFieldLife();
         // P1 世界反馈：完成后春祭记忆小景常驻
         this.spawnBloomPermVignette();
         // L3 事件记忆卡
-        showStoryComplete('春深有信·二 花期未至', '明年春天，我们再一起等一场花会。');
+        showStoryComplete('春深有信·二 花期未至', '明年这时候，地上还会有花。');
         this.updateHUD();
         this.saveBloomFlags();
         restoreBgm();
@@ -16451,7 +18090,7 @@ this.setupFieldLife();
       if (!n.sprite || n.vanished) continue;
       const ndx = this.player.x - n.sprite.x;
       const ndy = this.player.y - n.sprite.y;
-      if (ndx * ndx + ndy * ndy < 24 * 24) return false;
+      if (ndx * ndx + ndy * ndy < R2(24)) return false;
     }
     const T = TILE_SIZE;
     // 2026-08-14 花圃锚点移位 (27,17)→(28,16)：原 (27,17) 是马路(gid7)且紧贴商店老板(26,18)，
@@ -16671,7 +18310,7 @@ this.setupFieldLife();
     if (gardener && gardener.sprite) {
       const ndx = this.player.x - gardener.sprite.x;
       const ndy = this.player.y - gardener.sprite.y;
-      if (ndx * ndx + ndy * ndy < 24 * 24) return false;
+      if (ndx * ndx + ndy * ndy < R2(24)) return false;
     }
     const T = TILE_SIZE;
     const gx = 3 * T + T / 2;
@@ -16914,7 +18553,7 @@ this.setupFieldLife();
     if (!this.oldRobot || !this.oldRobot.visible) return false;
     const dx = this.player.x - this.oldRobotPos.x;
     const dy = this.player.y - this.oldRobotPos.y;
-    if (dx * dx + dy * dy > 30 * 30) return false;
+    if (dx * dx + dy * dy > R2(30)) return false;
 
     this.oldRobotFixed = true;
     this.oldRobot.destroy();
@@ -17994,6 +19633,9 @@ this.setupFieldLife();
     if (!next) {
       AmbienceSystem.stop();
       MusicSystem.stop();
+      // BUG-FIX（P2）：关声音不停当前句配音——配音只在播放入口被拦截，进行中的
+      // AudioBufferSourceNode 会继续播完（与 AudioSystem「覆盖四条链路」的宣称不符）
+      VoiceBank.stop();
     } else {
       const hour = getTime().hour;
       AmbienceSystem.start(this.mapKey, hour);
@@ -18111,6 +19753,12 @@ this.setupFieldLife();
     }
     if (this.endingPanel?.isOpen()) { this.endingPanel.close(); return true; }
     if (this.photoAlbumPanel?.isOpen()) { this.photoAlbumPanel.close(); return true; }
+    // BUG-FIX（P1）：以下四个面板此前不在返回键覆盖范围——面板开着按返回键会直接切场景，
+    // 且音乐盒/邮箱 DOM 不在 cleanupSceneDom 内 → 残留到新地图
+    if (this.musicBoxPanel?.isOpen()) { this.musicBoxPanel.close(); return true; }
+    if (this.residentBoardPanel?.isOpen()) { this.residentBoardPanel.close(); return true; }
+    if (isMailboxPanelOpen()) { closeMailbox(); return true; }
+    if (isWaitPanelOpen()) { closeWaitPanel(); return true; }
     if (discoveryPanelHandleEscape()) return true;
     if (hudMenuHandleEscape()) return true;
     if (this.shopPanel?.isOpen()) { this.shopPanel.close(); return true; }
@@ -18170,6 +19818,9 @@ this.setupFieldLife();
     const escHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); this.closeCropPicker(); window.removeEventListener('keydown', escHandler); }
     };
+    // 重开前先清旧的（防御），再挂新引用
+    if (this.cropPickerEscHandler) window.removeEventListener('keydown', this.cropPickerEscHandler);
+    this.cropPickerEscHandler = escHandler;
     window.addEventListener('keydown', escHandler);
   }
 
@@ -18177,6 +19828,12 @@ this.setupFieldLife();
   private closeCropPicker(): void {
     this.cropPickerEl?.remove();
     this.cropPickerEl = null;
+    // BUG-FIX（P2 泄漏）：ESC 处理器原本只在按 ESC 时移除——点关闭按钮/选种子/切场景
+    // （cleanupSceneDom→closeCropPicker）路径全部泄漏，积累后一次 ESC 连环触发并吞掉其他场景语义
+    if (this.cropPickerEscHandler) {
+      window.removeEventListener('keydown', this.cropPickerEscHandler);
+      this.cropPickerEscHandler = null;
+    }
   }
 
   /** 创建/刷新每日任务面板（public：debug API 调用） */

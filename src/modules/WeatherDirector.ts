@@ -35,6 +35,9 @@ export class WeatherDirector {
   /** 当前是否正在下雨 */
   public get isRaining(): boolean { return this.rainActive; }
 
+  /** 是否有雨视效在显示（覆盖层+粒子，探针/调试用；L1 断言经此读取而非旧 scene.rainOverlay） */
+  public get hasRainVisuals(): boolean { return this.rainOverlay !== null; }
+
   /** 设置雨天开始回调（用于 syncWeatherGatherPoints 等跨域联动） */
   public setOnRainStart(cb: () => void): void {
     this.onRainStart = cb;
@@ -70,6 +73,10 @@ export class WeatherDirector {
     const camW = this.scene.cameras.main.width;
     const camH = this.scene.cameras.main.height;
     const map = this.scene.make.tilemap({ key: this.scene.scene.key });
+    const mapWidth = map.widthInPixels;
+    // BUG-FIX（P2 内存）：make.tilemap 解析完整 Tiled 数据，只读 widthInPixels 后必须
+    // 销毁——否则每次下雨泄漏一个 Tilemap（跨天可能多次下雨）
+    map.destroy();
 
     // 雨天覆盖层：半透明蓝色矩形，覆盖整个屏幕
     const overlay = this.scene.add.rectangle(
@@ -94,7 +101,7 @@ export class WeatherDirector {
 
     // 雨粒子：从天空飘落的白色短线条
     const particles = this.scene.add.particles(0, 0, '__WHITE', {
-      x: { min: 0, max: map.widthInPixels },
+      x: { min: 0, max: mapWidth },
       y: -10,
       lifespan: 2000,
       speedY: { min: 200, max: 350 },
