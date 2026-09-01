@@ -37,6 +37,11 @@ const PORTRAIT_MAP: Record<string, string> = {
   商店老板: 'assets/portraits/shopkeeper_ai.webp',
   木匠老周: 'assets/portraits/laozhou_gemini_v1.webp',
   老周: 'assets/portraits/laozhou_gemini_v1.webp',
+  // 第三章新增角色
+  陈叔: 'assets/portraits/chen_ai.webp',
+  张先生: 'assets/portraits/zhang_ai.webp',
+  张远: 'assets/portraits/zhang_ai.webp',
+  老船长: 'assets/portraits/captain_ai.webp',
 };
 
 export class StoryDialogue {
