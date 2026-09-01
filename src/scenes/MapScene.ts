@@ -5249,12 +5249,12 @@ this.setupFieldLife();
     } as any);
     const lines: DialogueLine[] = once ? [
       narrator('（旅人坐在长椅上，正对着一幅画，一动不动。）'),
-      { speaker: '旅人', color: '#c8a8e8', text: '……回来了。你们的星光，我画下来的地方。' },
+      { speaker: '张先生', color: '#c8a8e8', text: '……回来了。你们的星光，我画下来的地方。' },
       { speaker: '林澈', color: COLORS.linche, text: '还想再看看？' },
-      { speaker: '旅人', color: '#c8a8e8', text: '嗯。把它留在纸上，走到哪儿都能带着。' },
+      { speaker: '张先生', color: '#c8a8e8', text: '嗯。把它留在纸上，走到哪儿都能带着。' },
     ] : [
       narrator('（旅人又来看那幅画了。这一次，他带了个新的小本子。）'),
-      { speaker: '旅人', color: '#c8a8e8', text: '这镇子安静，画得下去。' },
+      { speaker: '张先生', color: '#c8a8e8', text: '这镇子安静，画得下去。' },
     ];
     return this.playStory(lines, () => this.updateHUD(), undefined, 'artshow_traveler');
   }
@@ -5822,7 +5822,7 @@ this.setupFieldLife();
         { speaker: '老周', color: '#c89860', text: '这张是建井那年拍的。那时候镇上人多。' },
         narrator('（孩子的画挂在一边，歪歪扭扭的，颜色很亮。）'),
         narrator('（展台中央，一个玻璃瓶里装着小小的星光灯——旅人把它留在了这里。）'),
-        { speaker: '旅人', color: '#c8a8e8', text: '我听说这里晚上有星星。来了以后发现，镇子自己就会发光。' },
+        { speaker: '张先生', color: '#c8a8e8', text: '我听说这里晚上有星星。来了以后发现，镇子自己就会发光。' },
       ], () => {
         // 第三段：夜晚灯光 + C 开幕 + 永久变化
         this.artShowNightFinale();
@@ -5846,7 +5846,7 @@ this.setupFieldLife();
     this.playStory([
       narrator('（夜色落下来。广场的灯一盏盏亮起来，河面上有了倒影。）'),
       narrator('（远处的灯塔方向，海面上好像亮了一下。）'),
-      { speaker: '旅人', color: '#c8a8e8', text: '这幅画留给你们——以后每年这时候，我再回来看看它。' },
+      { speaker: '张先生', color: '#c8a8e8', text: '这幅画留给你们——以后每年这时候，我再回来看看它。' },
       { speaker: '夏雅', color: COLORS.xiya, text: '明年来的人，就能看到今天这些了。' },
     ], () => {
       // 永久变化落地
@@ -14429,16 +14429,42 @@ this.setupFieldLife();
 
   private runCh3TownReact(): void {
     this.setupCh3BoardPhoto();
+    // 村里讨论（Beat③+⑤）：生活化问题，不投票、不解决；立场=拍板基线 A1（分化+镇长搁置）
+    // 演出精灵范式：参与者临时剪影（阿风/老张/夏雅/老周），收尾清理
+    const bx = 32 * TILE_SIZE + TILE_SIZE / 2, by = 16 * TILE_SIZE + TILE_SIZE / 2;
+    const crowd: Phaser.GameObjects.GameObject[] = [];
+    const mk = (x: number, y: number, coat: number, skin: number, name: string, color: string) => {
+      const g = this.add.graphics().setDepth(5);
+      g.fillStyle(coat, 1); g.fillCircle(x, y - 13, 3.2);
+      g.fillStyle(skin, 1); g.fillCircle(x, y - 13, 2.4);
+      g.fillStyle(coat, 1); g.fillRect(x - 5, y - 10, 10, 13);
+      g.fillStyle(0x2a2620, 1); g.fillRect(x - 4, y + 3, 3, 6);
+      g.fillStyle(0x2a2620, 1); g.fillRect(x + 2, y + 3, 3, 6);
+      crowd.push(g);
+      crowd.push(this.add.text(x, y - 23, name, {
+        fontSize: '11px', color, stroke: '#000000', strokeThickness: 3,
+        backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
+      }).setOrigin(0.5).setDepth(5));
+    };
+    mk(bx + 40, by - 4, 0x5a4a3a, 0x8a7a6a, '阿风', '#d8a8b8');
+    mk(bx + 70, by - 2, 0x4a4438, 0x8a7a6a, '老张', '#a8b8c8');
+    mk(bx + 100, by - 6, 0x5c4458, 0x9a8a7a, '夏雅', '#d8a8b8');
+    mk(bx + 130, by - 3, 0x4a4a3a, 0x8a7a6a, '老周', '#c89860');
     this.playStory(
       [
-        { speaker: '', color: '#aaaaaa', text: '（需求板旁边，多了一张钉起来的照片——码头，老船，和一个举着相机的身影。）' },
-        { speaker: '旅人', color: '#c8e0d8', text: '（正往照片上按图钉）借你们板子一角。回头再贴新的。' },
-        { speaker: '镇长', color: '#c8b898', text: '（背着手看了半天）……让镇子自己慢慢想。这事，急不得。' },
-        { speaker: '夏雅', color: '#d8a8b8', text: '被看见，也没什么不好。不过——这岛不是拍给人看的。' },
-        { speaker: '旅人', color: '#c8e0d8', text: '我没打算催。' },
-        { speaker: '', color: '#aaaaaa', text: '（谁也没把话说满。照片就钉在那儿，风吹得它轻轻响。）' },
+        { speaker: '', color: '#aaaaaa', text: '（几天后。需求板旁边多了一张手写的告示——海边市集，秋天，一天。）' },
+        { speaker: '阿风', color: '#d8a8b8', text: '人多点不是挺好吗？' },
+        { speaker: '老张', color: '#a8b8c8', text: '人一多，什么都得跟着变。' },
+        { speaker: '夏雅', color: '#d8a8b8', text: '来看看可以。别把我们的日子也摆出去。' },
+        { speaker: '', color: '#aaaaaa', text: '（有人问老周：修的那些凳子，能卖吗？）' },
+        { speaker: '老周', color: '#c89860', text: '不卖。自己坐。' },
+        { speaker: '', color: '#aaaaaa', text: '（也有人问：灯塔能不能让他们进去拍？没人答。）' },
+        { speaker: '张先生', color: '#c8e0d8', text: '摊位费怎么算，都听镇长的。游客踩了东西，我赔。' },
+        { speaker: '镇长', color: '#c8b898', text: '先办一次。看看。' },
+        { speaker: '', color: '#aaaaaa', text: '（谁也没投赞成票，也没人反对。告示下面有人用铅笔添了一行：卖烤红薯的算不算？）' },
       ],
       () => {
+        for (const o of crowd) o.destroy();
         this.ch3TownReactOwed = false;
         this.ch3TownReactQueued = false;
         this.saveAtPlayer(); // BUG-FIX（B3/B4）：延迟回调统一走守卫入口
@@ -14506,17 +14532,23 @@ this.setupFieldLife();
       glow.destroy();
       this.setupCh3Ship();
       this.setupCh3StrangerNpc();
-      // ② 对白（方向稿，未定稿；不解释船的性质——谜面留给玩家）
+      // 阿风在场（认出张哥——身份自然曝光；演出精灵范式，收尾清理）
+      const adv = this.add.graphics().setDepth(5);
+      adv.fillStyle(0x5a4a3a, 1); adv.fillCircle(88, 322, 3.2);
+      adv.fillStyle(0x8a7a6a, 1); adv.fillCircle(88, 322, 2.4);
+      adv.fillStyle(0x4a5a3a, 1); adv.fillRect(84, 318, 8, 12);
+      this.ch3ShipGfx.push(adv);
+      // Beat① 对白（方向稿，未定稿）：去神秘化——张远=阿风的朋友，三层称呼（张远/张先生/张哥）
       this.playStory(
         [
           { speaker: '', color: '#aaaaaa', text: '（夜里。海平线上那个黑点，动了。）' },
           { speaker: '', color: '#aaaaaa', text: '（一点灯火由远及近——是一艘船。比老船新得多。）' },
-          { speaker: '', color: '#aaaaaa', text: '（船靠了岸。旅人从船上跳下来，肩上多了一台相机。）' },
-          { speaker: '旅人', color: '#c8e0d8', text: '我说过我会回来。这次带着相机。' },
-          { speaker: '旅人', color: '#c8e0d8', text: '这座岛……值得被外面的人看见。我想把它记下来——照片、文字，都行。' },
-          { speaker: '老船长', color: '#a8b8c8', text: '看归看。别踩坏栈板。' },
-          { speaker: '旅人', color: '#c8e0d8', text: '放心，我不捣乱。我只是想……让更多人知道这里。' },
-          { speaker: '', color: '#aaaaaa', text: '（船没走，就停在老船旁边。船是什么来头，没人问，他也没说。）' },
+          { speaker: '', color: '#aaaaaa', text: '（船靠了岸。船上下来一个人，肩上多了一台相机。岸边居然有人先喊出了声。）' },
+          { speaker: '阿风', color: '#d8a8b8', text: '张哥？……张哥！你还真回来了。' },
+          { speaker: '林澈', color: '#c8d8f0', text: '你们认识？' },
+          { speaker: '阿风', color: '#d8a8b8', text: '我以前在外面打工的时候认识的。他老跑这附近。' },
+          { speaker: '张先生', color: '#c8e0d8', text: '别听他瞎说。我就是来过几次。' },
+          { speaker: '', color: '#aaaaaa', text: '（船没走，就停在老船旁边。）' },
         ],
         () => {
           this.ch3ShipOwed = false;
@@ -14558,7 +14590,7 @@ this.setupFieldLife();
     g.fillStyle(0x323e38, 1); g.fillRect(s.x + 2, s.y + 3, 3, 6);
     g.fillStyle(0x22282c, 1); g.fillRect(s.x - 2, s.y - 7, 7, 5);      // 胸前相机
     this.ch3StrangerNpcGfx.push(g);
-    this.add.text(s.x, s.y - 23, '旅人', {
+    this.add.text(s.x, s.y - 23, '张先生', {
       fontSize: '11px', color: '#c8e0d8', stroke: '#000000', strokeThickness: 3,
       backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
     }).setOrigin(0.5).setDepth(5);
@@ -14584,8 +14616,10 @@ this.setupFieldLife();
       this.ch3StrangerTalkCount++;
       this.playStory(
         [
-          { speaker: '旅人', color: '#c8e0d8', text: '我想给码头拍一张照片。得是有人的样子——有人在生活的那种。' },
-          { speaker: '旅人', color: '#c8e0d8', text: '你在这儿忙你的，别管我。生活是演不出来的。' },
+          { speaker: '张先生', color: '#c8e0d8', text: '其实……我想跟镇长商量一件事。我认识外面一个做地方生活内容的小团队。' },
+          { speaker: '张先生', color: '#c8e0d8', text: '他们想在秋天办一场小型活动——就在码头。小摊位、本地旧物、手工修复、海边摄影。小规模的。' },
+          { speaker: '张先生', color: '#c8e0d8', text: '之前拍的这些，其实都是在勘景。' },
+          { speaker: '张先生', color: '#c8e0d8', text: '（顿了顿）会不会太吵了？我也拿不准。所以才想先听听大家的。' },
         ],
         () => {
           triggerOnce('ch3_b_proposal', () => {});
@@ -14599,8 +14633,8 @@ this.setupFieldLife();
       this.playStory(
         [
           { speaker: '', color: '#aaaaaa', text: '（你在码头边忙你的。咔嚓。）' },
-          { speaker: '旅人', color: '#c8e0d8', text: '（他把照片钉在柱子上）……你看。有人生活的地方，照片自己会说话。' },
-          { speaker: '旅人', color: '#c8e0d8', text: '至于让多少人看见……我想再听听大家的想法。不急。' },
+          { speaker: '张先生', color: '#c8e0d8', text: '（他把照片钉在柱子上）……你看。这就是我想让外面看见的样子。' },
+          { speaker: '张先生', color: '#c8e0d8', text: '至于让多少人看见……我想再听听大家的想法。不急。' },
           { speaker: '', color: '#aaaaaa', text: '（老船长瞥了一眼那张照片，没说什么，嘴角松了一下。）' },
         ],
         () => {
@@ -14612,7 +14646,7 @@ this.setupFieldLife();
       return true;
     }
     const lines = [
-      '（他在拍栈板上的钉子。）现在的人，就爱拍这些。',
+      '（他在拍栈板上的钉子。）活动要是办起来，就从这些细节拍起。',
       '照片不会说谎。但挑哪张给人看……是门学问。',
       '别担心，我不是来买岛的。……现在还不是。',
     ];
@@ -14666,7 +14700,7 @@ this.setupFieldLife();
     const s = this.ch3ArchiveSpot();
     if (!s) return false;
     triggerOnce(s.ev, () => {});
-    this.showDialogueText(`旅人（远处喊）：帮我看看水平泡居中没？${s.note}`);
+    this.showDialogueText(`张先生（远处喊）：帮我看看水平泡居中没？${s.note}`);
     const done = this.ch3ArchiveDoneCount();
     // 三机位全拍完 → 码头碰面演出（保留句；镇长"灯下再议"= 幕四钩子）
     if (done === 3) this.ch3QueueCaptainMeet();
@@ -14702,9 +14736,9 @@ this.setupFieldLife();
           ? '（夜里。B 的三个机位，摆满了岛的三个角落。码头上，老船长收起桐油罐。）'
           : '（B 的三个机位，摆满了岛的三个角落。码头上，老船长收起桐油罐。）' },
         { speaker: '老船长', color: '#a8b8c8', text: '拍完了？' },
-        { speaker: '旅人', color: '#c8e0d8', text: '拍完了。都在。船、屋、灯……还有人。' },
+        { speaker: '张先生', color: '#c8e0d8', text: '拍完了。都在。船、屋、灯……还有人。' },
         { speaker: '老船长', color: '#a8b8c8', text: '拍这些，做什么用？' },
-        { speaker: '旅人', color: '#c8e0d8', text: '让没来过的人，知道这里在。' },
+        { speaker: '张先生', color: '#c8e0d8', text: '让没来过的人，知道这里在。' },
         { speaker: '', color: '#aaaaaa', text: '（沉默一阵。浪拍了两下栈板。）' },
         { speaker: '老船长', color: '#a8b8c8', text: '船停着，人住着，慢慢看。' },
         { speaker: '', color: '#aaaaaa', text: '（后来镇长听说了照片的事，只说了一句：灯下再议。）' },
@@ -14891,7 +14925,7 @@ this.setupFieldLife();
     this.playStory(
       [
         { speaker: '', color: '#aaaaaa', text: '（船板轻轻晃了一下。你跳了上去。）' },
-        { speaker: '旅人', color: '#c8e0d8', text: '（收起相机）我送你一程。正好，拍一张离岸的。' },
+        { speaker: '张先生', color: '#c8e0d8', text: '（收起相机）我送你一程。正好，拍一张离岸的。' },
         { speaker: '', color: '#aaaaaa', text: '（船离岸。灯塔的光从你背后扫过来，落在甲板上。）' },
         { speaker: '林澈', color: '#c8d8f0', text: '我会知道这里在哪里。' },
         { speaker: '', color: '#aaaaaa', text: '（第三章·归位——完）' },

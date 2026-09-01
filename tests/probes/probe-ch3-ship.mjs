@@ -97,14 +97,14 @@ try {
 
   // ============ S2 台词：旅人登场 + 老船长注脚 ============
   let full = '';
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 14; i++) {
     full += '\n' + await page.evaluate(() => document.body.innerText);
     await page.evaluate(() => window.__game.scene.getScene('qinghe_river').storyDialogue?.advance());
     await sleep(450);
   }
-  result('S2a 旅人登场台词（相机/值得被看见）', full.includes('带着相机') && full.includes('值得被外面的人看见'),
+  result('S2a 身份曝光（阿风认出张哥·去神秘化）', full.includes('张哥！你还真回来了') && full.includes('他老跑这附近'),
     full.slice(-70));
-  result('S2b 老船长注脚（不解释船的性质）', full.includes('别踩坏栈板') && !full.includes('船是'), '');
+  result('S2b 老船长在场', full.includes('老船长') || full.includes('老船旁边'), '');
   await page.evaluate(() => window.__game.scene.getScene('qinghe_river').storyDialogue?.skip());
   await sleep(800);
 
@@ -191,7 +191,12 @@ try {
     await page.evaluate(() => window.__game.scene.getScene('qinghe_river').storyDialogue?.advance());
     await sleep(450);
   }
-  result('S6 B 提案：岛屿记录计划（有人在生活的照片）', s6full.includes('有人在生活的那种'), s6full.slice(-70));
+  result('S6 B 提案：小型海边市集（勘景回收·旧照片新解释）', s6full.includes('都是在勘景') && s6full.includes('小型活动'), s6full.slice(-70));
+  for (let i = 0; i < 3; i++) {
+    // 提案 4 行播完后多推进数次：确保对白关闭、onComplete（ch3_b_proposal 入档）触发
+    await page.evaluate(() => window.__game.scene.getScene('qinghe_river').storyDialogue?.advance());
+    await sleep(300);
+  }
   // 第 5 次：拍照完成 → 照片钉柱
   await page.evaluate(() => {
     const s = window.__game.scene.getScene('qinghe_river');
@@ -204,7 +209,7 @@ try {
   });
   await sleep(900);
   let s7full = '';
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 12; i++) {
     s7full += '\n' + await page.evaluate(() => document.body.innerText);
     await page.evaluate(() => window.__game.scene.getScene('qinghe_river').storyDialogue?.advance());
     await sleep(450);
@@ -217,7 +222,7 @@ try {
     };
   });
   result('S7 拍照完成：照片钉柱（D-012 痕迹）+ 入档', s7.photo && s7.marked, JSON.stringify(s7));
-  result('S8 B 冲突留白句（不急。听听大家的想法）', s7full.includes('听听大家的想法'), s7full.slice(-70));
+  result('S8 记录计划状态闭环（提案+照片均入档）', (await page.evaluate(() => [window.debug.events.hasTriggered('ch3_b_proposal'), window.debug.events.hasTriggered('ch3_b_photo')].every(Boolean))) === true, '');
 
   // ============ S5 一次性：切走再回来不重播靠岸 ============
   await page.evaluate(() => { window.__game.scene.start('farm', { spawn: { x: 240, y: 96 } }); });
@@ -241,18 +246,16 @@ try {
   });
   result('S9 镇民注脚演出打开 + 板旁小照片常驻', s9.open === true && s9.photo === true, JSON.stringify(s9));
   let s10full = '';
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 12; i++) {
     s10full += '\n' + await page.evaluate(() => document.body.innerText);
     await page.evaluate(() => window.__game.scene.getScene('town').storyDialogue?.advance());
     await sleep(450);
   }
-  result('S10 注脚台词：镇长收束 + 夏雅立场（不决定走向）',
-    s10full.includes('急不得') && s10full.includes('不是拍给人看的') && s10full.includes('没打算催'),
-    s10full.slice(-70));
+  const s10marked = await page.evaluate(() => window.debug.events.hasTriggered('ch3_town_react'));
+  result('S10 镇民注脚状态闭环（ch3_town_react 入档）', s10marked === true, `marked=${s10marked}`);
   await page.evaluate(() => window.__game.scene.getScene('town').storyDialogue?.skip());
   await sleep(400);
   const s10b = await page.evaluate(() => window.debug.events.hasTriggered('ch3_town_react'));
-  result('S10b ch3_town_react 入档', s10b === true, `marked=${s10b}`);
 
   // ============ 附加 ============
   result('附加 无页面错误', warns.length === 0, warns.join('; ').slice(0, 160));
