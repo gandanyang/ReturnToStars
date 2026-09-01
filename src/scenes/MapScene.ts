@@ -650,7 +650,7 @@ export class MapScene extends Phaser.Scene {
   private ch2NightTalkActive = false;     // 夜谈演出中（防重入）
   private ch2NightTalkOwed = false;       // 夜谈"欠播"（标记已打未完成；被打断后补播，不入档）
   private ch2PierLifeGfx: Phaser.GameObjects.GameObject[] = []; // 节拍3 码头生活剪影（修复后常驻）
-  private ch3KeeperGfx: Phaser.GameObjects.Graphics | null = null; // 幕一 执灯人剪影
+  private ch3KeeperGfx: Phaser.GameObjects.Sprite | null = null;  // 幕一 陈叔 sprite
   private ch3ArrivalQueued = false; // 幕一 初见演出已入队（防重入；未标记前可重试）
   private ch3BellGfx: Phaser.GameObjects.Graphics | null = null;  // 幕二 铜铃
   private ch3TelescopeActive = false;                              // 幕二 望远镜观察模式防重入
@@ -1348,6 +1348,9 @@ export class MapScene extends Phaser.Scene {
     if (!this.textures.exists('npc_gardener')) this.load.image('npc_gardener', 'assets/sprites/npc_gardener.png');
     if (!this.textures.exists('npc_adventurer')) this.load.image('npc_adventurer', 'assets/sprites/npc_adventurer.png');
     if (!this.textures.exists('npc_carpenter')) this.load.image('npc_carpenter', 'assets/sprites/npc_carpenter.png');
+    // 第三章 NPC sprite（陈叔 / 张先生）
+    if (!this.textures.exists('npc_chen')) this.load.image('npc_chen', 'assets/sprites/npc_chen.png');
+    if (!this.textures.exists('npc_zhang')) this.load.image('npc_zhang', 'assets/sprites/npc_zhang.png');
     // 矿脉贴图（矿洞场景：石/铜/铁）
     if (this.mapKey === 'mine') {
       if (!this.textures.exists('ore_stone')) this.load.image('ore_stone', 'assets/sprites/ore_stone.png');
@@ -14189,14 +14192,8 @@ this.setupFieldLife();
     if (this.ch3KeeperGfx) return; // 幂等（create 复用实例）
     const T = TILE_SIZE;
     const kx = 13.4 * T, ky = 10.2 * T; // 塔基旁（塔身 x 208-272 之西侧，不挡出口通道）
-    const k = this.add.graphics().setDepth(5);
-    k.fillStyle(0x4a4438, 1); k.fillCircle(kx, ky - 12, 3.2);          // 头
-    k.fillStyle(0x8a7a6a, 1); k.fillCircle(kx, ky - 12, 2.4);          // 肤色
-    k.fillStyle(0x5a5a48, 1); k.fillRect(kx - 5, ky - 9, 10, 12);      // 上身（工装）
-    k.fillStyle(0x3c382e, 1); k.fillRect(kx - 4, ky + 3, 3, 6);        // 腿
-    k.fillStyle(0x3c382e, 1); k.fillRect(kx + 2, ky + 3, 3, 6);
-    k.fillStyle(0xd8c8a0, 1); k.fillRect(kx + 5, ky - 6, 2, 8);        // 手里的除尘布
-    this.ch3KeeperGfx = k;
+    // NPC sprite（ComfyUI 生成 32x32，setScale 0.5 = 16x16 屏显）
+    this.ch3KeeperGfx = this.add.sprite(kx, ky, 'npc_chen').setScale(0.5).setDepth(5);
     // 铜铃（檐下小钟；幕二交互物）
     const b = MapScene.CH3.bell;
     const bell = this.add.graphics().setDepth(4);
@@ -14582,18 +14579,13 @@ this.setupFieldLife();
     if (this.mapKey !== 'qinghe_river') return;
     if (this.ch3StrangerNpcGfx.length > 0) { this.ch3StrangerNpcGfx = this.ch3StrangerNpcGfx.filter((o) => o.active); if (this.ch3StrangerNpcGfx.length) return; }
     const s = MapScene.CH3.strangerNpc;
-    const g = this.add.graphics().setDepth(5);
-    g.fillStyle(0x3c4a44, 1); g.fillCircle(s.x, s.y - 13, 3.2);        // 头
-    g.fillStyle(0x9a8a7a, 1); g.fillCircle(s.x, s.y - 13, 2.4);        // 肤色
-    g.fillStyle(0x46564e, 1); g.fillRect(s.x - 5, s.y - 10, 10, 13);   // 上身
-    g.fillStyle(0x323e38, 1); g.fillRect(s.x - 4, s.y + 3, 3, 6);      // 腿
-    g.fillStyle(0x323e38, 1); g.fillRect(s.x + 2, s.y + 3, 3, 6);
-    g.fillStyle(0x22282c, 1); g.fillRect(s.x - 2, s.y - 7, 7, 5);      // 胸前相机
-    this.ch3StrangerNpcGfx.push(g);
-    this.add.text(s.x, s.y - 23, '张先生', {
+    // NPC sprite（ComfyUI 生成 32x32）
+    const sprite = this.add.sprite(s.x, s.y, 'npc_zhang').setScale(0.5).setDepth(5);
+    this.ch3StrangerNpcGfx.push(sprite);
+    this.ch3StrangerNpcGfx.push(this.add.text(s.x, s.y - 23, '张先生', {
       fontSize: '11px', color: '#c8e0d8', stroke: '#000000', strokeThickness: 3,
       backgroundColor: 'rgba(0,0,0,0.45)', padding: { x: 2, y: 1 },
-    }).setOrigin(0.5).setDepth(5);
+    }).setOrigin(0.5).setDepth(5));
   }
 
   private canTryCh3Stranger(): boolean {
