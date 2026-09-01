@@ -94,6 +94,7 @@
   .focus-item{padding:11px 12px;border-radius:10px;border:1px solid transparent;margin-bottom:8px}
   .focus-item:last-child{margin-bottom:0}
   .focus-item.st-live{background:#34d3990d;border-color:#34d39926}
+  .focus-item.st-build{background:#a78bfa0d;border-color:#a78bfa26}
   .focus-item.st-next{background:#a78bfa0d;border-color:#a78bfa26}
   .focus-item.st-wait{background:#fbbf240d;border-color:#fbbf2426}
   .focus-item.st-done{background:#6b728008;border-color:#6b728022;opacity:.75}
@@ -183,6 +184,32 @@
   .cmd code{color:var(--cyan);font-size:12.5px;background:#0b0a18;padding:3px 10px;border-radius:6px;border:1px solid var(--line);flex-shrink:0}
   .cmd span{font-size:12px;color:var(--dim)}
 
+  /* ===== plot 剧情看板 ===== */
+  .plot-hero{background:linear-gradient(135deg,#22d3ee0d,#a78bfa0f);border:1px solid var(--line2);border-radius:14px;padding:16px 20px;margin-bottom:14px}
+  .plot-theme{font-size:15.5px;font-weight:600;color:var(--star2);letter-spacing:.5px;line-height:1.7}
+  .plot-slogan{font-size:12.5px;color:var(--dim);margin-top:5px}
+  .plot-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+  .plot-metric{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:11px 12px;text-align:center}
+  .pm-num{display:block;font-size:20px;font-weight:700;color:var(--gold);font-variant-numeric:tabular-nums}
+  .pm-label{font-size:11.5px;color:var(--dim)}
+  .plot-cols{display:grid;grid-template-columns:1.25fr .95fr;gap:20px}
+  @media(max-width:900px){.plot-cols{grid-template-columns:1fr}}
+  .plot-beat{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .plot-beat:last-child{border-bottom:none}
+  .plot-idx{width:26px;height:26px;flex-shrink:0;border-radius:50%;background:var(--card2);border:1px solid var(--line2);color:var(--star);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .plot-body{flex:1;min-width:0}
+  .plot-title{font-size:13.5px;font-weight:600;color:var(--text)}
+  .plot-desc{font-size:12px;color:var(--dim);margin-top:2px}
+  .plot-badge{font-size:11px;padding:1px 9px;border-radius:999px;flex-shrink:0;margin-left:6px;margin-top:2px;white-space:nowrap}
+  .plot-side-col{display:flex;flex-direction:column;gap:14px}
+  .side-item{padding:8px 10px;background:var(--card2);border:1px solid var(--line);border-radius:9px;margin-bottom:8px}
+  .side-item:last-child{margin-bottom:0}
+  .side-title{font-size:13px;font-weight:600;color:var(--text)}
+  .side-desc{font-size:11.5px;color:var(--dim);margin-top:2px;line-height:1.6}
+  .side-item .plot-badge{margin-left:0;display:inline-block;margin-top:4px}
+  .next-desc{font-size:12px;color:var(--dim);line-height:1.7}
+  .next-hook{font-size:12px;color:var(--cyan);margin-top:5px;line-height:1.7;border-top:1px dashed var(--line);padding-top:6px}
+
   footer{margin-top:52px;text-align:center;color:var(--faint);font-size:12px;line-height:2;border-top:1px solid var(--line);padding-top:24px}
   footer .star-mark{font-size:14px;letter-spacing:4px}
 
@@ -197,22 +224,23 @@
   <h1>归星物语<span class="dim">项目工作台</span></h1>
   <div class="sub">像素风农场生活 RPG · Phaser + TypeScript + Vite · 多 AI 协作开发</div>
   <div class="badges">
-    <span class="badge version">v0.7 · 第一章「复苏」 · 架构冻结</span>
-    <span class="badge phase">MapScene 重构 P0~P7 ✓</span>
-    <span class="badge">8 模块抽离 · playStory 统一入口</span>
-    <span class="badge">数据快照 2026-08-27</span>
+    <span class="badge version">v0.7 · 第一章「复苏」 · Vertical Slice</span>
+    <span class="badge phase">生活循环已闭合 ✓</span>
+    <span class="badge">第0章 Demo 冻结</span>
+    <span class="badge">数据快照 2026-08-31 13:23</span>
   </div>
-  <div class="sub" style="margin-top:10px;font-size:12px">架构基线冻结 · 后续进入第一章「复苏」内容开发</div>
+  <div class="sub" style="margin-top:10px;font-size:12px">第0章 Demo 已冻结（D-021）· 2026-08-12 解冻进入第一章</div>
 </header>
 
 <nav><div class="nav-in">
   <a href="#status">状态</a>
+  <a href="#plot" class="hot">剧情进度</a>
   <a href="#focus">当前施工</a>
   <a href="#systems">系统清单</a>
   <a href="#assets">资产</a>
   <a href="#docs">文档导航</a>
   <a href="#git">提交动态</a>
-  <a href="#redlines" class="hot">红线 ⚠</a>
+  <a href="#redlines">红线 ⚠</a>
   <a href="#cmds">快速命令</a>
 </div></nav>
 
@@ -222,38 +250,213 @@
   <div class="status-strip">
     <div class="st-card">
       <div class="st-label">最近提交</div>
-      <div class="st-value"><code>P0~P7 重构归档（待提交）</code></div>
-      <div class="st-note">2026-08-27 · 8 模块抽离 · 104/104 探针通过</div>
+      <div class="st-value"><code>d74b21f fix(save): B3/B4 延迟回调存档守卫 + A6 restore 判型防御</code></div>
+      <div class="st-note">2026-08-28 · 共 129 次提交</div>
     </div>
     <div class="st-card c-gold">
       <div class="st-label">当前焦点</div>
-      <div class="st-value">架构冻结 · 第一章内容开发</div>
-      <div class="st-note">不再主动推进 P8 · 由实际痛点驱动</div>
+      <div class="st-value">《秋日晒场》验收</div>
+      <div class="st-note">已施工完成 · probe-dryyard 33/33 · 待制作人实机试玩</div>
     </div>
     <div class="st-card c-cyan">
-      <div class="st-label">架构基线</div>
-      <div class="st-value">MapScene Architecture Baseline</div>
-      <div class="st-note">8 模块 · playStory 80 处 · InteractionRouter 49 目标</div>
+      <div class="st-label">下一里程碑</div>
+      <div class="st-value">钓鱼手感收口</div>
+      <div class="st-note">Phase 1 状态机已落地 · 探针 34/34</div>
     </div>
     <div class="st-card c-green">
       <div class="st-label">在线试玩</div>
-      <div class="st-value"><a href="#" target="_blank">CloudStudio 部署 ↗</a></div>
-      <div class="st-note">架构冻结后首次部署待重建</div>
+      <div class="st-value"><a href="https://65957d6122464b4ab53c6e20a06a527a.app.workbuddy.link" target="_blank">CloudStudio 部署 ↗</a></div>
+      <div class="st-note">最新 dist 含秋日晒场 · 部署通道待重试</div>
     </div>
   </div>
 
   <div class="metrics" style="margin-top:16px">
-    <div class="metric"><div class="m-num">34,830<small>行</small></div><div class="m-label">TypeScript 代码</div></div>
-    <div class="metric"><div class="m-num">73<small>个</small></div><div class="m-label">源文件</div></div>
+    <div class="metric"><div class="m-num">40,883<small>行</small></div><div class="m-label">TypeScript 代码</div></div>
+    <div class="metric"><div class="m-num">83<small>个</small></div><div class="m-label">源文件</div></div>
     <div class="metric"><div class="m-num">22<small>套</small></div><div class="m-label">游戏系统</div></div>
     <div class="metric"><div class="m-num">21<small>个</small></div><div class="m-label">UI 面板</div></div>
-    <div class="metric"><div class="m-num">8<small>张</small></div><div class="m-label">地图场景</div></div>
+    <div class="metric"><div class="m-num">9<small>张</small></div><div class="m-label">地图场景</div></div>
     <div class="metric"><div class="m-num">14<small>首</small></div><div class="m-label">场景音乐</div></div>
-    <div class="metric"><div class="m-num">343<small>篇</small></div><div class="m-label">文档</div></div>
+    <div class="metric"><div class="m-num">359<small>篇</small></div><div class="m-label">文档</div></div>
     <div class="metric"><div class="m-num">53<small>项</small></div><div class="m-label">制作人决策</div></div>
-    <div class="metric"><div class="m-num">528<small>个</small></div><div class="m-label">测试文件</div></div>
-    <div class="metric"><div class="m-num">125<small>个</small></div><div class="m-label">工具脚本</div></div>
+    <div class="metric"><div class="m-num">564<small>个</small></div><div class="m-label">测试文件</div></div>
+    <div class="metric"><div class="m-num">126<small>个</small></div><div class="m-label">工具脚本</div></div>
   </div>
+</section>
+
+<!-- ===== 剧情看板 ===== -->
+<section id="plot">
+  <div class="sec-head"><h2>剧情进度</h2><span class="hint">第一章《归园新序》主线/支线一览 · 同步自剧情总结 v1.0 + 任务卡</span></div>
+  
+    <div class="plot-hero">
+      <div class="plot-theme">「一个疲惫的人回到故乡，通过整理老屋、修复集市，让原本存在的生活重新发生，第一次相信「我的行动正在让这个小镇慢慢变好」，从而决定留下。」</div>
+      <div class="plot-slogan">复兴不是建设更多东西，而是让更多生活重新发生（人回来 / 灯亮 / 集市开 / 孩子跑）</div>
+    </div>
+    <div class="plot-metrics">
+      <div class="plot-metric"><span class="pm-num">10/12</span><span class="pm-label">主线节拍已实现</span></div>
+      <div class="plot-metric"><span class="pm-num">1</span><span class="pm-label">施工中</span></div>
+      <div class="plot-metric"><span class="pm-num">6</span><span class="pm-label">支线/心语线</span></div>
+      <div class="plot-metric"><span class="pm-num">第2章</span><span class="pm-label">规划中</span></div>
+    </div>
+    <div class="plot-cols">
+      <div class="panel plot-main">
+        <div style="font-size:13px;font-weight:600;color:var(--star2);margin-bottom:12px;letter-spacing:1px">第一章《归园新序》· 主线节拍</div>
+        
+        <div class="plot-beat">
+          <div class="plot-idx">00</div>
+          <div class="plot-body">
+            <div class="plot-title">章节切换 · 观星夜</div>
+            <div class="plot-desc">观星夜三选项落点均为「留下」主轴；存档 setChapter(1)</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">01</div>
+          <div class="plot-body">
+            <div class="plot-title">第一章开篇 · 晨光</div>
+            <div class="plot-desc">观星夜后进农场白天，林澈短独白承接第0章</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">02</div>
+          <div class="plot-body">
+            <div class="plot-title">day2 清晨「岛屿的第一声回应」</div>
+            <div class="plot-desc">夏雅站老屋门口——「归星岛好像又重新呼吸了一次」→ 注入复兴任务</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">03</div>
+          <div class="plot-body">
+            <div class="plot-title">首次进 town</div>
+            <div class="plot-desc">小镇开场：「从老屋出来，沿着土路走了一段」＋镇长听传</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">04</div>
+          <div class="plot-body">
+            <div class="plot-title">老屋整理 ★核心</div>
+            <div class="plot-desc">床／灯／书桌／收音机 4 交互点（零数值）→「这间屋子，开始是我的了」</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">05</div>
+          <div class="plot-body">
+            <div class="plot-title">村民谈论变化</div>
+            <div class="plot-desc">镇上对话转向「以后」；NPC 台词随章节/恢复态分支</div>
+          </div>
+          <span class="plot-badge" style="background:#fbbf2422;color:#fbbf24;border:1px solid #fbbf2444">◐ 部分</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">06</div>
+          <div class="plot-body">
+            <div class="plot-title">镇长来访 · 复兴邀请</div>
+            <div class="plot-desc">整理完成+夜晚进老屋敲门「要不要一起试试」；选项入档</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">07</div>
+          <div class="plot-body">
+            <div class="plot-title">集市广场恢复 ★</div>
+            <div class="plot-desc">镇长来访后解锁；交付木材/石头/金币 → 荒地变草地+摊位+挂灯</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">08</div>
+          <div class="plot-body">
+            <div class="plot-title">三阶段体验链（集市深化）</div>
+            <div class="plot-desc">荒地→清理→3 摊按居民需求摆放→开张；含捉虫引导＋昆虫观察</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">09</div>
+          <div class="plot-body">
+            <div class="plot-title">夏雅记忆线·一《春深有信》</div>
+            <div class="plot-desc">花田遇夏雅→4 段交互，玩家第一次理解夏雅；埋「下周岛上小活动」伏笔</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">10</div>
+          <div class="plot-body">
+            <div class="plot-title">春日集 ★章末</div>
+            <div class="plot-desc">3 盏呼吸灯+3 人剪影+人群低语＋灯塔钩子「海面上好像亮了一下…」</div>
+          </div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="plot-beat">
+          <div class="plot-idx">11</div>
+          <div class="plot-body">
+            <div class="plot-title">秋日晒场（章末扩展 EventPlan 二）</div>
+            <div class="plot-desc">玉米首收+春日集后解锁→三类准备→当天演出→「青禾晒场」永久；立意=证明这里还有人在生活</div>
+          </div>
+          <span class="plot-badge" style="background:#a78bfa22;color:#a78bfa;border:1px solid #a78bfa44">🔧 施工中</span>
+        </div>
+      </div>
+      <div class="plot-side-col">
+        <div class="panel">
+          <div style="font-size:13px;font-weight:600;color:var(--gold);margin-bottom:12px;letter-spacing:1px">支线 / 心语线</div>
+          
+        <div class="side-item">
+          <div class="side-title"><span style="color:#34d399">◆</span> 心语·夏雅《春深有信》</div>
+          <div class="side-desc">剧情专线 Demo Cut：花田 4 段逐步交互，完成后花田新花苗+语音</div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="side-item">
+          <div class="side-title"><span style="color:#f87171">◆</span> 心语·夏雅二《花期未至》</div>
+          <div class="side-desc">正文已定稿；Alpha 不实现（D-011），待排期</div>
+          <span class="plot-badge" style="background:#f8717122;color:#f87171;border:1px solid #f8717144">⏸ 暂停</span>
+        </div>
+
+        <div class="side-item">
+          <div class="side-title"><span style="color:#f87171">◆</span> 阿风《追风的人》</div>
+          <div class="side-desc">第一章为种子级（集市台词+欢迎闲聊+埋伏笔）；完整冻结至 Beta</div>
+          <span class="plot-badge" style="background:#f8717122;color:#f87171;border:1px solid #f8717144">⏸ 暂停</span>
+        </div>
+
+        <div class="side-item">
+          <div class="side-title"><span style="color:#34d399">◆</span> 镇长「看星星的地方」</div>
+          <div class="side-desc">观星夜完成后空地事件（支线试点）</div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="side-item">
+          <div class="side-title"><span style="color:#34d399">◆</span> 夏雅「整理旧照片」/「旧日留影」</div>
+          <div class="side-desc">老屋修复后老屋门口事件（T3 / P1-3 支线试点）</div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+
+        <div class="side-item">
+          <div class="side-title"><span style="color:#34d399">◆</span> 老张「矿灯」/ 小梅「小梅花」/ 花田开垦 / 商店「镇子热闹了」</div>
+          <div class="side-desc">T3/T3.5 支线试点（一次性，随 mapFlags 入档）</div>
+          <span class="plot-badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">✅ 已实现</span>
+        </div>
+        </div>
+        <div class="panel" style="margin-top:14px;border-color:#22d3ee44">
+          <div style="font-size:13px;font-weight:600;color:var(--cyan);margin-bottom:8px;letter-spacing:1px">▶ 下一章 · 第二章《故人远来》（已开工 · 七节拍代码完成 · 探针 8/8）</div>
+          <div class="next-desc">剧情方向：docs/design/第二章剧情大纲-v0.1-故人远来-方向稿.md（v0.2 制作人拍板通过）。施工规格：docs/tasks/任务-第二章故人远来-节拍表拆解-v1.0.md。</div>
+          <div class="next-hook">施工状态：七节拍代码全部落地（老钟/老船长/旅人三次/码头夜谈/夏雅秘密/海平线黑点），探针 probe-ch2-return.mjs 8/8 全绿，生产构建已含。修复跨场景状态共享 bug（ch2 门控改读 EventManager 模块内存）。待实机试玩验收。</div>
+        </div>
+      </div>
+    </div>
 </section>
 
 <!-- ===== 当前施工 ===== -->
@@ -261,24 +464,42 @@
   <div class="sec-head"><h2>当前施工</h2><span class="hint">同步自 docs/CURRENT_TASK.md · 由 gen_workbench.py 维护</span></div>
   <div class="cols">
     <div class="panel">
-      <div style="font-size:13px;font-weight:600;color:var(--star2);margin-bottom:12px;letter-spacing:1px">架构基线（已冻结）</div>
-        
-        <div class="focus-item st-done">
+      <div style="font-size:13px;font-weight:600;color:var(--star2);margin-bottom:12px;letter-spacing:1px">进行中 / 待办</div>
+      
+        <div class="focus-item st-live">
           <div class="focus-head">
-            <span class="focus-icon">🏗️</span>
-            <span class="focus-name">MapScene 重构 P0~P7</span>
-            <span class="badge" style="background:#6b728022;color:#6b7280;border:1px solid #6b728044">已归档</span>
+            <span class="focus-icon">🎣</span>
+            <span class="focus-name">钓鱼手感收口</span>
+            <span class="badge" style="background:#34d39922;color:#34d399;border:1px solid #34d39944">进行中</span>
           </div>
-          <div class="focus-note">8 模块抽离（2,596 行迁出）· playStory 统一 80 处对白入口 · InteractionRouter 49 目标 + 43 canTry 纯函数 · StorySequenceRunner 剧情编排 · 104/104 探针全通过</div>
+          <div class="focus-note">Phase 1 已实现待制作人实机试玩（S6 老河堤）· 探针 34/34</div>
+        </div>
+
+        <div class="focus-item st-build">
+          <div class="focus-head">
+            <span class="focus-icon">🌾</span>
+            <span class="focus-name">《秋日晒场》</span>
+            <span class="badge" style="background:#a78bfa22;color:#a78bfa;border:1px solid #a78bfa44">施工中</span>
+          </div>
+          <div class="focus-note">第一章章末收束 · 已施工完成（probe-dryyard 33/33 全绿）· 制作人实机验收中</div>
+        </div>
+
+        <div class="focus-item st-wait">
+          <div class="focus-head">
+            <span class="focus-icon">⏱️</span>
+            <span class="focus-name">昼夜 ActionTime</span>
+            <span class="badge" style="background:#fbbf2422;color:#fbbf24;border:1px solid #fbbf2444">待试玩</span>
+          </div>
+          <div class="focus-note">验收通过 · 待实机试玩定「10 分钟/次」最终值 · 试玩清单 v1.1 已就绪</div>
         </div>
 
         <div class="focus-item st-done">
           <div class="focus-head">
-            <span class="focus-icon">🎣</span>
-            <span class="focus-name">钓鱼手感收口</span>
+            <span class="focus-icon">💕</span>
+            <span class="focus-name">心语·一收尾</span>
             <span class="badge" style="background:#6b728022;color:#6b7280;border:1px solid #6b728044">已完成</span>
           </div>
-          <div class="focus-note">Phase 1 状态机已落地 · 探针 34/34 · 待制作人实机试玩定最终值</div>
+          <div class="focus-note">✅ 收口完成（08-19 台词定稿：看星星的人多了）</div>
         </div>
 
         <div class="focus-item st-done">
@@ -290,24 +511,6 @@
           <div class="focus-note">✅ 雨天河螺 / 雨天 NPC 台词 / 河草 · 探针债务同步清理</div>
         </div>
 
-        <div class="focus-item st-next">
-          <div class="focus-head">
-            <span class="focus-icon">🌾</span>
-            <span class="focus-name">《秋日晒场》</span>
-            <span class="badge" style="background:#a78bfa22;color:#a78bfa;border:1px solid #a78bfa44">第一章内容</span>
-          </div>
-          <div class="focus-note">第一章章末收束 · 台词已定稿（08-19）· 复用 EventPlan · 约 8 人日</div>
-        </div>
-
-        <div class="focus-item st-wait">
-          <div class="focus-head">
-            <span class="focus-icon">⏱️</span>
-            <span class="focus-name">昼夜 ActionTime</span>
-            <span class="badge" style="background:#fbbf2422;color:#fbbf24;border:1px solid #fbbf2444">待试玩</span>
-          </div>
-          <div class="focus-note">验收通过 · 待实机试玩定「10 分钟/次」最终值</div>
-        </div>
-
         <div class="focus-item st-pause">
           <div class="focus-head">
             <span class="focus-icon">🌸</span>
@@ -317,7 +520,7 @@
           <div class="focus-note">⏸️ Alpha 不实现（D-011）· 正文已定稿待排期</div>
         </div>
       <div class="milestone">
-        🏁 <b>里程碑 · 架构冻结（2026-08-27）</b>——MapScene 重构 P0~P7 圆满完成，8 个领域模块抽离，交互决策与剧情编排分离。后续进入第一章「复苏」内容开发，不再主动推进 P8。
+        🏁 <b>里程碑 · 生活循环闭合（2026-08-15）</b>——四大基础生活循环全部闭合，不是"功能数量够了"，而是每个系统都有了自己的出口。✅ 已完成 v1.5：《秋日晒场》第一次全镇回应玩家（青禾晒场永久落地）。
       </div>
     </div>
     <div>
@@ -370,11 +573,6 @@
         </div>
 
         <div class="sys-group">
-          <div class="sys-cat" style="color:#c4b5fd">架构模块（P0~P7 已抽离）</div>
-          <ul class="sys-list"><li><code style="color:#c4b5fd">CameraDirector</code><span class="sys-desc">空间控制（相机跟随/边界/缩放）</span></li><li><code style="color:#c4b5fd">UIBus</code><span class="sys-desc">UI 生命周期（面板开关/焦点管理）</span></li><li><code style="color:#c4b5fd">WeatherDirector</code><span class="sys-desc">天气视觉（粒子/覆盖层/氛围）</span></li><li><code style="color:#c4b5fd">WorldDecorator</code><span class="sys-desc">世界装饰（环境物件/光尘/植被）</span></li><li><code style="color:#c4b5fd">FishingController</code><span class="sys-desc">钓鱼玩法域（状态机/鱼苗/奖励）</span></li><li><code style="color:#c4b5fd">FarmController</code><span class="sys-desc">农场玩法域（锄地/种植/收获/经济）</span></li><li><code style="color:#c4b5fd">InteractionRouter</code><span class="sys-desc">交互决策（Gate + Target Resolve）</span></li><li><code style="color:#c4b5fd">StorySequenceRunner</code><span class="sys-desc">剧情编排（对话序列/状态机/回调）</span></li></ul>
-        </div>
-
-        <div class="sys-group">
           <div class="sys-cat" style="color:#22d3ee">世界模拟</div>
           <ul class="sys-list"><li><code style="color:#22d3ee">NPCSystem</code><span class="sys-desc">NPC 日常/台词/雨天句</span></li><li><code style="color:#22d3ee">WeatherSystem</code><span class="sys-desc">天气 · 资源出现规则</span></li><li><code style="color:#22d3ee">NatureSystem</code><span class="sys-desc">自然状态（P0 数据层）</span></li><li><code style="color:#22d3ee">ResourceSpawner</code><span class="sys-desc">资源生成 present 门控</span></li><li><code style="color:#22d3ee">DiscoveryManager</code><span class="sys-desc">自然观察发现</span></li><li><code style="color:#22d3ee">AmbienceSystem</code><span class="sys-desc">环境音</span></li><li><code style="color:#22d3ee">DailyEventSystem</code><span class="sys-desc">EventPlan 事件（晒场/艺术展）</span></li><li><code style="color:#22d3ee">IslandReportSystem / GuiXingRecordSystem</code><span class="sys-desc">岛屿报告 · 归星纪事</span></li><li><code style="color:#22d3ee">ResidentRequestSystem</code><span class="sys-desc">居民需求板</span></li></ul>
         </div>
@@ -401,7 +599,7 @@
 
 <!-- ===== 资产统计 ===== -->
 <section id="assets">
-  <div class="sec-head"><h2>资产统计</h2><span class="hint">采集于 2026-08-26 07:51 · 不含 archive 与 .git</span></div>
+  <div class="sec-head"><h2>资产统计</h2><span class="hint">采集于 2026-08-31 13:23 · 不含 archive 与 .git</span></div>
   <div class="assets-layout">
     <div class="panel">
       <div style="font-size:13px;font-weight:600;color:var(--star2);margin-bottom:12px;letter-spacing:1px">文件分布</div>
@@ -426,36 +624,36 @@
 
         <div class="bar-row">
           <div class="bar-label">文档 MD</div>
-          <div class="bar-track"><div class="bar-fill" style="width:57%;background:linear-gradient(90deg,#34d39988,#34d399)"></div></div>
-          <div class="bar-val">343</div>
+          <div class="bar-track"><div class="bar-fill" style="width:59%;background:linear-gradient(90deg,#34d39988,#34d399)"></div></div>
+          <div class="bar-val">359</div>
         </div>
 
         <div class="bar-row">
           <div class="bar-label">测试文件</div>
-          <div class="bar-track"><div class="bar-fill" style="width:87%;background:linear-gradient(90deg,#f472b688,#f472b6)"></div></div>
-          <div class="bar-val">528</div>
+          <div class="bar-track"><div class="bar-fill" style="width:93%;background:linear-gradient(90deg,#f472b688,#f472b6)"></div></div>
+          <div class="bar-val">564</div>
         </div>
 
         <div class="bar-row">
           <div class="bar-label">工具脚本</div>
           <div class="bar-track"><div class="bar-fill" style="width:20%;background:linear-gradient(90deg,#fb923c88,#fb923c)"></div></div>
-          <div class="bar-val">125</div>
+          <div class="bar-val">126</div>
         </div>
     </div>
     <div class="panel">
       <div style="font-size:13px;font-weight:600;color:var(--gold);margin-bottom:12px;letter-spacing:1px">空间占用</div>
       <table class="size-table">
-        <tr><td>src 源代码</td><td>1.5M</td></tr>
-        <tr><td>docs 文档库</td><td>11.0M</td></tr>
+        <tr><td>src 源代码</td><td>1.8M</td></tr>
+        <tr><td>docs 文档库</td><td>11.2M</td></tr>
         <tr><td>tools 工具链</td><td>1.2M</td></tr>
-        <tr><td>tests 探针测试</td><td>48.5M</td></tr>
+        <tr><td>tests 探针测试</td><td>50.5M</td></tr>
         <tr><td>assets 游戏资源</td><td>13.2M</td></tr>
         <tr><td>art_source 美术源（含语音 WAV）</td><td>232.3M</td></tr>
-        <tr><td>dist 构建产物</td><td>220.9M</td></tr>
+        <tr><td>dist 构建产物</td><td>221.1M</td></tr>
       </table>
       <div style="font-size:11.5px;color:var(--faint);margin-top:10px;line-height:1.8">
         语音源 539 WAV + 61 MP3 · 打包 279 OGG（含 322 WAV 过渡）<br>
-        地图 8 张：farm / town / forest / house / elder_house / mine / gate / lighthouse（灯塔 locked 预埋）
+        地图 9 张：farm / town / forest / house / elder_house / mine / gate / lighthouse（灯塔 locked 预埋）
       </div>
     </div>
   </div>
@@ -496,11 +694,65 @@
   <div class="sec-head"><h2>提交动态</h2><span class="hint">最近 20 条 · git log 实时采集</span></div>
   <div class="panel gitlog">
         <div class="commit">
-          <div class="commit-date">08-27<span class="commit-time">—</span></div>
+          <div class="commit-date">08-28<span class="commit-time">12:05</span></div>
           <div class="commit-dot"></div>
           <div class="commit-body">
-            <div class="commit-msg">🏗️ MapScene 重构 P0~P7 归档 · 8 模块抽离 · playStory 统一入口 · InteractionRouter + StorySequenceRunner · 104/104 探针通过</div>
-            <div class="commit-hash">待提交 · 架构冻结</div>
+            <div class="commit-msg">fix(save): B3/B4 延迟回调存档守卫 + A6 restore 判型防御</div>
+            <div class="commit-hash">d74b21f · HEAD</div>
+          </div>
+        </div>
+
+        <div class="commit">
+          <div class="commit-date">08-27<span class="commit-time">19:11</span></div>
+          <div class="commit-dot"></div>
+          <div class="commit-body">
+            <div class="commit-msg">feat(architecture): P8 CutsceneGuard 统一 Cutscene 门控</div>
+            <div class="commit-hash">887f298</div>
+          </div>
+        </div>
+
+        <div class="commit">
+          <div class="commit-date">08-27<span class="commit-time">11:45</span></div>
+          <div class="commit-dot"></div>
+          <div class="commit-body">
+            <div class="commit-msg">feat(refactor): MapScene P0~P7 架构重构完成 — 8 模块抽离 + playStory 统一入口</div>
+            <div class="commit-hash">f4c0e89</div>
+          </div>
+        </div>
+
+        <div class="commit">
+          <div class="commit-date">08-26<span class="commit-time">18:09</span></div>
+          <div class="commit-dot"></div>
+          <div class="commit-body">
+            <div class="commit-msg">chore: 工作台杂项归档</div>
+            <div class="commit-hash">5abea44</div>
+          </div>
+        </div>
+
+        <div class="commit">
+          <div class="commit-date">08-26<span class="commit-time">18:09</span></div>
+          <div class="commit-dot"></div>
+          <div class="commit-body">
+            <div class="commit-msg">docs+tests: 第一章剧情评审归档 / 钓鱼任务卡 / 探针与评审工具更新</div>
+            <div class="commit-hash">e2b9065</div>
+          </div>
+        </div>
+
+        <div class="commit">
+          <div class="commit-date">08-26<span class="commit-time">18:08</span></div>
+          <div class="commit-dot"></div>
+          <div class="commit-body">
+            <div class="commit-msg">chore(tools): GPT 出图工具链更新</div>
+            <div class="commit-hash">ce92b76</div>
+          </div>
+        </div>
+
+        <div class="commit">
+          <div class="commit-date">08-26<span class="commit-time">18:08</span></div>
+          <div class="commit-dot"></div>
+          <div class="commit-body">
+            <div class="commit-msg">feat(ch1): 夏雅·二《花期未至》剧情专线接入</div>
+            <div class="commit-hash">0a7dd3f</div>
           </div>
         </div>
 
@@ -509,7 +761,7 @@
           <div class="commit-dot"></div>
           <div class="commit-body">
             <div class="commit-msg">fix(save): 存档系统 P0 卫生改造</div>
-            <div class="commit-hash">dc707b9 · HEAD</div>
+            <div class="commit-hash">dc707b9</div>
           </div>
         </div>
 
@@ -619,69 +871,6 @@
             <div class="commit-msg">feat(ch1): P1-3 夏雅《旧日留影》— 翻柜子找夏雅擦净旧相框（§八性格铺垫）</div>
             <div class="commit-hash">532b643</div>
           </div>
-        </div>
-
-        <div class="commit">
-          <div class="commit-date">08-12<span class="commit-time">23:37</span></div>
-          <div class="commit-dot"></div>
-          <div class="commit-body">
-            <div class="commit-msg">docs(ch1): P3 质感拍板补充 + 手动测试指引 + 种子档验证探针</div>
-            <div class="commit-hash">4fbc162</div>
-          </div>
-        </div>
-
-        <div class="commit">
-          <div class="commit-date">08-12<span class="commit-time">23:36</span></div>
-          <div class="commit-dot"></div>
-          <div class="commit-body">
-            <div class="commit-msg">feat(ch1): P3 春日集人群音效 + 探针 + 验收归档</div>
-            <div class="commit-hash">cbfe2f6</div>
-          </div>
-        </div>
-
-        <div class="commit">
-          <div class="commit-date">08-12<span class="commit-time">23:33</span></div>
-          <div class="commit-dot"></div>
-          <div class="commit-body">
-            <div class="commit-msg">feat(ch1): Sprint 3 P2-1 集市广场恢复 + P2-2 NPC 生活反馈</div>
-            <div class="commit-hash">3d5f0f6</div>
-          </div>
-        </div>
-
-        <div class="commit">
-          <div class="commit-date">08-12<span class="commit-time">10:07</span></div>
-          <div class="commit-dot"></div>
-          <div class="commit-body">
-            <div class="commit-msg">test(ch1): 探针 town 坐标同步 P0-0 地图扩容（200,300→360,428 等）</div>
-            <div class="commit-hash">44e4bc1</div>
-          </div>
-        </div>
-
-        <div class="commit">
-          <div class="commit-date">08-12<span class="commit-time">10:06</span></div>
-          <div class="commit-dot"></div>
-          <div class="commit-body">
-            <div class="commit-msg">chore(audio): 语音规范化批量（voice_normalized）+ 音乐 ogg + 美术资源 + 工具脚本</div>
-            <div class="commit-hash">80b389e</div>
-          </div>
-        </div>
-
-        <div class="commit">
-          <div class="commit-date">08-12<span class="commit-time">10:05</span></div>
-          <div class="commit-dot"></div>
-          <div class="commit-body">
-            <div class="commit-msg">docs(ch1): 第一章设计与验收归档 — 剧情大纲 v0.1/v0.2/v0.3 + 工程拆分 v0.3 + 验收记录</div>
-            <div class="commit-hash">070de21</div>
-          </div>
-        </div>
-
-        <div class="commit">
-          <div class="commit-date">08-12<span class="commit-time">10:05</span></div>
-          <div class="commit-dot"></div>
-          <div class="commit-body">
-            <div class="commit-msg">feat(ch1): P1-1 老屋整理 + P1-2 村长来访 Vertical Slice + 第一章主题曲</div>
-            <div class="commit-hash">d6c66f9</div>
-          </div>
         </div></div>
 </section>
 
@@ -725,7 +914,7 @@
   <div class="sec-head"><h2>快速命令</h2><span class="hint">日常开发入口</span></div>
   <div class="cmd-grid"><div class="cmd"><code>npm run dev</code><span>启动开发服务器（Vite）</span></div>
 <div class="cmd"><code>npm run build</code><span>构建生产版（tsc + vite）</span></div>
-<div class="cmd"><code>index.html?devHub=1</code><span>开发者测试入口 · 9 个种子档</span></div>
+<div class="cmd"><code>index.html?devHub=1</code><span>开发者测试入口 · 14 个种子档</span></div>
 <div class="cmd"><code>python tools/build_apk.py</code><span>APK 一键打包</span></div>
 <div class="cmd"><code>python tools/gen_workbench.py</code><span>刷新本工作台数据</span></div></div>
 </section>

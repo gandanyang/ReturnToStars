@@ -156,12 +156,12 @@ VERSION = "v0.7"
 PHASE = "第一章「复苏」 · Vertical Slice"
 PHASE_NOTE = "第0章 Demo 已冻结（D-021）· 2026-08-12 解冻进入第一章"
 ONLINE_URL = "https://65957d6122464b4ab53c6e20a06a527a.app.workbuddy.link"
-DEVHUB = "?devHub=1（9 个种子档）"
+DEVHUB = "?devHub=1（17 个种子档：第一章 11 + 秋日晒场 3 + 第二章 3）"
 
 # 当前焦点（来自 CURRENT_TASK.md，人工同步）
 FOCUS = [
     {"icon": "🎣", "name": "钓鱼手感收口", "status": "live", "note": "Phase 1 已实现待制作人实机试玩（S6 老河堤）· 探针 34/34"},
-    {"icon": "🌾", "name": "《秋日晒场》", "status": "next", "note": "第一章章末收束 · 台词已定稿（08-19）· 按优先级最后做 · 约 8 人日"},
+    {"icon": "🌾", "name": "《秋日晒场》", "status": "build", "note": "第一章章末收束 · 已施工完成（probe-dryyard 33/33 全绿）· 制作人实机验收中"},
     {"icon": "⏱️", "name": "昼夜 ActionTime", "status": "wait", "note": "验收通过 · 待实机试玩定「10 分钟/次」最终值 · 试玩清单 v1.1 已就绪"},
     {"icon": "💕", "name": "心语·一收尾", "status": "done", "note": "✅ 收口完成（08-19 台词定稿：看星星的人多了）"},
     {"icon": "🌧️", "name": "天气扩面三刀", "status": "done", "note": "✅ 雨天河螺 / 雨天 NPC 台词 / 河草 · 探针债务同步清理"},
@@ -268,13 +268,60 @@ DOC_NAV = [
 QUICK_CMDS = [
     ("npm run dev", "启动开发服务器（Vite）"),
     ("npm run build", "构建生产版（tsc + vite）"),
-    ("index.html?devHub=1", "开发者测试入口 · 9 个种子档"),
+    ("index.html?devHub=1", "开发者测试入口 · 14 个种子档"),
     ("python tools/build_apk.py", "APK 一键打包"),
     ("python tools/gen_workbench.py", "刷新本工作台数据"),
 ]
 
+# ============================================================
+# 剧情看板（第一章《归园新序》）—— 同步自 docs/reports/第一章剧情总结-v1.0 + 任务卡
+# beat.status: done=已实现 / part=部分 / build=施工中 / pause=暂停
+# ============================================================
+
+PLOT_THEME = "一个疲惫的人回到故乡，通过整理老屋、修复集市，让原本存在的生活重新发生，第一次相信「我的行动正在让这个小镇慢慢变好」，从而决定留下。"
+PLOT_SLOGAN = "复兴不是建设更多东西，而是让更多生活重新发生（人回来 / 灯亮 / 集市开 / 孩子跑）"
+
+PLOT_MAIN = [
+    (0,  "章节切换 · 观星夜", "观星夜三选项落点均为「留下」主轴；存档 setChapter(1)", "done"),
+    (1,  "第一章开篇 · 晨光", "观星夜后进农场白天，林澈短独白承接第0章", "done"),
+    (2,  "day2 清晨「岛屿的第一声回应」", "夏雅站老屋门口——「归星岛好像又重新呼吸了一次」→ 注入复兴任务", "done"),
+    (3,  "首次进 town", "小镇开场：「从老屋出来，沿着土路走了一段」＋镇长听传", "done"),
+    (4,  "老屋整理 ★核心", "床／灯／书桌／收音机 4 交互点（零数值）→「这间屋子，开始是我的了」", "done"),
+    (5,  "村民谈论变化", "镇上对话转向「以后」；NPC 台词随章节/恢复态分支", "part"),
+    (6,  "镇长来访 · 复兴邀请", "整理完成+夜晚进老屋敲门「要不要一起试试」；选项入档", "done"),
+    (7,  "集市广场恢复 ★", "镇长来访后解锁；交付木材/石头/金币 → 荒地变草地+摊位+挂灯", "done"),
+    (8,  "三阶段体验链（集市深化）", "荒地→清理→3 摊按居民需求摆放→开张；含捉虫引导＋昆虫观察", "done"),
+    (9,  "夏雅记忆线·一《春深有信》", "花田遇夏雅→4 段交互，玩家第一次理解夏雅；埋「下周岛上小活动」伏笔", "done"),
+    (10, "春日集 ★章末", "3 盏呼吸灯+3 人剪影+人群低语＋灯塔钩子「海面上好像亮了一下…」", "done"),
+    (11, "秋日晒场（章末扩展 EventPlan 二）", "玉米首收+春日集后解锁→三类准备→当天演出→「青禾晒场」永久；立意=证明这里还有人在生活", "build"),
+]
+
+# 支线：仅列「已有明确剧情定位」的线；试点级小事件并入 note 不单列
+PLOT_SIDE = [
+    ("心语·夏雅《春深有信》", "剧情专线 Demo Cut：花田 4 段逐步交互，完成后花田新花苗+语音", "done"),
+    ("心语·夏雅二《花期未至》", "正文已定稿；Alpha 不实现（D-011），待排期", "pause"),
+    ("阿风《追风的人》", "第一章为种子级（集市台词+欢迎闲聊+埋伏笔）；完整冻结至 Beta", "pause"),
+    ("镇长「看星星的地方」", "观星夜完成后空地事件（支线试点）", "done"),
+    ("夏雅「整理旧照片」/「旧日留影」", "老屋修复后老屋门口事件（T3 / P1-3 支线试点）", "done"),
+    ("老张「矿灯」/ 小梅「小梅花」/ 花田开垦 / 商店「镇子热闹了」", "T3/T3.5 支线试点（一次性，随 mapFlags 入档）", "done"),
+]
+
+PLOT_NEXT = {
+    "title": "第二章《故人远来》（已开工 · 七节拍代码完成 · 探针 8/8）",
+    "desc": "剧情方向：docs/design/第二章剧情大纲-v0.1-故人远来-方向稿.md（v0.2 制作人拍板通过）。施工规格：docs/tasks/任务-第二章故人远来-节拍表拆解-v1.0.md。",
+    "hook": "施工状态：七节拍代码全部落地（老钟/老船长/旅人三次/码头夜谈/夏雅秘密/海平线黑点），探针 probe-ch2-return.mjs 8/8 全绿，生产构建已含。修复跨场景状态共享 bug（ch2 门控改读 EventManager 模块内存）。待实机试玩验收。",
+}
+
+PLOT_STATUS = {
+    "done": ("✅ 已实现", "#34d399"),
+    "part": ("◐ 部分", "#fbbf24"),
+    "build": ("🔧 施工中", "#a78bfa"),
+    "pause": ("⏸ 暂停", "#f87171"),
+}
+
 STATUS_MAP = {
     "live": ("进行中", "#34d399"),
+    "build": ("施工中", "#a78bfa"),
     "next": ("待开工", "#a78bfa"),
     "wait": ("待试玩", "#fbbf24"),
     "done": ("已完成", "#6b7280"),
@@ -379,6 +426,67 @@ def build_cmds_html() -> str:
         f'<div class="cmd"><code>{esc(c)}</code><span>{esc(d)}</span></div>'
         for c, d in QUICK_CMDS
     )
+
+
+def build_plot_html() -> str:
+    """剧情看板：主线节拍 + 支线清单 + 第二章预告。"""
+    # 主线时间线
+    main_rows = []
+    for idx, title, desc, status in PLOT_MAIN:
+        label, color = PLOT_STATUS[status]
+        main_rows.append(f'''
+        <div class="plot-beat">
+          <div class="plot-idx">{idx:02d}</div>
+          <div class="plot-body">
+            <div class="plot-title">{esc(title)}</div>
+            <div class="plot-desc">{esc(desc)}</div>
+          </div>
+          <span class="plot-badge" style="background:{color}22;color:{color};border:1px solid {color}44">{label}</span>
+        </div>''')
+
+    # 支线清单
+    side_rows = []
+    for title, desc, status in PLOT_SIDE:
+        label, color = PLOT_STATUS[status]
+        side_rows.append(f'''
+        <div class="side-item">
+          <div class="side-title"><span style="color:{color}">◆</span> {esc(title)}</div>
+          <div class="side-desc">{esc(desc)}</div>
+          <span class="plot-badge" style="background:{color}22;color:{color};border:1px solid {color}44">{label}</span>
+        </div>''')
+
+    # 已完成统计（主线）
+    done_count = sum(1 for _, _, _, st in PLOT_MAIN if st == "done")
+    build_count = sum(1 for _, _, _, st in PLOT_MAIN if st == "build")
+
+    return f'''
+    <div class="plot-hero">
+      <div class="plot-theme">「{esc(PLOT_THEME)}」</div>
+      <div class="plot-slogan">{esc(PLOT_SLOGAN)}</div>
+    </div>
+    <div class="plot-metrics">
+      <div class="plot-metric"><span class="pm-num">{done_count}/{len(PLOT_MAIN)}</span><span class="pm-label">主线节拍已实现</span></div>
+      <div class="plot-metric"><span class="pm-num">{build_count}</span><span class="pm-label">施工中</span></div>
+      <div class="plot-metric"><span class="pm-num">{len(PLOT_SIDE)}</span><span class="pm-label">支线/心语线</span></div>
+      <div class="plot-metric"><span class="pm-num">第2章</span><span class="pm-label">规划中</span></div>
+    </div>
+    <div class="plot-cols">
+      <div class="panel plot-main">
+        <div style="font-size:13px;font-weight:600;color:var(--star2);margin-bottom:12px;letter-spacing:1px">第一章《归园新序》· 主线节拍</div>
+        {chr(10).join(main_rows)}
+      </div>
+      <div class="plot-side-col">
+        <div class="panel">
+          <div style="font-size:13px;font-weight:600;color:var(--gold);margin-bottom:12px;letter-spacing:1px">支线 / 心语线</div>
+          {chr(10).join(side_rows)}
+        </div>
+        <div class="panel" style="margin-top:14px;border-color:#22d3ee44">
+          <div style="font-size:13px;font-weight:600;color:var(--cyan);margin-bottom:8px;letter-spacing:1px">▶ 下一章 · {esc(PLOT_NEXT["title"])}</div>
+          <div class="next-desc">{esc(PLOT_NEXT["desc"])}</div>
+          <div class="next-hook">{esc(PLOT_NEXT["hook"])}</div>
+        </div>
+      </div>
+    </div>'''
 
 
 def asset_chart(d: dict) -> str:
@@ -500,6 +608,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .focus-item{padding:11px 12px;border-radius:10px;border:1px solid transparent;margin-bottom:8px}
   .focus-item:last-child{margin-bottom:0}
   .focus-item.st-live{background:#34d3990d;border-color:#34d39926}
+  .focus-item.st-build{background:#a78bfa0d;border-color:#a78bfa26}
   .focus-item.st-next{background:#a78bfa0d;border-color:#a78bfa26}
   .focus-item.st-wait{background:#fbbf240d;border-color:#fbbf2426}
   .focus-item.st-done{background:#6b728008;border-color:#6b728022;opacity:.75}
@@ -589,6 +698,32 @@ TEMPLATE = r"""<!DOCTYPE html>
   .cmd code{color:var(--cyan);font-size:12.5px;background:#0b0a18;padding:3px 10px;border-radius:6px;border:1px solid var(--line);flex-shrink:0}
   .cmd span{font-size:12px;color:var(--dim)}
 
+  /* ===== plot 剧情看板 ===== */
+  .plot-hero{background:linear-gradient(135deg,#22d3ee0d,#a78bfa0f);border:1px solid var(--line2);border-radius:14px;padding:16px 20px;margin-bottom:14px}
+  .plot-theme{font-size:15.5px;font-weight:600;color:var(--star2);letter-spacing:.5px;line-height:1.7}
+  .plot-slogan{font-size:12.5px;color:var(--dim);margin-top:5px}
+  .plot-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+  .plot-metric{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:11px 12px;text-align:center}
+  .pm-num{display:block;font-size:20px;font-weight:700;color:var(--gold);font-variant-numeric:tabular-nums}
+  .pm-label{font-size:11.5px;color:var(--dim)}
+  .plot-cols{display:grid;grid-template-columns:1.25fr .95fr;gap:20px}
+  @media(max-width:900px){.plot-cols{grid-template-columns:1fr}}
+  .plot-beat{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .plot-beat:last-child{border-bottom:none}
+  .plot-idx{width:26px;height:26px;flex-shrink:0;border-radius:50%;background:var(--card2);border:1px solid var(--line2);color:var(--star);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .plot-body{flex:1;min-width:0}
+  .plot-title{font-size:13.5px;font-weight:600;color:var(--text)}
+  .plot-desc{font-size:12px;color:var(--dim);margin-top:2px}
+  .plot-badge{font-size:11px;padding:1px 9px;border-radius:999px;flex-shrink:0;margin-left:6px;margin-top:2px;white-space:nowrap}
+  .plot-side-col{display:flex;flex-direction:column;gap:14px}
+  .side-item{padding:8px 10px;background:var(--card2);border:1px solid var(--line);border-radius:9px;margin-bottom:8px}
+  .side-item:last-child{margin-bottom:0}
+  .side-title{font-size:13px;font-weight:600;color:var(--text)}
+  .side-desc{font-size:11.5px;color:var(--dim);margin-top:2px;line-height:1.6}
+  .side-item .plot-badge{margin-left:0;display:inline-block;margin-top:4px}
+  .next-desc{font-size:12px;color:var(--dim);line-height:1.7}
+  .next-hook{font-size:12px;color:var(--cyan);margin-top:5px;line-height:1.7;border-top:1px dashed var(--line);padding-top:6px}
+
   footer{margin-top:52px;text-align:center;color:var(--faint);font-size:12px;line-height:2;border-top:1px solid var(--line);padding-top:24px}
   footer .star-mark{font-size:14px;letter-spacing:4px}
 
@@ -613,12 +748,13 @@ TEMPLATE = r"""<!DOCTYPE html>
 
 <nav><div class="nav-in">
   <a href="#status">状态</a>
+  <a href="#plot" class="hot">剧情进度</a>
   <a href="#focus">当前施工</a>
   <a href="#systems">系统清单</a>
   <a href="#assets">资产</a>
   <a href="#docs">文档导航</a>
   <a href="#git">提交动态</a>
-  <a href="#redlines" class="hot">红线 ⚠</a>
+  <a href="#redlines">红线 ⚠</a>
   <a href="#cmds">快速命令</a>
 </div></nav>
 
@@ -633,18 +769,18 @@ TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <div class="st-card c-gold">
       <div class="st-label">当前焦点</div>
-      <div class="st-value">钓鱼手感收口 · 待实机试玩</div>
-      <div class="st-note">Phase 1 状态机已落地 · 探针 34/34</div>
+      <div class="st-value">《秋日晒场》验收</div>
+      <div class="st-note">已施工完成 · probe-dryyard 33/33 · 待制作人实机试玩</div>
     </div>
     <div class="st-card c-cyan">
       <div class="st-label">下一里程碑</div>
-      <div class="st-value">《秋日晒场》</div>
-      <div class="st-note">第一章章末收束 · 复用 EventPlan · 约 8 人日</div>
+      <div class="st-value">钓鱼手感收口</div>
+      <div class="st-note">Phase 1 状态机已落地 · 探针 34/34</div>
     </div>
     <div class="st-card c-green">
       <div class="st-label">在线试玩</div>
       <div class="st-value"><a href="{{ONLINE_URL}}" target="_blank">CloudStudio 部署 ↗</a></div>
-      <div class="st-note">08-15 重建 · dist/ 全量刷新</div>
+      <div class="st-note">最新 dist 含秋日晒场 · 部署通道待重试</div>
     </div>
   </div>
 
@@ -662,6 +798,12 @@ TEMPLATE = r"""<!DOCTYPE html>
   </div>
 </section>
 
+<!-- ===== 剧情看板 ===== -->
+<section id="plot">
+  <div class="sec-head"><h2>剧情进度</h2><span class="hint">第一章《归园新序》主线/支线一览 · 同步自剧情总结 v1.0 + 任务卡</span></div>
+  {{PLOT_HTML}}
+</section>
+
 <!-- ===== 当前施工 ===== -->
 <section id="focus">
   <div class="sec-head"><h2>当前施工</h2><span class="hint">同步自 docs/CURRENT_TASK.md · 由 gen_workbench.py 维护</span></div>
@@ -670,7 +812,7 @@ TEMPLATE = r"""<!DOCTYPE html>
       <div style="font-size:13px;font-weight:600;color:var(--star2);margin-bottom:12px;letter-spacing:1px">进行中 / 待办</div>
       {{FOCUS_HTML}}
       <div class="milestone">
-        🏁 <b>里程碑 · 生活循环闭合（2026-08-15）</b>——四大基础生活循环全部闭合，不是"功能数量够了"，而是每个系统都有了自己的出口。下一步 v1.5：《秋日晒场》第一次全镇回应玩家。
+        🏁 <b>里程碑 · 生活循环闭合（2026-08-15）</b>——四大基础生活循环全部闭合，不是"功能数量够了"，而是每个系统都有了自己的出口。✅ 已完成 v1.5：《秋日晒场》第一次全镇回应玩家（青禾晒场永久落地）。
       </div>
     </div>
     <div>
@@ -798,6 +940,7 @@ def build_html(d: dict) -> str:
         "{{ONLINE_URL}}": ONLINE_URL,
         "{{FOCUS_HTML}}": build_focus_html(),
         "{{LOOPS_HTML}}": build_loops_html(),
+        "{{PLOT_HTML}}": build_plot_html(),
         "{{SYSTEMS_HTML}}": build_systems_html(),
         "{{UI_PANELS}}": UI_PANELS,
         "{{REDLINES_HTML}}": build_redlines_html(),
