@@ -45,6 +45,11 @@ export async function launch(opts = {}) {
   page.on('console', msg => {
     if (msg.type() === 'error') page._consoleErrors.push(msg.text());
   });
+  // 未捕获异常单独走 pageerror，不会出现在 console 事件里——不收会导致
+  // "场景切换失败但 console 显示 clean"这类排查盲区（2026-09-02 走查发现）
+  page.on('pageerror', err => {
+    page._consoleErrors.push(`[pageerror] ${err.message}`);
+  });
 
   await page.goto(GAME_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
   await waitForGame(page);

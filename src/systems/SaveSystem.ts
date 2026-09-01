@@ -359,6 +359,10 @@ function sanitize(data: SaveData): void {
   } else {
     data.worldRestore = undefined;
   }
+  // 自然观察发现记录：容器级非法值（数组/字符串等）收敛为空对象（restore 内部已有逐条防御）
+  if (!data.natureDiscovery || typeof data.natureDiscovery !== 'object' || Array.isArray(data.natureDiscovery)) {
+    data.natureDiscovery = {};
+  }
 }
 
 /**
@@ -423,8 +427,8 @@ export function apply(data: SaveData): void {
   restoreLockedItems(data.player.lockedItems ?? []);
   // 归星录·相簿：恢复已解锁照片（旧档无 album 字段默认空）
   restoreAlbumSaveData(data.album ?? []);
-  // 自然观察发现记录：恢复玩家记忆（旧档无 natureDiscovery 字段默认空）
-  restoreNatureDiscoverySaveData(data.natureDiscovery);
+  // 自然观察发现记录：恢复玩家记忆（旧档无 natureDiscovery 字段默认空；restore 内部另有逐条防御）
+  restoreNatureDiscoverySaveData(data.natureDiscovery ?? {});
   // 一次性事件状态：恢复已触发事件（旧档无 gameState 字段默认空）
   restoreGameEventSaveData(data.gameState);
   // 章节：恢复当前章节（旧档无 chapter 字段 → 默认 CHAPTER_0，restore 内部兜底）

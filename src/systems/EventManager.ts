@@ -56,8 +56,13 @@ let triggeredEvents: Record<string, boolean> = {};
  */
 export function triggerOnce(id: string, fn: () => void): boolean {
   if (triggeredEvents[id]) return false;
-  fn();
-  triggeredEvents[id] = true;
+  try {
+    fn();
+  } finally {
+    // fn 抛异常同样视为已消费：防止读档/同会话重复触发（道具重复发放、演出重放）。
+    // 异常本身继续向上抛，由调用方感知；正常路径时序不变（先执行后标记，EventSystem.md 契约）。
+    triggeredEvents[id] = true;
+  }
   return true;
 }
 
