@@ -22,7 +22,7 @@
 import puppeteer from 'puppeteer-core';
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const BASE = 'http://localhost:5173/';
+const BASE = process.env.PROBE_BASE ?? 'http://localhost:5173/';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
@@ -133,11 +133,19 @@ async function advanceToOptions() {
     const st = await page.evaluate(() => {
       const s = window.__game?.scene?.getScenes(true)[0];
       const dlg = s?.storyDialogue;
+      const oel = dlg?.optionsEl;
       return {
-        optionsShown: !!(dlg?.optionsEl && dlg.optionsEl.style.display !== 'none'),
+        optionsShown: !!(oel && oel.style.display !== 'none'),
         open: !!dlg?.isOpen?.(),
+        lineIdx: dlg?.currentLineIndex ?? dlg?.lineIndex ?? '?',
+        text: dlg?.dialogueText?.text ?? dlg?.textEl?.text ?? '',
+        key: s?.scene?.key,
       };
     });
+    // DEBUG：推进异常时输出当前对话状态（2026-08-28 定位构建版差异用）
+    if (!st.open && !st.optionsShown) {
+      console.log(`[advanceToOptions] i=${i} ❌ 对话已关闭但无选项 key=${st.key} lineIdx=${st.lineIdx} text="${String(st.text).slice(0, 40)}"`);
+    }
     if (st.optionsShown) return true;
     if (!st.open) return false;
     await page.evaluate(() => {
@@ -254,6 +262,12 @@ const spotCorrectKey = ['1', '2', '3'];
 /** 在布置点 idx 完成一轮布置：先选一个错误选项验证纠正，再选正确选项 */
 async function arrangePlace(idx, wrongKey) {
   await dismissDialogue(); // 清掉上一步残留对白（如清理反馈），避免首个 E 被吞
+  // 清空输入队列：M4 交付/对白期间的 E 可能残留 action，避免提前消费（2026-08-27 补）
+  await page.evaluate(() => {
+    const s = window.__game?.scene?.getScene?.('town');
+    if (s?.inputManager?.clearAction) s.inputManager.clearAction();
+  });
+  await sleep(300);
   await movePlayerTo(spotCoords[idx][0], spotCoords[idx][1]);
   await sleep(250);
   await page.keyboard.press('KeyE');

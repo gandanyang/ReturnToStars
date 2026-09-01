@@ -56,6 +56,7 @@ const BASE_SAVE = {
   gameState: {
     triggeredEvents: {
       first_morning_response: true, // 跳过 day2 清晨演出
+      world_hint_rain_mushroom: true, // 跳过 P0.5 雨蘑菇提示（day2 下雨，会抢先占用对白框）
       // 不含 adventurer_welcome_back → 让本探针触发
     },
   },

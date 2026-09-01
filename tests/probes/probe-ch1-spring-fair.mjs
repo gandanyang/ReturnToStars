@@ -135,6 +135,32 @@ async function fairState() {
     `inCutscene=${st.inCutscene} fx=${st.fxCount}`);
 }
 
+// ============ S5 欠播补播（BUG-FIX 2026-08-30：占用/切图打断后独白永久丢失） ============
+// 模拟"标记已打但独白未播"（owed=true）→ 重进 town / 重查时必须补播独白而非静默丢失
+{
+  await page.evaluate(() => {
+    const s = window.__game.scene.getScene('town');
+    s.springFairStoryOwed = true; // 模拟欠播
+    s.trySpringFairSequence();    // 触发 owed 补播分支
+  });
+  await sleep(2600); // 等独白打开（ owed 路径无 1.8s 延迟，但留足渲染时间）
+  const owedSt = await page.evaluate(() => {
+    const s = window.__game.scene.getScene('town');
+    return { owed: s.springFairStoryOwed, cutscene: s.inSpringFairCutscene, open: s.storyDialogue?.isOpen?.() ?? false };
+  });
+  result('S5a owed 补播：独白打开', owedSt.open === true && owedSt.owed === false,
+    JSON.stringify(owedSt));
+  // 让独白自然走完（skip），旗标应释放
+  await page.evaluate(() => window.__game.scene.getScene('town').storyDialogue?.skip());
+  await sleep(400);
+  const after = await page.evaluate(() => {
+    const s = window.__game.scene.getScene('town');
+    return { cutscene: s.inSpringFairCutscene, owed: s.springFairStoryOwed };
+  });
+  result('S5b 补播完成：旗标释放 + owed 清除', after.cutscene === false && after.owed === false,
+    JSON.stringify(after));
+}
+
 // ============ 附加：无页面错误 ============
 result('附加 无页面错误', warns.length === 0, warns.join('; ').slice(0, 160));
 

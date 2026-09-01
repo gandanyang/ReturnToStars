@@ -20,6 +20,10 @@
  *   - 不改游戏时间中途（debug.setTime 会触发 NPC 重建 + 大量 Text 创建，多会话易触 Phaser 边界）；
  *     黄昏鱼验证用独立会话（seed hour=18）。
  *
+ * v1.1 修订（2026-08-28）：钓鱼状态机已从 MapScene 物理搬迁至 FishingController（s.fishingController，
+ *   原 MapScene.* 方法逐一搬迁）；探针状态机直调统一改走 controller 实例（TS private 运行时可达不变）。
+ *   场景层保留项不动：tryFishingInteract()（MapScene 代理）/ fishingState（getter）/ fishingSpotPos / dialogueText。
+ *
  * 依赖：dev server localhost:5173；真实 Chromium。
  * 运行：node tests/probes/probe-fishing-phase1.mjs
  */
@@ -125,11 +129,11 @@ async function runMainSequence() {
         let seq; let si = 0;
         const mock = (arr) => { seq = arr; si = 0; Math.random = () => seq[si++] ?? 0.5; };
         mock([0.5, 0.1]);
-        s.pickCurrentFish(); out.pickDay = s.currentFish;       // 12:00 + 低随机 → 河虾
+        s.fishingController.pickCurrentFish(); out.pickDay = s.fishingController.currentFish;       // 12:00 + 低随机 → 河虾
         mock([0.5, 0.99]);
-        s.pickCurrentFish(); out.pickDay99 = s.currentFish;     // 12:00 + 高随机 → 青禾鲫
+        s.fishingController.pickCurrentFish(); out.pickDay99 = s.fishingController.currentFish;     // 12:00 + 高随机 → 青禾鲫
         mock([0.5, 0.05]);
-        s.pickCurrentFish(); out.pickCarp = s.currentFish;      // 12:00 + 更低随机 → 鲤鱼（全天低概率）
+        s.fishingController.pickCurrentFish(); out.pickCarp = s.fishingController.currentFish;      // 12:00 + 更低随机 → 鲤鱼（全天低概率）
         Math.random = rndSave;
       }
 
@@ -159,54 +163,54 @@ async function runMainSequence() {
       out.t1 = { ret, state: s.fishingState };
       if (s.fishingState !== 'casting') {
         out.t1.fallback = true;
-        s.startFishing();
+        s.fishingController.startFishing();
       }
-      s.currentFish = 'qinghe_crucian';
+      s.fishingController.currentFish = 'qinghe_crucian';
 
       out.t2 = { casting: s.fishingState };
-      s.enterWaiting();
+      s.fishingController.enterWaiting();
       out.t2.waiting = s.fishingState;
 
-      s.enterRealBite();
+      s.fishingController.enterRealBite();
       out.t3 = { realBite: s.fishingState, reelHint: document.body.textContent.includes('快按 [E] 收竿！') };
-      s.onFishingSuccess();
+      s.fishingController.onFishingSuccess();
       out.t3.success = s.fishingState;
       out.t3.floatText = s.dialogueText?.text === '钓到一条青禾鲫。';
       clearText();
-      s.endFishing();
+      s.fishingController.endFishing();
       out.t3.idle = s.fishingState;
       out.inv1 = readInvAll();
 
-      s.startFishing();
-      s.currentFish = 'qinghe_crucian';
+      s.fishingController.startFishing();
+      s.fishingController.currentFish = 'qinghe_crucian';
       out.t4 = { casting: s.fishingState };
-      s.enterWaiting();
-      s.enterFakeBite();
+      s.fishingController.enterWaiting();
+      s.fishingController.enterFakeBite();
       out.t4.fakeBite = s.fishingState;
-      s.onFishingFail('early');
+      s.fishingController.onFishingFail('early');
       out.t4.fail = s.fishingState;
       out.t4.reelHintCleared = !document.body.textContent.includes('快按 [E] 收竿！');
-      s.endFishing();
+      s.fishingController.endFishing();
       out.t4.idle = s.fishingState;
       out.inv2 = readInvAll();
 
-      s.startFishing();
-      s.enterWaiting();
-      s.enterRealBite();
-      s.onFishingFail('timeout');
+      s.fishingController.startFishing();
+      s.fishingController.enterWaiting();
+      s.fishingController.enterRealBite();
+      s.fishingController.onFishingFail('timeout');
       out.t5 = { fail: s.fishingState };
       out.t5.reelHintCleared = !document.body.textContent.includes('快按 [E] 收竿！');
-      s.endFishing();
+      s.fishingController.endFishing();
       out.t5.idle = s.fishingState;
       out.inv3 = readInvAll();
 
-      s.startFishing();
-      s.currentFish = 'qinghe_crucian';
+      s.fishingController.startFishing();
+      s.fishingController.currentFish = 'qinghe_crucian';
       out.t6 = { retryCasting: s.fishingState };
-      s.enterWaiting();
-      s.enterRealBite();
-      s.onFishingSuccess();
-      s.endFishing();
+      s.fishingController.enterWaiting();
+      s.fishingController.enterRealBite();
+      s.fishingController.onFishingSuccess();
+      s.fishingController.endFishing();
       out.t6.idle = s.fishingState;
       clearText();
       out.inv4 = readInvAll();
@@ -229,19 +233,19 @@ async function runDuskSession() {
       let seq; let si = 0;
       const mock = (arr) => { seq = arr; si = 0; Math.random = () => seq[si++] ?? 0.5; };
       mock([0.5, 0.1]);
-      s.pickCurrentFish();
-      out.pickBig = s.currentFish;    // 18:00 + 低随机 → 大青鱼
+      s.fishingController.pickCurrentFish();
+      out.pickBig = s.fishingController.currentFish;    // 18:00 + 低随机 → 大青鱼
       mock([0.5, 0.4]);
-      s.pickCurrentFish();
-      out.pickDusk = s.currentFish;   // 18:00 + 中随机 → 黄昏鱼
+      s.fishingController.pickCurrentFish();
+      out.pickDusk = s.fishingController.currentFish;   // 18:00 + 中随机 → 黄昏鱼
       Math.random = rndSave;
 
-      s.startFishing();
-      s.currentFish = 'dusk_fish'; // 实际收获验证：固定黄昏鱼（startFishing 内部按时间随机，探针强制）
-      s.enterWaiting();
-      s.enterRealBite();
-      s.onFishingSuccess();
-      s.endFishing();
+      s.fishingController.startFishing();
+      s.fishingController.currentFish = 'dusk_fish'; // 实际收获验证：固定黄昏鱼（startFishing 内部按时间随机，探针强制）
+      s.fishingController.enterWaiting();
+      s.fishingController.enterRealBite();
+      s.fishingController.onFishingSuccess();
+      s.fishingController.endFishing();
       if (s.dialogueText) { s.dialogueText.destroy(); s.dialogueText = null; }
 
       if (s.backpackPanel && !s.backpackPanel.isOpen()) s.backpackPanel.open();
@@ -265,8 +269,8 @@ async function runNightSession() {
       const rndSave = Math.random;
       let seq = [0.5, 0.1]; let si = 0;
       Math.random = () => seq[si++] ?? 0.5;
-      s.pickCurrentFish();
-      out.pickEel = s.currentFish;    // 20:00 + 低随机 → 河鳗（夜间）
+      s.fishingController.pickCurrentFish();
+      out.pickEel = s.fishingController.currentFish;    // 20:00 + 低随机 → 河鳗（夜间）
       Math.random = rndSave;
       return out;
     } catch (e) {

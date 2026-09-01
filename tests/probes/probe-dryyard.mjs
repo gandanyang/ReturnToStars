@@ -9,7 +9,8 @@
  *   T3 当天演出：dryyardReady + 傍晚 → startDryyard → 三段对白链 → 永久落地（dryyardPerm + 青禾晒场）
  *   T4 永久变化：晒场物件重建 + 老张白天停留 + 收成时令台词（首次/日常两态）
  *   T5 读档保持：reload 后 dryyardPerm 保持、事件不重放（triggerOnce 入档）
- *   T6 无运行时错误
+ *   T6 全镇回应（S6，2026-08-29）：dryyard_held 后 NPC 日常台词切"晒场/过日子"分支（活着没恢复原样）
+ *   T7 无运行时错误
  *
  * v1.1 修正（对照 MapScene.ts / StoryDialogue.ts 源码核对）：
  *   - StoryDialogue.reset() 不触发 onComplete → intro/演出链一律用 skip() 推进（onComplete 才是解锁/落地时机）
@@ -17,6 +18,9 @@
  *   - 删除 MapScene 全局引用（浏览器无此全局，会 ReferenceError）
  *   - 夏雅/老张 spawn 时段 8-18 → 种档统一 hour=17（T4/T5 白天验证用 12）
  *   - finale onComplete 在 20 点落地，老张按设计当晚不在 → T4 走 reload 后白天断言
+ *
+ * v1.2 修正（08-28 定性·探针双实例）：事件落库/库存断言改读 localStorage 存档真相源（游戏侧标记/扣库存后均同步 save()），
+ *   模块实例取证保留作对照输出——vite HMR 重建模块图时，探针裸 URL import 会拿到与游戏运行时分离的实例。
  */
 import puppeteer from 'puppeteer-core';
 import { mkdirSync } from 'fs';
@@ -95,6 +99,14 @@ async function skipUntilPerm(maxRounds = 15) {
   return false;
 }
 
+/** 持久真相源取证：读 localStorage 存档 JSON（v1.2）——不受 vite HMR 模块实例分化影响 */
+async function readSave() {
+  return await page.evaluate(() => {
+    const raw = localStorage.getItem('return_star_save');
+    return raw ? JSON.parse(raw) : null;
+  });
+}
+
 try {
   await page.goto(GAME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
   await sleep(800);
@@ -147,8 +159,10 @@ try {
     if (t1.unlocked && !t1.dlgOpen) break;
     await sleep(400);
   }
-  console.log('t1:', JSON.stringify(t1));
-  check('T1 开场演出触发（dryyard_intro 落库）', t1.hasIntro === true, JSON.stringify(t1));
+  const t1save = await readSave();
+  const t1HasIntroSave = t1save?.gameState?.triggeredEvents?.dryyard_intro === true;
+  console.log('t1:', JSON.stringify(t1), 't1-save.intro:', t1HasIntroSave);
+  check('T1 开场演出触发（dryyard_intro 落库·存档取证）', t1HasIntroSave === true, `存档=${t1HasIntroSave} 模块对照=${t1.hasIntro} ${JSON.stringify(t1)}`);
   check('T1 dryyardUnlocked 已解锁（intro onComplete 走通）', t1.unlocked === true, JSON.stringify(t1));
   check('T1 征集筐已挂载', t1.boxBuilt === true, '');
   check('T1 筹备期夏雅已 spawn（17 点在 8-18 内）', t1.xiyaSpawned === true, JSON.stringify(t1));
@@ -184,16 +198,20 @@ try {
     };
   });
   console.log('t2:', JSON.stringify(p2));
+  const p2save = await readSave();
+  const p2Trig = p2save?.gameState?.triggeredEvents ?? {};
+  const p2Inv = p2save?.player?.inventory ?? {};
+  console.log('t2-save:', JSON.stringify({ laozhang: p2Trig.dryyard_laozhang_craft === true, afeng: p2Trig.dryyard_afeng_help === true, wood: p2Inv.wood }));
   check('T2 环境·晒架（木材×2 → stage1）', p2.st1 === 1, JSON.stringify(p2.st1));
   check('T2 环境·竹席鱼干架（鱼×1 → stage2）', p2.st2 === 2, '');
   check('T2 环境·玉米串辣椒串（玉米×2 → stage3）', p2.st3 === 3, '');
   check('T2 环境物件增量构建到 stage3', p2.envBuilt === 3, JSON.stringify(p2.envBuilt));
-  check('T2 交付扣库存（wood 8→6）', p2.woodLeft === 6, JSON.stringify(p2.woodLeft));
+  check('T2 交付扣库存（wood 8→6·存档取证）', p2Inv.wood === 6, `存档=${p2Inv.wood} 模块对照=${p2.woodLeft}`);
   check('T2 资源·今年的收成（蔬菜 → materialsDone）', p2.matDone === true, '');
   check('T2 人际·老张对白注入（旧手艺）', p2.laozhangLines >= 2, JSON.stringify(p2.laozhangLines));
-  check('T2 人际·老张事件落库', p2.laozhangEvt === true, '');
+  check('T2 人际·老张事件落库（存档取证）', p2Trig.dryyard_laozhang_craft === true, `模块对照=${p2.laozhangEvt}`);
   check('T2 人际·阿风对白注入（搭把手）', p2.afengLines >= 4, JSON.stringify(p2.afengLines));
-  check('T2 人际·阿风事件落库', p2.afengEvt === true, '');
+  check('T2 人际·阿风事件落库（存档取证）', p2Trig.dryyard_afeng_help === true, `模块对照=${p2.afengEvt}`);
 
   // 人际·夏雅（旧照片）：真实交互路径（玩家贴近夏雅 → tryDryyardXiyaInteract）
   // 注意：交互完玩家仍在晒场触发半径内（三类准备已齐+傍晚 → update 的 checkDryyardAuto 会合法触发当天演出），
@@ -201,7 +219,9 @@ try {
   const p2c = await page.evaluate(async () => {
     const s = window.__game.scene.getScene('town');
     const ev = await import('/src/systems/EventManager.ts');
-    if (ev.hasTriggered('dryyard_xiya_photo')) return { photoEvt: true, already: true };
+    const rawSave = localStorage.getItem('return_star_save');
+    const saveMarked = rawSave ? JSON.parse(rawSave)?.gameState?.triggeredEvents?.dryyard_xiya_photo === true : false;
+    if (saveMarked || ev.hasTriggered('dryyard_xiya_photo')) return { photoEvt: true, already: true };
     if (!s.dryyardXiya) return { photoEvt: false, spawned: false };
     s.player.setPosition(s.dryyardXiya.x, s.dryyardXiya.y);
     const ret = s.tryDryyardXiyaInteract();
@@ -213,12 +233,14 @@ try {
     return { ret, open, xiyaGone, lines: lines.length, photoEvt: ev.hasTriggered('dryyard_xiya_photo') };
   });
   console.log('t2c:', JSON.stringify(p2c));
+  const p2cSave = await readSave();
+  const photoEvtSave = p2cSave?.gameState?.triggeredEvents?.dryyard_xiya_photo === true;
   if (p2c.already) {
     check('T2 人际·夏雅照片（已落库）', p2c.photoEvt === true, '');
   } else {
     check('T2 人际·夏雅交互触发', p2c.ret === true, JSON.stringify(p2c));
     check('T2 人际·夏雅旧照片对白打开（7 句）', p2c.open === true && p2c.lines >= 7, JSON.stringify(p2c));
-    check('T2 人际·夏雅照片事件落库 + 精灵销毁', p2c.photoEvt === true && p2c.xiyaGone === true, JSON.stringify(p2c));
+    check('T2 人际·夏雅照片事件落库 + 精灵销毁（存档取证）', photoEvtSave === true && p2c.xiyaGone === true, `存档=${photoEvtSave} 模块对照=${p2c.photoEvt} ${JSON.stringify(p2c)}`);
   }
   await sleep(700); // 等夏雅对白 150ms 淡出（期间 isOpen 保护住 checkDryyardAuto）
 
@@ -248,9 +270,11 @@ try {
       envStage: s.dryyardEnvStage,
     };
   });
-  console.log('t3b:', JSON.stringify(p3b), 'skip-until-perm:', permDone);
+  const p3bSave = await readSave();
+  const heldEvtSave = p3bSave?.gameState?.triggeredEvents?.dryyard_held === true;
+  console.log('t3b:', JSON.stringify(p3b), 'skip-until-perm:', permDone, 't3b-save.held:', heldEvtSave);
   check('T3 永久变化落地（dryyardPerm）', p3b.perm === true, JSON.stringify(p3b));
-  check('T3 dryyard_held 事件落库', p3b.heldEvt === true, '');
+  check('T3 dryyard_held 事件落库（存档取证）', heldEvtSave === true, `存档=${heldEvtSave} 模块对照=${p3b.heldEvt}`);
   check('T3 演出结束（cutscene 复位）', p3b.cutsceneEnded === true, '');
 
   // ── T4 永久变化：reload 白天 → 晒场重建 + 老张停留 + 收成时令台词 ──
@@ -342,7 +366,28 @@ try {
   });
   await sleep(600);
 
-  // ── 截图验收（永久期白天：晒场 + 木牌 + 老张）──
+  // ── T6 全镇回应（S6）：dryyard_held 后 NPC 日常台词切"晒场/过日子"分支 ──
+  // 无 dryyard_held → 走集市热闹池（不含晒场）；有 dryyard_held → 镇长日常句含"晒场"
+  await seedDryyard(12, {}, {}); // 基线：集市恢复，未办晒场
+  const t6No = await page.evaluate(async () => {
+    const npc = await import('/src/systems/NPCSystem.ts');
+    const line = npc.getDailyNpcLine('elder', 3);
+    return (line?.[0]?.text ?? '');
+  });
+  console.log('t6-no-held:', JSON.stringify(t6No));
+  check('T6 未办晒场 → 镇长日常无"晒场"句', !t6No.includes('晒场'), t6No);
+
+  await seedDryyard(12, { dryyardUnlocked: true, dryyardEnvStage: 3, dryyardMaterialsDone: true, dryyardHeld: true, dryyardPerm: true },
+    { dryyard_intro: true, dryyard_laozhang_craft: true, dryyard_xiya_photo: true, dryyard_afeng_help: true, dryyard_held: true });
+  const t6Yes = await page.evaluate(async () => {
+    const npc = await import('/src/systems/NPCSystem.ts');
+    const line = npc.getDailyNpcLine('elder', 3);
+    return (line?.[0]?.text ?? '');
+  });
+  console.log('t6-held:', JSON.stringify(t6Yes));
+  check('T6 晒场完成 → 镇长日常切"晒场"回应句', t6Yes.includes('晒场'), t6Yes);
+
+  // 截图验收（永久期白天：晒场 + 木牌 + 老张）──
   await page.evaluate(() => {
     const s = window.__game.scene.getScene('town');
     if (s?.cameras?.main) s.cameras.main.centerOn(656, 262);
@@ -351,7 +396,7 @@ try {
   await page.screenshot({ path: join(SHOT_DIR, 'dryyard-permanent.png') });
   console.log('📸 永久晒场截图: tests/probes/test-screenshots/dryyard-permanent.png');
 
-  // ── T6 无运行时错误（过滤另一 Agent 的 XIYA_BLOOM 中间态噪音与资源噪音）──
+  // ── T7 无运行时错误（过滤另一 Agent 的 XIYA_BLOOM 中间态噪音与资源噪音）──
   const realErrors = errors.filter((e) => !/favicon|404|Fetch.*chrome-extension|XIYA_BLOOM|xiyaBloom/i.test(e));
   check('T6 无运行时错误', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
 

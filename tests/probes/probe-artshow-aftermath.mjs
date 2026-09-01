@@ -8,6 +8,9 @@
  *   T4 商店留言：老板第一次提到旅人便条（artshow_traveler_note 落库），第二次不再重复
  *   T5 读档保持：reload 后已触发事件不再重放
  *   T6 无运行时错误
+ *
+ * v1.4 修正（08-28）：首次回访对白用 skip 链推完（reset 不走 onComplete，runner 忙状态会吞第二次交互）；
+ *   hasReturn 落库取证对齐 probe-dryyard v1.2 口径（存档真相源，模块读仅作对照输出）。
  */
 import puppeteer from 'puppeteer-core';
 import { mkdirSync } from 'fs';
@@ -73,6 +76,14 @@ async function seedArtShow(hour = 12, triggered = {}) {
   });
 }
 
+/** 持久真相源取证：读 localStorage 存档 JSON（v1.4）——不受 vite HMR 模块实例分化影响 */
+async function readSave() {
+  return await page.evaluate(() => {
+    const raw = localStorage.getItem('return_star_save');
+    return raw ? JSON.parse(raw) : null;
+  });
+}
+
 try {
   await page.goto(GAME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
   await sleep(800);
@@ -99,28 +110,30 @@ try {
   check('T1 旅人名字标牌存在', p1.travelerLabel === true, '');
   check('T3 靠近长椅 → 旅人余波对白打开', p1.interactRet === true && p1.dlgOpen === true, JSON.stringify(p1));
 
-  // 选择/完成对白
-  await page.evaluate(() => {
-    const s = window.__game.scene.getScene('town');
-    if (typeof s.storyDialogue?.selectOption === 'function') { s.storyDialogue.selectOption(0); }
-    else s.storyDialogue.reset?.();
-  });
-  await sleep(400);
-  // 验证 return flag 生效：第二次交互应走"日常看展句"（2 行），而非首次回访的 4 行——
-  // 用游戏自身模块（同一 evaluate 上下文里 import）读 flag，避免跨 evaluate 的模块单例分裂。
+  // 推完首次回访对白：skip 链直到关闭（对齐 probe-dryyard 范式——reset 不走 onComplete，runner 忙状态会吞掉第二次交互）
+  for (let i = 0; i < 8; i++) {
+    const open = await page.evaluate(() => {
+      const s = window.__game.scene.getScene('town');
+      if (s?.storyDialogue?.isOpen?.()) { s.storyDialogue.skip(); return true; }
+      return false;
+    });
+    if (!open) break;
+    await sleep(400);
+  }
+  await sleep(600);
+  // 验证 return flag 生效：第二次交互应走"日常看展句"（2 行），而非首次回访的 4 行
   const p1b = await page.evaluate(async () => {
     const s = window.__game.scene.getScene('town');
-    s.storyDialogue?.reset?.();
     const again = s.tryArtShowTravelerInteract();
     const linesJson = JSON.stringify(s.storyDialogue?.lines ?? []);
-    const firstVisitDlg4 = again && JSON.stringify(linesJson).includes('画下来的地方'); // 首次回访 4 行文案
-    const daily2 = again && !JSON.stringify(linesJson).includes('画下来的地方');        // 已回访 → 日常看展 2 行
-    s.storyDialogue?.reset?.();
-    return { again, firstVisitDlg4, daily2, hasReturn: (await import('/src/systems/EventManager.ts')).hasTriggered('artshow_traveler_return') };
+    const daily2 = again && !linesJson.includes('画下来的地方'); // 已回访 → 日常看展 2 行
+    return { again, daily2, lines: (s.storyDialogue?.lines ?? []).length, hasReturnModule: (await import('/src/systems/EventManager.ts')).hasTriggered('artshow_traveler_return') };
   });
-  console.log('return-check:', JSON.stringify(p1b));
-  // 首次交互已触发 → 再次交互为日常句（2 行），且 game 侧 flag 已置
-  check('T3 再次交互为「日常看展句」（首次回访不重放）', p1b.again === true && p1b.daily2 === true, JSON.stringify(p1b));
+  const p1bSave = await readSave();
+  const returnEvtSave = p1bSave?.gameState?.triggeredEvents?.artshow_traveler_return === true;
+  console.log('return-check:', JSON.stringify(p1b), 'return-save:', returnEvtSave);
+  // 首次交互已触发 → 再次交互为日常句（2 行）；flag 落库以存档为真相源（daily2 通过本身即证明游戏侧 flag 生效）
+  check('T3 再次交互为「日常看展句」（首次回访不重放·存档取证）', p1b.again === true && p1b.daily2 === true && returnEvtSave === true, `存档=${returnEvtSave} 模块对照=${p1b.hasReturnModule} ${JSON.stringify(p1b)}`);
 
   // ── T2 夜晚旅人隐去 ──
   await seedArtShow(21);

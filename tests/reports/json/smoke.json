@@ -1,11 +1,11 @@
 {
   "suite": "smoke",
-  "timestamp": "2026-08-29T02:13:59.639Z",
+  "timestamp": "2026-09-01T16:16:06.735Z",
   "git": {
-    "hash": "d74b21f",
+    "hash": "47f8273",
     "branch": "main"
   },
-  "duration": 8398,
+  "duration": 5275,
   "summary": {
     "total": 4,
     "passed": 4,
@@ -17,25 +17,25 @@
       "name": "页面加载 + Phaser 初始化",
       "ok": true,
       "detail": "scene=title",
-      "ts": 4831
+      "ts": 2605
     },
     {
       "name": "标题场景出现",
       "ok": true,
       "detail": "scene=title",
-      "ts": 4831
+      "ts": 2605
     },
     {
       "name": "进入车站场景",
       "ok": true,
       "detail": "scene=station",
-      "ts": 7239
+      "ts": 4841
     },
     {
       "name": "无致命 console error",
       "ok": true,
       "detail": "clean",
-      "ts": 7376
+      "ts": 4952
     }
   ]
 }
