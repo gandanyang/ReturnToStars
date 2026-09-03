@@ -486,6 +486,8 @@ export class MapScene extends Phaser.Scene {
   private boundaryTipShown = false;
   // P3-01 灯塔"黑"阶段：西侧海湾灯塔远景提示已看过（一次性，随 mapFlags 入档，读档不重复）
   private lighthouseSeaHintShown = false;
+  // 幕一西侧海湾缺口视觉已建（幂等：create 解锁路径 + 黑点触发即时路径，防双份 Graphics）
+  private farmWestGapBuilt = false;
   // 当前选中的种子类型（R 键切换，用于播种）
   private selectedCropType: CropType = 'radish';
   // 种子类型切换冷却（防连发）
@@ -551,8 +553,9 @@ export class MapScene extends Phaser.Scene {
   private static readonly FISHING_SPOTS: Record<string, { pos: { x: number; y: number }; floatPos: { x: number; y: number }; tier: 'common' | 'rare' }> = {
     town: { pos: { x: 5.5 * TILE_SIZE, y: 12 * TILE_SIZE + TILE_SIZE / 2 }, floatPos: { x: 3 * TILE_SIZE + TILE_SIZE / 2, y: 13 * TILE_SIZE + TILE_SIZE / 2 }, tier: 'common' },
     farm: { pos: { x: 31 * TILE_SIZE + TILE_SIZE / 2, y: 18 * TILE_SIZE + TILE_SIZE / 2 }, floatPos: { x: 32 * TILE_SIZE + TILE_SIZE / 2, y: 20 * TILE_SIZE + TILE_SIZE / 2 }, tier: 'rare' },
-    // 青禾河畔：码头旁普通钓点（河流 rows 9-13；码头在 (5,20) 附近，站码头边甩竿）
-    qinghe_river: { pos: { x: 5 * TILE_SIZE + TILE_SIZE / 2, y: 19 * TILE_SIZE + TILE_SIZE / 2 }, floatPos: { x: 6 * TILE_SIZE + TILE_SIZE / 2, y: 12 * TILE_SIZE + TILE_SIZE / 2 }, tier: 'common' },
+    // 青禾河畔：河堤岸钓点（2026-09-03 制作人反馈"隔空钓鱼违和"：原浮漂落点在 7 格外河面）。
+    // 站北岸 row14 水边（老船长木平台 (74,330) 上方约 100px，同屏），浮漂落身前偏西河面（rows 9-13 水，Walls=4）。
+    qinghe_river: { pos: { x: 5.5 * TILE_SIZE, y: 14.5 * TILE_SIZE }, floatPos: { x: 4.5 * TILE_SIZE, y: 13.5 * TILE_SIZE }, tier: 'common' },
   };
   /**
    * 表现层实验（2026-08-14 制作人方向：Phaser 视觉上限验证，先于 Godot 判断）。
@@ -13626,6 +13629,9 @@ this.setupFieldLife();
       if (this.player.x > 140) return;   // 农场西侧（灯塔远景方向）
       this.ch2BlackDotSeen = true;
       triggerOnce('ch2_black_dot', () => {
+        // 缺口视觉即时重建（2026-09-03 修复：create 时未解锁会跳过，钩子播出当帧让玩家看到"墙开了"，
+        // 不用等重进场景；幂等见 farmWestGapBuilt）
+        this.setupFarmWestGap();
         // 海平线黑点（淡入淡出，无台词；叠在灯塔远景上层）
         const c = this.add.container(190, 150).setScrollFactor(0).setDepth(161);
         const dot = this.add.circle(0, 0, 3.5, 0x0a0a14, 1);
@@ -14166,7 +14172,8 @@ this.setupFieldLife();
    * farm.json Walls rows10-13/col0 已打通（本批次），本方法只补"墙外是海"的可见性。
    */
   private setupFarmWestGap(): void {
-    if (this.mapKey !== 'farm') return;
+    if (this.mapKey !== 'farm' || this.farmWestGapBuilt) return;
+    this.farmWestGapBuilt = true;
     const T = TILE_SIZE;
     const gap = this.add.graphics().setDepth(1);
     // 海水（西边缘外，rows 10-13 对应 y 160-224）

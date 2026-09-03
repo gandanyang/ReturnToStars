@@ -354,11 +354,13 @@ const DEV_TEST_SEEDS: DevSeed[] = [
     },
   },
 
-  // ============ 第二章《故人远来》（2026-08-31 补，配合 probe-ch2-return.mjs 8/8 验收）============
-  // 前置链（探针踩坑沉淀）：灯塔已亮（lighthouseLit，节拍1 前置）+ 青禾码头已修（qinghe_pier_repaired，
-  // 否则码头交互点距老船长仅 14px 会抢先拦截）+ 秋日晒场全链（第一章章末）。
-  // 门控说明：ch2 门控读 EventManager 模块内存（hasTriggered），events 数组直接给 ch2_* 即生效；
-  // mapFlags 走 override 通道入档，scene.start 后 init 恢复实例字段（视觉状态）。
+// ============ 第二章《故人远来》（2026-08-31 补，配合 probe-ch2-return.mjs 8/8 验收）============
+// 前置链（探针踩坑沉淀）：灯塔已亮（lighthouseLit，节拍1 前置）+ 青禾码头已修（qinghe_pier_repaired，
+// 否则码头交互点距老船长仅 14px 会抢先拦截）+ 秋日晒场全链（第一章章末）。
+// 2026-09-03 修复（制作人实测"选种子后灯塔没开门"）：章前一次性生活事件（阿风/木匠到场、
+// 亮灯首映、亮灯恢复点）改由 applyDevSeed 集中补齐（见 §7.6），种子数组不再逐个挂。
+// 门控说明：ch2 门控读 EventManager 模块内存（hasTriggered），events 数组直接给 ch2_* 即生效；
+// mapFlags 走 override 通道入档，scene.start 后 init 恢复实例字段（视觉状态）。
   {
     id: 'ch2_clock_ready',
     group: '第二章',
@@ -527,6 +529,23 @@ export function applyDevSeed(seedId: string): { scene: string; spawnX: number; s
   // 7. 标记镇介绍（2026-08-14：Dev Hub 跳档 = 模拟玩家已到该进度，
   //    首次进镇的 TOWN_INTRO_DIALOGUE 不再重播——种子档不需要开场介绍）
   markCh1TownIntroDone();
+
+  // 7.6 章前一次性生活事件集中补齐（2026-09-03 修复制作人实测"选种子后灯塔没开门"）：
+  //     跳档语义 = 模拟玩家已到该进度。第一章及以后的种子视为：
+  //     ① 阿风/木匠已到场（adventurer_welcome_back / carpenter_returned）——否则进 farm 即连锁重播
+  //       到场演出（storyDialogue 打开 → update 提前 return：玩家冻结、出口检测失效）；
+  //       NPC 本人由 NPCSystem 日程照常出现，此处只跳过到达演出。
+  //     ② 灯塔亮起首映已看（lighthouse_lit_seen）+ 亮灯恢复点（lighthouseLit）——
+  //       春日集后常驻视觉（setupLighthouseDistant 走 hasTriggered + isRestored 双注册表），
+  //       漏标则 farm 上重播「去灯塔的路，还堵着」，与灯塔已解锁状态矛盾。新加种子无需再逐个挂。
+  if (seed.chapter >= CHAPTER_1) {
+    markTriggered('adventurer_welcome_back');
+    markTriggered('carpenter_returned');
+    if (seed.events.includes('ch1_spring_fair')) {
+      markTriggered('lighthouse_lit_seen');
+      markRestored('lighthouseLit');
+    }
+  }
 
   // 7.5 mapFlags 覆盖（2026-08-28：秋日晒场种子档注入 dryyard 状态。
   //    save() 时通过 SaveSystem 的 override 通道消费——无活跃 MapScene 也能入档。）
