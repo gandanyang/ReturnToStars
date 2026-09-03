@@ -119,7 +119,8 @@ export function getQuestObjective(): string {
       if (!isObservatoryComplete()) {
         return '前往农场观星点（白天可靠近坐等天黑）';
       }
-      return 'Demo 体验完成！';
+      // 第0章收束后的中性文案（面板历史行显示用；原'Demo 体验完成！'为开发期占位，不应见于玩家 UI）
+      return '已完成 · 岛的故事仍在继续';
   }
 }
 

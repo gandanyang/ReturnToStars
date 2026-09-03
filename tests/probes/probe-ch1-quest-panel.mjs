@@ -154,14 +154,17 @@ try {
   result('T2f 春日集锁定', body.includes('🔒 春日集'), '');
   await closePanel();
 
-  // ============ T3: 老屋整理完成 → 整理✅ 镇长进行中 ============
+  // ============ T3: 老屋整理完成 → 整理✅ 镇长自动来访（08-14 放宽）→ 集市解锁 ============
+  // 2026-08-14 制作人拍板：整理完成 + 下次进老屋即触发镇长来访（不再要求夜晚+隔天）。
+  // 本种子落地即在老屋且整理完成 → 镇长来访自动完成、集市随之解锁（2026-09-02 探针跟随修正）。
   await jumpToSeed('老屋整理完成');
   await waitScene('house', 15000);
   await sleep(500);
   body = await readMainTab();
   result('T3a 整理老屋=已完成', body.includes('✅ 整理老屋'), '');
-  result('T3b 镇长来访=进行中', body.includes('镇长来访') && body.includes('进行中'), '');
-  result('T3c 集市仍锁定', body.includes('🔒 集市重新开张'), '');
+  result('T3b 镇长来访=已完成（进屋自动触发）', body.includes('✅ 镇长来访'), '');
+  result('T3c 集市=进行中（来访后解锁）', body.includes('集市重新开张') && body.includes('进行中'), '');
+  result('T3d 春日集仍锁定', body.includes('🔒 春日集'), '');
   await closePanel();
 
   // ============ T4: 集市开张 → 集市✅ 春日集进行中 ============

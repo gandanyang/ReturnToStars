@@ -168,8 +168,9 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** 第一章任务链定义（2026-08-14 加入面板主线页签；状态从事件/恢复点/派生接口只读渲染，零新增存档字段） */
-interface Ch1QuestDef {
+/** 章节任务链定义（2026-08-14 加入面板主线页签；状态从事件/恢复点/派生接口只读渲染，零新增存档字段）
+ *  v1.1（2026-09-02）：原 Ch1QuestDef 泛化为 ChapterQuestDef，第二/三章链复用同一结构 */
+interface ChapterQuestDef {
   id: string;
   title: string;
   /** 未解锁时提示 */
@@ -181,7 +182,7 @@ interface Ch1QuestDef {
 }
 
 /** 第一章任务链（chapter>=1 显示）：捉蝶 → 自然记录 → 老屋整理 → 镇长来访 → 集市恢复 → 春日集 */
-const CH1_QUESTS: Ch1QuestDef[] = [
+const CH1_QUESTS: ChapterQuestDef[] = [
   {
     id: 'ch1_house_tidy',
     title: '整理老屋',
@@ -251,8 +252,133 @@ const CH1_QUESTS: Ch1QuestDef[] = [
   },
 ];
 
-/** 第一章任务行渲染：未解锁 / 进行中 / 已完成 */
-function ch1QuestRowHtml(q: Ch1QuestDef): string {
+/** 第二章任一 flag 已触发（章节分段显示用；与 MapScene hasTriggered 同源，只读推导） */
+const CH2_ANY = (): boolean =>
+  ['ch2_clock_fixed', 'ch2_pier_repaired', 'ch2_pier_lit', 'ch2_night_talk', 'ch2_black_dot', 'ch2_lighthouse_talked']
+    .some((f) => hasTriggered(f));
+
+/** 第三章任一 flag 已触发（灯塔解锁 = 第三章开幕） */
+const CH3_ANY = (): boolean =>
+  ['ch2_black_dot', 'ch3_lighthouse_arrival', 'ch3_ship_arrived', 'ch3_b_photo', 'ch3_town_react', 'ch3_diary_finale', 'ch3_finale_open']
+    .some((f) => hasTriggered(f));
+
+/**
+ * 第二章任务链（春日集后显示）：修钟 → 码头旧船 → 夜谈 → 灯塔黑点。
+ * 节拍顺序对齐《任务-第二章故人远来-节拍表拆解-v1.0》；文案只复述已实装节拍，未新增剧情。
+ */
+const CH2_QUESTS: ChapterQuestDef[] = [
+  {
+    id: 'ch2_clock_fixed',
+    title: '广场老钟',
+    lockHint: '第一章春日集后，去青禾镇广场看看',
+    objective: () => '和夏雅一起修好青禾镇广场的老钟',
+    isUnlocked: () => true,
+    isDone: () => hasTriggered('ch2_clock_fixed'),
+  },
+  {
+    id: 'ch2_captain',
+    title: '码头的老船长',
+    lockHint: '老钟修好后，某天码头会靠岸一条旧船',
+    objective: () => '码头边有人在修一条旧船，去搭把手',
+    isUnlocked: () => hasTriggered('ch2_clock_fixed'),
+    isDone: () => hasTriggered('ch2_pier_repaired'),
+  },
+  {
+    id: 'ch2_night_talk',
+    title: '码头的夜',
+    lockHint: '旧船靠岸后，傍晚去码头',
+    objective: () => '傍晚去码头，听大家聊聊过去的事',
+    isUnlocked: () => hasTriggered('ch2_pier_repaired'),
+    isDone: () => hasTriggered('ch2_night_talk'),
+  },
+  {
+    id: 'ch2_black_dot',
+    title: '灯塔的黑点',
+    lockHint: '夜谈之后的某天，留意灯塔方向',
+    objective: () => '灯塔方向似乎有什么一闪而过',
+    isUnlocked: () => hasTriggered('ch2_night_talk'),
+    isDone: () => hasTriggered('ch2_black_dot'),
+  },
+];
+
+/**
+ * 第三章任务链（灯塔解锁后显示，对应五幕）：
+ * 灯塔开门 → 守灯人 → 来船与旅人 → 镇民讨论 → 碎片×3 → 日记终章 → 归位。
+ */
+const CH3_QUESTS: ChapterQuestDef[] = [
+  {
+    id: 'ch3_arrival',
+    title: '灯塔开门',
+    lockHint: '第二章结束后，灯塔半岛可以登上了',
+    objective: () => '登上灯塔半岛，见一见守灯人',
+    isUnlocked: () => true,
+    isDone: () => hasTriggered('ch3_lighthouse_arrival'),
+  },
+  {
+    id: 'ch3_keeper_dusk',
+    title: '守灯人陈叔',
+    lockHint: '抵达灯塔后解锁',
+    objective: () => '跟着陈叔，看看一天里灯是怎么点起来的',
+    isUnlocked: () => hasTriggered('ch3_lighthouse_arrival'),
+    isDone: () => hasTriggered('ch3_keeper_dusk'),
+  },
+  {
+    id: 'ch3_ship',
+    title: '码头的船',
+    lockHint: '灯塔的故事展开后，留意码头',
+    objective: () => '这天之后，码头好像来了条船',
+    isUnlocked: () => hasTriggered('ch3_lighthouse_arrival'),
+    isDone: () => hasTriggered('ch3_ship_arrived'),
+  },
+  {
+    id: 'ch3_stranger',
+    title: '旅人张先生',
+    lockHint: '船靠岸后解锁',
+    objective: () => '和旅人张先生聊聊他的打算',
+    isUnlocked: () => hasTriggered('ch3_ship_arrived'),
+    isDone: () => hasTriggered('ch3_b_photo'),
+  },
+  {
+    id: 'ch3_town_react',
+    title: '镇上的讨论',
+    lockHint: '旅人的提案落地后解锁',
+    objective: () => '听听镇民们对那场市集的说法',
+    isUnlocked: () => hasTriggered('ch3_b_photo'),
+    isDone: () => hasTriggered('ch3_town_react'),
+  },
+  {
+    id: 'ch3_shards',
+    title: '三块碎片',
+    lockHint: '留意散落在各处的旧物',
+    objective: () => {
+      const n = ['ch3_shard_fm', 'ch3_shard_qh', 'ch3_shard_lh'].filter((f) => hasTriggered(f)).length;
+      return `找回爷爷留下的碎片（${n}/3）`;
+    },
+    isUnlocked: () =>
+      hasTriggered('ch3_town_react')
+      || hasTriggered('ch3_shard_fm') || hasTriggered('ch3_shard_qh') || hasTriggered('ch3_shard_lh'),
+    isDone: () => hasTriggered('ch3_shard_fm') && hasTriggered('ch3_shard_qh') && hasTriggered('ch3_shard_lh'),
+  },
+  {
+    id: 'ch3_diary_finale',
+    title: '爷爷的日记',
+    lockHint: '集齐碎片后解锁',
+    objective: () => '碎片指向爷爷留下的一页日记',
+    isUnlocked: () => hasTriggered('ch3_shard_fm') && hasTriggered('ch3_shard_qh') && hasTriggered('ch3_shard_lh'),
+    isDone: () => hasTriggered('ch3_diary_finale'),
+  },
+  {
+    id: 'ch3_end',
+    title: '归位',
+    lockHint: '日记终章后解锁',
+    objective: () => '灯亮起来了——是留下，还是出发？',
+    isUnlocked: () => hasTriggered('ch3_finale_open'),
+    isDone: () => hasTriggered('ch3_end_stay') || hasTriggered('ch3_end_leave') || hasTriggered('ch3_end_bridge'),
+  },
+];
+
+/** 章节任务行渲染：未解锁 / 进行中 / 已完成 */
+function chainQuestRowHtml(q: ChapterQuestDef): string {
   if (!q.isUnlocked()) {
     return `<div style="padding:6px 10px;margin-bottom:6px;color:#7a7262;background:rgba(255,255,255,0.02);border-radius:6px;opacity:0.85;">
       <div style="font-size:13px;color:#a09880;">🔒 ${escapeHtml(q.title)}</div>
@@ -271,8 +397,8 @@ function ch1QuestRowHtml(q: Ch1QuestDef): string {
   </div>`;
 }
 
-/** 主线程任务行渲染 */
-function mainRowHtml(): string {
+/** 第0章「星之碎片」行（chapter<1 时为进行中主线；chapter>=1 时为已完成历史行） */
+function demoQuestRowHtml(): string {
   const state = getQuestState();
   const objective = getQuestObjective();
   const stateLabel: Record<string, string> = {
@@ -281,14 +407,35 @@ function mainRowHtml(): string {
     completed: '已完成 👑',
     not_started: '可接取',
   };
-  let html = `<div style="padding:8px 10px;margin-bottom:6px;background:rgba(126,184,218,0.12);border-radius:6px;border-left:3px solid #7eb8da;">
+  return `<div style="padding:8px 10px;margin-bottom:6px;background:rgba(126,184,218,0.12);border-radius:6px;border-left:3px solid #7eb8da;">
     <div style="font-size:13px;font-weight:bold;color:#cdeafa;">星之碎片 <span style="font-size:11px;color:#8fd6ff;">${stateLabel[state] ?? ''}</span></div>
     <div style="font-size:12px;color:#cbd2d6;margin-top:2px;">${objective}</div>
   </div>`;
-  // 第一章：追加任务链（观星夜完成进第一章后显示）
-  if (getChapter() >= CHAPTER_1) {
-    html += `<div style="margin:10px 0 4px;font-size:12px;color:#8a7a62;">—— 第一章 · 复苏 ——</div>`;
-    html += CH1_QUESTS.map((q) => ch1QuestRowHtml(q)).join('');
+}
+
+/**
+ * 主线页签渲染：按章节分段（v1.1，2026-09-02）
+ * 原版无论进度都渲染「星之碎片」Demo 行 → 一/二/三章存档看到的任务列表永远停在 Demo 阶段。
+ * 改为：第0章（chapter<1 进行中主线 / chapter>=1 已完成历史行）→ 第一/二/三章任务链分段；
+ * 分段可见性由 flag 只读推导（第二章=春日集后或任一 ch2 flag；第三章=灯塔解锁即 ch2_black_dot）。
+ */
+function mainRowHtml(): string {
+  const chapter = getChapter();
+  if (chapter < CHAPTER_1) {
+    // 第0章进行中：Demo 主线（体验已冻结 D-021，保持原样）
+    return demoQuestRowHtml();
+  }
+  let html = `<div style="margin:2px 0 4px;font-size:12px;color:#8a7a62;">—— 第0章 · 归星 ——</div>`;
+  html += demoQuestRowHtml();
+  html += `<div style="margin:10px 0 4px;font-size:12px;color:#8a7a62;">—— 第一章 · 复苏 ——</div>`;
+  html += CH1_QUESTS.map((q) => chainQuestRowHtml(q)).join('');
+  if (hasTriggered('ch1_spring_fair') || CH2_ANY()) {
+    html += `<div style="margin:10px 0 4px;font-size:12px;color:#8a7a62;">—— 第二章 · 春信 ——</div>`;
+    html += CH2_QUESTS.map((q) => chainQuestRowHtml(q)).join('');
+  }
+  if (CH3_ANY()) {
+    html += `<div style="margin:10px 0 4px;font-size:12px;color:#8a7a62;">—— 第三章 · 归位 ——</div>`;
+    html += CH3_QUESTS.map((q) => chainQuestRowHtml(q)).join('');
   }
   return html;
 }
